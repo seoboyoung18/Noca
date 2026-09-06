@@ -111,6 +111,8 @@ CREATE TABLE accident (
     -- 직접 보관하면 차량 주인과 사고 주인이 어긋나도 DB 가 막지 못함
     vehicle_id              BIGINT      NOT NULL REFERENCES vehicle(vehicle_id) ON DELETE RESTRICT,
     actual_repair_cost      INTEGER,
+    actual_repair_completed_date DATE,
+    repair_shop_name        VARCHAR(100),
     actual_cost_recorded_at TIMESTAMPTZ,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_ac_cost CHECK (actual_repair_cost IS NULL OR actual_repair_cost > 0)
@@ -338,6 +340,7 @@ CREATE TABLE estimate_report (
 CREATE TABLE estimate_validation (
     validation_id  BIGSERIAL    PRIMARY KEY,
     member_id      BIGINT       NOT NULL REFERENCES member(member_id)     ON DELETE RESTRICT,
+    accident_id    BIGINT       NOT NULL REFERENCES accident(accident_id) ON DELETE CASCADE,
     estimate_id    BIGINT       REFERENCES estimate(estimate_id)          ON DELETE SET NULL,
     s3_key_file    VARCHAR(500),
     file_type      VARCHAR(10)  NOT NULL,
@@ -347,6 +350,8 @@ CREATE TABLE estimate_validation (
     llm_grade      VARCHAR(20),
     llm_summary    TEXT,
     failure_reason VARCHAR(200),
+    review_item_count INTEGER   NOT NULL DEFAULT 0,
+    total_item_count  INTEGER   NOT NULL DEFAULT 0,
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
     completed_at   TIMESTAMPTZ,
     CONSTRAINT ck_ev_status CHECK (status    IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
@@ -365,6 +370,7 @@ CREATE TABLE estimate_validation_item (
     validation_id      BIGINT       NOT NULL REFERENCES estimate_validation(validation_id) ON DELETE CASCADE,
     line_no            SMALLINT     NOT NULL,
     raw_item_name      VARCHAR(200) NOT NULL,
+    normalized_item_name VARCHAR(100),
     part_code          VARCHAR(50)  REFERENCES part_code(part_code) ON DELETE SET NULL,
     work_type          VARCHAR(20),
     quantity           SMALLINT     NOT NULL DEFAULT 1,
@@ -373,6 +379,11 @@ CREATE TABLE estimate_validation_item (
     subtotal           INTEGER,
     llm_flag           VARCHAR(30),
     llm_reason         VARCHAR(300),
+    reference_min      INTEGER,
+    reference_median   INTEGER,
+    reference_p75      INTEGER,
+    reference_max      INTEGER,
+    reference_case_count INTEGER,
     CONSTRAINT uk_evi UNIQUE (validation_id, line_no)
 );
 
@@ -387,6 +398,19 @@ CREATE TABLE estimate_validation_report (
     CONSTRAINT ck_evr_status CHECK (status IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
     CONSTRAINT ck_evr_retry  CHECK (retry_count BETWEEN 0 AND 3),
     CONSTRAINT ck_evr_done   CHECK (completed_at IS NULL OR status IN ('COMPLETED','FAILED'))
+);
+
+-- 검증 완료 시 생성한 질문 스냅샷. 조회할 때 문장을 다시 생성하지 않는다.
+CREATE TABLE estimate_validation_question (
+    question_id        BIGSERIAL    PRIMARY KEY,
+    validation_id      BIGINT       NOT NULL REFERENCES estimate_validation(validation_id) ON DELETE CASCADE,
+    validation_item_id BIGINT       REFERENCES estimate_validation_item(validation_item_id) ON DELETE CASCADE,
+    source_flag        VARCHAR(30)  NOT NULL,
+    display_order      SMALLINT     NOT NULL,
+    question_text      VARCHAR(500) NOT NULL,
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uk_evq_item_flag UNIQUE (validation_item_id, source_flag),
+    CONSTRAINT uk_evq_order UNIQUE (validation_id, display_order)
 );
 
 -- ─── 12. 감사 로그 (관리자 행위만. HTTP 로그는 파일) ──────────
@@ -454,6 +478,7 @@ CREATE INDEX ix_roi_hnsw          ON repair_case_roi_embedding
 
 -- ── 견적서 검증 ──
 CREATE INDEX ix_ev_member         ON estimate_validation (member_id, created_at DESC);
+CREATE INDEX ix_ev_accident       ON estimate_validation (accident_id, created_at DESC);
 CREATE INDEX ix_ev_queue          ON estimate_validation (status, created_at)
     WHERE status IN ('QUEUED','PROCESSING');
 -- ix_evi_validation 제거: uk_evi (validation_id, line_no) 와 동일

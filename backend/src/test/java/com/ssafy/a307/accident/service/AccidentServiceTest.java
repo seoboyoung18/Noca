@@ -1,0 +1,332 @@
+package com.ssafy.a307.accident.service;
+
+import com.ssafy.a307.accident.dto.AccidentCreateRequest;
+import com.ssafy.a307.accident.dto.AccidentResponse;
+import com.ssafy.a307.accident.dto.ActualRepairCostRequest;
+import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
+import com.ssafy.a307.common.exception.BusinessException;
+import com.ssafy.a307.common.exception.ErrorCode;
+import com.ssafy.a307.vehicle.dto.VehicleCreateRequest;
+import com.ssafy.a307.vehicle.dto.VehicleResponse;
+import com.ssafy.a307.vehicle.entity.CarClass;
+import com.ssafy.a307.vehicle.entity.VehicleType;
+import com.ssafy.a307.vehicle.service.VehicleService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.Date;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
+
+/**
+ * 인증이 아직 없어도 memberId 를 넘기면 사고 접수 로직을 전부 검증할 수 있다.
+ */
+@SpringBootTest
+@Transactional
+@DisplayName("AccidentService")
+class AccidentServiceTest {
+
+    private static final long ME = 1L;
+    private static final long OTHER = 2L;
+
+    @Autowired
+    private AccidentService accidentService;
+    @Autowired
+    private VehicleService vehicleService;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private EntityManager entityManager;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    private long avante;
+
+    @BeforeEach
+    void setUp() {
+        insertMember(ME, "kakao-me");
+        insertMember(OTHER, "kakao-other");
+        avante = insertModel("현대", "아반떼", "SEDAN", "Mid-size");
+    }
+
+    @Nested
+    @DisplayName("접수 생성")
+    class Create {
+
+        @Test
+        @DisplayName("차량 정보를 함께 담아 돌려준다")
+        void returnsVehicleInfo() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+
+            AccidentResponse response =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+
+            assertThat(response.accidentId()).isNotNull();
+            assertThat(response.createdAt()).isNotNull();
+            assertThat(response.vehicleId()).isEqualTo(vehicle.vehicleId());
+            assertThat(response.modelId()).isEqualTo(avante);
+            assertThat(response.manufacturer()).isEqualTo("현대");
+            assertThat(response.modelName()).isEqualTo("아반떼");
+            assertThat(response.vehicleType()).isEqualTo(VehicleType.SEDAN);
+            assertThat(response.carClass()).isEqualTo(CarClass.MID_SIZE);
+            assertThat(response.modelYear()).isEqualTo(2020);
+        }
+
+        @Test
+        @DisplayName("created_at 은 DB 기본값이 아니라 애플리케이션(@CreatedDate)이 채운다")
+        void applicationFillsCreatedAt() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+
+            AccidentResponse response =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            flushAndClear();
+
+            Instant stored = jdbcTemplate.queryForObject(
+                    "select created_at from accident where accident_id = ?",
+                    Instant.class, response.accidentId());
+
+            // 응답의 시각은 @CreatedDate 가 PrePersist 에서 넣은 값이다.
+            // DB 의 DEFAULT now() 가 적용됐다면 INSERT 시점의 서버 시계를 읽으므로
+            // JDBC 왕복 시간만큼(최소 수십 마이크로초) 벌어졌을 것이다.
+            // 실측 예: 애플리케이션 ...738988500Z / 저장값 ...738989Z — 마이크로초 반올림 차이뿐이다.
+            assertThat(stored).isCloseTo(response.createdAt(), within(1, ChronoUnit.MICROS));
+        }
+
+        @Test
+        @DisplayName("차량 조회는 1회다 — 모델 정보가 join fetch 로 함께 온다")
+        void loadsVehicleInOneQuery() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            flushAndClear();
+
+            Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            statistics.clear();
+
+            AccidentResponse response =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+
+            // 모델 정보가 실제로 담겼는데도 쿼리는 SELECT 1 + INSERT 1 뿐이다.
+            assertThat(response.modelName()).isEqualTo("아반떼");
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("같은 차량으로 사고를 두 건 접수할 수 있다")
+        void allowsMultipleAccidentsPerVehicle() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+
+            AccidentResponse first =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            AccidentResponse second =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            flushAndClear();
+
+            assertThat(first.accidentId()).isNotEqualTo(second.accidentId());
+            assertThat(jdbcTemplate.queryForObject(
+                    "select count(*) from accident where vehicle_id = ?", Integer.class,
+                    vehicle.vehicleId())).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("남의 차량은 403 이 아니라 404 NOT_FOUND")
+        void otherMembersVehicleIsNotFound() {
+            VehicleResponse others = vehicleService.create(OTHER, new VehicleCreateRequest(avante, 2020));
+            flushAndClear();
+
+            assertThatThrownBy(() ->
+                    accidentService.create(ME, new AccidentCreateRequest(others.vehicleId())))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("없는 차량은 404 NOT_FOUND")
+        void unknownVehicleIsNotFound() {
+            assertThatThrownBy(() -> accidentService.create(ME, new AccidentCreateRequest(999999L)))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("삭제된 차량으로는 접수할 수 없다 — 404 NOT_FOUND")
+        void deletedVehicleIsNotFound() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            vehicleService.delete(ME, vehicle.vehicleId());
+            flushAndClear();
+
+            assertThatThrownBy(() ->
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId())))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+        }
+    }
+
+    @Nested
+    @DisplayName("실제 수리 정보 기록")
+    class RecordActualRepairCost {
+
+        @Test
+        @DisplayName("소유 사고의 금액·완료일·trim 한 정비소명과 서버 기록 시각을 저장한다")
+        void recordsActualRepairInformation() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse accident = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId()));
+
+            ActualRepairCostResponse response = accidentService.recordActualRepairCost(
+                    ME,
+                    accident.accidentId(),
+                    new ActualRepairCostRequest(1_250_000, LocalDate.of(2026, 9, 1), "  바른 정비소  "));
+            flushAndClear();
+
+            Map<String, Object> stored = jdbcTemplate.queryForMap("""
+                    select actual_repair_cost, actual_repair_completed_date,
+                           repair_shop_name, actual_cost_recorded_at
+                    from accident where accident_id = ?
+                    """, accident.accidentId());
+
+            assertThat(response.accidentId()).isEqualTo(accident.accidentId());
+            assertThat(response.actualRepairCost()).isEqualTo(1_250_000);
+            assertThat(response.repairCompletedDate()).isEqualTo(LocalDate.of(2026, 9, 1));
+            assertThat(response.repairShopName()).isEqualTo("바른 정비소");
+            assertThat(response.actualCostRecordedAt()).isNotNull();
+            assertThat(((Number) stored.get("ACTUAL_REPAIR_COST")).intValue()).isEqualTo(1_250_000);
+            assertThat(((Date) stored.get("ACTUAL_REPAIR_COMPLETED_DATE")).toLocalDate())
+                    .isEqualTo(LocalDate.of(2026, 9, 1));
+            assertThat(stored.get("REPAIR_SHOP_NAME")).isEqualTo("바른 정비소");
+            assertThat(stored.get("ACTUAL_COST_RECORDED_AT")).isNotNull();
+        }
+
+        @Test
+        @DisplayName("같은 사고에 다시 PUT 하면 실제 수리 정보 전체를 교체한다")
+        void replacesExistingInformation() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse accident = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            ActualRepairCostResponse first = accidentService.recordActualRepairCost(
+                    ME, accident.accidentId(),
+                    new ActualRepairCostRequest(900_000, LocalDate.of(2026, 8, 20), "첫 정비소"));
+
+            ActualRepairCostResponse replaced = accidentService.recordActualRepairCost(
+                    ME, accident.accidentId(),
+                    new ActualRepairCostRequest(1_100_000, LocalDate.of(2026, 9, 2), "둘째 정비소"));
+            flushAndClear();
+
+            assertThat(replaced.actualRepairCost()).isEqualTo(1_100_000);
+            assertThat(replaced.repairCompletedDate()).isEqualTo(LocalDate.of(2026, 9, 2));
+            assertThat(replaced.repairShopName()).isEqualTo("둘째 정비소");
+            assertThat(replaced.actualCostRecordedAt()).isAfterOrEqualTo(first.actualCostRecordedAt());
+            assertThat(jdbcTemplate.queryForObject(
+                    "select count(*) from accident where accident_id = ?",
+                    Integer.class, accident.accidentId())).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("남의 사고와 없는 사고는 모두 404 NOT_FOUND다")
+        void inaccessibleAccidentIsNotFound() {
+            VehicleResponse othersVehicle = vehicleService.create(
+                    OTHER, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse othersAccident = accidentService.create(
+                    OTHER, new AccidentCreateRequest(othersVehicle.vehicleId()));
+            ActualRepairCostRequest request = new ActualRepairCostRequest(
+                    500_000, LocalDate.of(2026, 9, 1), "정비소");
+            flushAndClear();
+
+            assertThatThrownBy(() -> accidentService.recordActualRepairCost(
+                    ME, othersAccident.accidentId(), request))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+            assertThatThrownBy(() -> accidentService.recordActualRepairCost(ME, 999999L, request))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+        }
+    }
+
+    @Nested
+    @DisplayName("유사 사례 검색 경로 (지시서 3장)")
+    class SimilarCasePath {
+
+        @Test
+        @DisplayName("사고 하나로부터 조인만으로 car_class 에 도달한다")
+        void reachesCarClassFromAccident() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse accident =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            flushAndClear();
+
+            Map<String, Object> row = jdbcTemplate.queryForMap("""
+                    select a.accident_id, v.vehicle_id, v.model_year,
+                           vm.model_id, vm.model_name, vm.car_class
+                    from accident a
+                    join vehicle v        on v.vehicle_id = a.vehicle_id
+                    join vehicle_model vm on vm.model_id  = v.model_id
+                    where a.accident_id = ?
+                    """, accident.accidentId());
+
+            assertThat(row.get("CAR_CLASS")).isEqualTo("Mid-size");
+            assertThat(row.get("MODEL_NAME")).isEqualTo("아반떼");
+            assertThat(((Number) row.get("MODEL_YEAR")).intValue()).isEqualTo(2020);
+        }
+
+        @Test
+        @DisplayName("차량을 소프트 삭제해도 경로가 끊기지 않는다 — 사고 이력에 차종이 남는다")
+        void pathSurvivesSoftDelete() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse accident =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            vehicleService.delete(ME, vehicle.vehicleId());
+            flushAndClear();
+
+            String carClass = jdbcTemplate.queryForObject("""
+                    select vm.car_class
+                    from accident a
+                    join vehicle v        on v.vehicle_id = a.vehicle_id
+                    join vehicle_model vm on vm.model_id  = v.model_id
+                    where a.accident_id = ?
+                    """, String.class, accident.accidentId());
+
+            assertThat(carClass).isEqualTo("Mid-size");
+        }
+    }
+
+    private void flushAndClear() {
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    private void insertMember(long memberId, String providerUserId) {
+        jdbcTemplate.update(
+                "insert into member (member_id, provider, provider_user_id, nickname) values (?, 'KAKAO', ?, ?)",
+                memberId, providerUserId, "tester" + memberId);
+    }
+
+    private long insertModel(String manufacturer, String modelName,
+                             String vehicleType, String carClass) {
+        jdbcTemplate.update(
+                "insert into vehicle_model (manufacturer, model_name, vehicle_type, car_class, is_active)"
+                        + " values (?, ?, ?, ?, true)",
+                manufacturer, modelName, vehicleType, carClass);
+        return jdbcTemplate.queryForObject(
+                "select model_id from vehicle_model where manufacturer = ? and model_name = ?",
+                Long.class, manufacturer, modelName);
+    }
+}
