@@ -45,24 +45,39 @@ class OAuth2UserInfoTest {
             assertThat(asLong.providerUserId()).isEqualTo("12345");
         }
 
+        /**
+         * 닉네임이 없다고 로그인을 막지 않는다. 최종 닉네임은 가입 화면에서 사용자가 입력하고,
+         * 소셜 값은 초기값일 뿐이다. 없으면 {@code NicknamePolicy} 가 자동 생성값을 채운다.
+         */
         @Test
-        @DisplayName("닉네임이 없으면 파싱 지점에서 막는다 — NOT NULL 위반으로 늦게 터지지 않게")
-        void rejectsMissingNickname() {
+        @DisplayName("닉네임이 없어도 로그인을 막지 않는다 — nickname 만 null 이다")
+        void missingNicknameIsTolerated() {
             Map<String, Object> withoutNickname = Map.of(
                     "id", 3_812_345_678L,
                     "kakao_account", Map.of("profile", Map.of()));
 
-            assertThatThrownBy(() -> OAuth2UserInfo.of("kakao", withoutNickname))
-                    .isInstanceOf(OAuth2AuthenticationException.class)
-                    .hasMessageContaining("nickname");
+            OAuth2UserInfo info = OAuth2UserInfo.of("kakao", withoutNickname);
+
+            assertThat(info.providerUserId()).isEqualTo("3812345678");
+            assertThat(info.nickname()).isNull();
+        }
+
+        /** 동의 항목에서 닉네임이 빠지면 kakao_account 나 profile 자체가 오지 않는다. */
+        @Test
+        @DisplayName("kakao_account 나 profile 이 통째로 없어도 회원번호만 있으면 된다")
+        void missingAccountOrProfileIsTolerated() {
+            assertThat(OAuth2UserInfo.of("kakao", Map.of("id", 1L)).nickname()).isNull();
+            assertThat(OAuth2UserInfo.of("kakao", Map.of("id", 1L, "kakao_account", Map.of()))
+                    .nickname()).isNull();
         }
 
         @Test
-        @DisplayName("kakao_account 자체가 없으면 거절한다")
-        void rejectsMissingAccount() {
-            assertThatThrownBy(() -> OAuth2UserInfo.of("kakao", Map.of("id", 1L)))
+        @DisplayName("회원번호가 없으면 거절한다 — 이것 없이는 회원을 특정할 수 없다")
+        void rejectsMissingId() {
+            assertThatThrownBy(() -> OAuth2UserInfo.of("kakao",
+                    Map.of("kakao_account", Map.of("profile", Map.of("nickname", "홍길동")))))
                     .isInstanceOf(OAuth2AuthenticationException.class)
-                    .hasMessageContaining("kakao_account");
+                    .hasMessageContaining("id");
         }
 
         private Map<String, Object> kakaoResponse(Object id, String nickname) {
@@ -87,16 +102,14 @@ class OAuth2UserInfoTest {
             assertThat(info.nickname()).isEqualTo("홍길동");
         }
 
-        /**
-         * scope 에서 {@code profile} 이 빠지면 {@code name} 이 오지 않는다.
-         * 그대로 흘려보내면 {@code nickname NOT NULL} 위반으로 INSERT 단계에서 터진다.
-         */
+        /** scope 에서 {@code profile} 이 빠지면 {@code name} 이 오지 않는다. 카카오와 같게 처리한다. */
         @Test
-        @DisplayName("name 이 없으면 파싱 지점에서 막는다")
-        void rejectsMissingName() {
-            assertThatThrownBy(() -> OAuth2UserInfo.of("google", Map.of("sub", "104social")))
-                    .isInstanceOf(OAuth2AuthenticationException.class)
-                    .hasMessageContaining("name");
+        @DisplayName("name 이 없어도 로그인을 막지 않는다")
+        void missingNameIsTolerated() {
+            OAuth2UserInfo info = OAuth2UserInfo.of("google", Map.of("sub", "104social"));
+
+            assertThat(info.providerUserId()).isEqualTo("104social");
+            assertThat(info.nickname()).isNull();
         }
 
         @Test

@@ -9,6 +9,7 @@ import com.ssafy.a307.member.entity.TermsType;
 import com.ssafy.a307.member.repository.MemberRepository;
 import com.ssafy.a307.member.repository.TermsAgreementRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,7 +58,7 @@ public class MemberService {
                     throw new BusinessException(ErrorCode.CONFLICT, "이미 가입된 계정입니다.");
                 });
 
-        Member member = memberRepository.save(Member.register(provider, providerUserId, nickname));
+        Member member = insertMember(provider, providerUserId, nickname);
 
         List<TermsAgreement> agreements = agreedTerms.stream()
                 .map(type -> TermsAgreement.of(member.getMemberId(), type, TermsPolicy.currentVersion(type)))
@@ -65,6 +66,30 @@ public class MemberService {
         termsAgreementRepository.saveAll(agreements);
 
         return member;
+    }
+
+    /**
+     * 위의 조회는 동시 요청을 막지 못한다. 두 요청이 같은 순간에 들어오면 둘 다 "없음"을 보고
+     * 둘 다 INSERT 를 시도한다. 중복을 실제로 막는 것은 {@code uk_member_provider} 제약이다.
+     * <p>
+     * 그래서 제약 위반을 잡아 409 로 바꾼다. 이 처리가 없으면 catch-all 예외 핸들러에 걸려
+     * 500 이 나간다 — 가입 버튼을 두 번 누르는 정도로도 재현된다.
+     * <p>
+     * {@code saveAndFlush} 를 쓰는 이유는 위반을 <b>이 자리에서</b> 받기 위해서다.
+     * {@code save} 만 하면 트랜잭션 커밋 시점까지 미뤄져 이 catch 를 지나쳐 버린다.
+     * <p>
+     * 트랜잭션은 통째로 롤백된다. 회원만 남고 약관 이력이 빠지는 어중간한 상태가 생기지 않는다.
+     * <p>
+     * {@code private} 이 아닌 이유는 테스트에서 직접 부르기 위해서다. 동시 요청 테스트만으로는
+     * 이 경로가 실제로 실행됐는지 보장할 수 없다 — 스레드가 어긋나면 위의 사전 조회에서 걸러져
+     * 이 catch 를 한 번도 지나지 않고도 테스트가 통과한다.
+     */
+    Member insertMember(Provider provider, String providerUserId, String nickname) {
+        try {
+            return memberRepository.saveAndFlush(Member.register(provider, providerUserId, nickname));
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(ErrorCode.CONFLICT, "이미 가입된 계정입니다.");
+        }
     }
 
     /**
