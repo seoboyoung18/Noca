@@ -86,5 +86,35 @@ class OAuth2UserInfoTest {
             assertThat(info.providerUserId()).isEqualTo("104social");
             assertThat(info.nickname()).isEqualTo("홍길동");
         }
+
+        /**
+         * scope 에서 {@code profile} 이 빠지면 {@code name} 이 오지 않는다.
+         * 그대로 흘려보내면 {@code nickname NOT NULL} 위반으로 INSERT 단계에서 터진다.
+         */
+        @Test
+        @DisplayName("name 이 없으면 파싱 지점에서 막는다")
+        void rejectsMissingName() {
+            assertThatThrownBy(() -> OAuth2UserInfo.of("google", Map.of("sub", "104social")))
+                    .isInstanceOf(OAuth2AuthenticationException.class)
+                    .hasMessageContaining("name");
+        }
+
+        @Test
+        @DisplayName("sub 이 없으면 거절한다")
+        void rejectsMissingSub() {
+            assertThatThrownBy(() -> OAuth2UserInfo.of("google", Map.of("name", "홍길동")))
+                    .isInstanceOf(OAuth2AuthenticationException.class)
+                    .hasMessageContaining("sub");
+        }
+
+        /** 구글 {@code sub} 는 21자리 숫자 문자열이다. VARCHAR(255) 에 들어간다. */
+        @Test
+        @DisplayName("실제 형식의 sub 를 그대로 보존한다")
+        void keepsRealisticSubAsIs() {
+            OAuth2UserInfo info = OAuth2UserInfo.of("google",
+                    Map.of("sub", "104729384756102938475", "name", "홍길동"));
+
+            assertThat(info.providerUserId()).isEqualTo("104729384756102938475");
+        }
     }
 }
