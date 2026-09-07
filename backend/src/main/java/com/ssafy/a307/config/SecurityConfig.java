@@ -1,6 +1,11 @@
 package com.ssafy.a307.config;
 
+import com.ssafy.a307.auth.handler.OAuth2FailureHandler;
+import com.ssafy.a307.auth.handler.OAuth2SuccessHandler;
+import com.ssafy.a307.auth.handler.RestAccessDeniedHandler;
+import com.ssafy.a307.auth.service.CustomOAuth2UserService;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -13,9 +18,56 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
+/**
+ * 소셜 로그인 + 서버 세션. 자체 토큰을 발급하지 않고 세션 ID 를 HttpOnly 쿠키로 주고받는다.
+ * <p>
+ * {@code sessionCreationPolicy} 를 지정하지 않는다. 기본값 {@code IF_REQUIRED} 여야 로그인 시
+ * 세션이 만들어진다. {@code STATELESS} 로 두면 Redis 설정이 맞아도 로그인이 성립하지 않는다.
+ */
 @Configuration
 @EnableWebSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
+
+    /**
+     * 인증 없이 열어 두는 경로. 이보다 넓히면 소유자 검사를 우회할 길이 생긴다.
+     * <ul>
+     *   <li>{@code /oauth2/authorization/**} — 소셜 로그인 진입</li>
+     *   <li>{@code /login/oauth2/code/**} — 소셜 콜백</li>
+     *   <li>{@code /api/auth/signup} — 가입(GET 은 화면용 정보, POST 는 가입). 가입 대기 세션에서만
+     *       실제로 동작하며, 그 검사는 컨트롤러가 한다</li>
+     *   <li>가이드 2종 — 로그인 전에도 보여 주는 정적 문안</li>
+     * </ul>
+     * {@code /error} 를 빼면 에러 디스패치가 401 로 뒤집혀 원래 상태 코드를 잃는다.
+     */
+    private static final String[] PUBLIC_PATHS = {
+            "/oauth2/authorization/**",
+            "/login/oauth2/code/**",
+            "/api/auth/signup",
+            "/api/guides/checklist",
+            "/api/guides/shooting",
+            "/actuator/health",
+            "/error"
+    };
+
+    /**
+     * 스웨거 UI 와 OpenAPI 문서. 로그인 전에도 열려야 문서를 볼 수 있다.
+     * <p>
+     * <b>배포 전에 닫아야 한다.</b> 엔드포인트 목록과 요청 스키마가 그대로 노출된다.
+     * 프로파일 분리가 아직 없어 지금은 이 배열에 두고, 운영 프로파일이 생기면
+     * {@code springdoc.api-docs.enabled=false} 로 끄거나 이 경로를 인가 대상으로 돌린다.
+     */
+    private static final String[] API_DOC_PATHS = {
+            "/swagger-ui/**",
+            "/swagger-ui.html",
+            "/v3/api-docs/**",
+            "/v3/api-docs.yaml"
+    };
+
+    private final CustomOAuth2UserService customOAuth2UserService;
+    private final OAuth2SuccessHandler oAuth2SuccessHandler;
+    private final OAuth2FailureHandler oAuth2FailureHandler;
+    private final RestAccessDeniedHandler restAccessDeniedHandler;
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -26,14 +78,17 @@ public class SecurityConfig {
             .httpBasic(basic -> basic.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/internal/**", "/inference/**").denyAll()
-                .requestMatchers(
-                    "/oauth2/**", "/login/oauth2/**",
-                    "/api/auth/signup",
-                    "/api/guides/**",
-                    "/actuator/health",
-                    "/error").permitAll()
+                .requestMatchers(PUBLIC_PATHS).permitAll()
+                .requestMatchers(API_DOC_PATHS).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                .anyRequest().authenticated()
+                // authenticated() 를 쓰면 안 된다. 가입 대기 세션(ROLE_SIGNUP_PENDING)도
+                // "인증됨"이라 그대로 통과하고, 회원이 없는 상태로 보호 API 에 들어온다.
+                .anyRequest().hasAnyRole("USER", "ADMIN")
+            )
+            .oauth2Login(oauth -> oauth
+                .userInfoEndpoint(userInfo -> userInfo.userService(customOAuth2UserService))
+                .successHandler(oAuth2SuccessHandler)
+                .failureHandler(oAuth2FailureHandler)
             )
             .logout(logout -> logout
                 .logoutUrl("/api/auth/logout")
@@ -42,8 +97,14 @@ public class SecurityConfig {
                 .invalidateHttpSession(true)
             )
             .exceptionHandling(ex -> ex
+                // 401 은 기존 동작(본문 없는 sendError)을 유지한다. 공통 에러 포맷으로 바꾸면
+                // 그 형태를 단언하는 ChecklistPublicAccessTest 를 함께 고쳐야 하는데,
+                // 그 파일은 다른 담당자 영역이라 협의 후로 미룬다.
                 .authenticationEntryPoint((req, res, e) ->
                     res.sendError(HttpServletResponse.SC_UNAUTHORIZED))
+                // 403 은 새로 생긴 응답이라 깨뜨릴 기존 계약이 없다. 가입 대기(SIGNUP_REQUIRED)와
+                // 권한 부족(FORBIDDEN)을 구분해야 프론트가 갈 곳을 정할 수 있어 여기서 포맷을 맞춘다.
+                .accessDeniedHandler(restAccessDeniedHandler)
             );
         return http.build();
     }
