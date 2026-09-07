@@ -51,6 +51,12 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 | 3 | `extract_estimate_labels.py` | 견적 JSON에서 원본 부품명·작업명을 집계 |
 | 4 | `map_estimate_labels.py` | 원본명을 표준 부위 코드로 매핑. 판단이 필요한 항목은 `REVIEW_CONFLICT` / `OUT_OF_SCOPE_PART`로 분류해 남김 |
 
+**C. 견적 데이터 품질**
+
+| 순서 | 스크립트 | 역할 |
+|---|---|---|
+| 5 | `flag_estimate_outliers.py` | 수리 항목 수·최종금액의 사분위수 기반 이상치를 검수 대상으로 플래그 (삭제하지 않음) |
+
 A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. 두 결과를 교차 검증해 합치는 작업은 `part_code` 마스터 확정 후로 남아 있다.
 
 ### 1. category_id 무결성 검증
@@ -119,6 +125,32 @@ python pipeline/jobs/map_estimate_labels.py \
 | `OUT_OF_SCOPE_PART` | 실제 부품이나 현재 코드 범위 밖 |
 
 확장 코드는 현재 이 스크립트가 자체 정의한다. `standardization/catalog.py`의 32종과는 별도 어휘이며, `part_code` 마스터로 단일화하는 작업이 남아 있다.
+
+### 5. 견적 이상치 플래그
+
+```bash
+python pipeline/jobs/flag_estimate_outliers.py \
+  --estimate-dir "<subset>/1.Training/1.원천데이터_230126_add/TS_99. 붙임_견적서" \
+  --output-dir "<결과를 쓸 경로>"
+```
+
+산출물: `outlier_flags.csv`, `outlier_summary.json`
+
+사고당 수리 항목 수와 최종금액에 대해 `Q3 + multiplier x IQR` 초과 건을 기록한다. EDA 방침에 따라 **상한을 삭제하지 않고 검수 대상 목록만 만든다.**
+
+기본 대상은 `as-` 포맷이다. `as-`의 최종금액은 `총계`, `sc-`는 `청구액`으로 금액 정의가 달라 한 분포로 섞으면 사분위수가 왜곡된다. `--source sc`로 따로 돌린다.
+
+`--iqr-multiplier`로 배수를 바꾼다(기본 1.5). as- 57,004건 기준으로 1.5는 6,007건, 2.0은 4,242건, 3.0은 2,484건이 걸린다.
+
+파일 수가 많아 한 번에 돌기 어려우면 나눠 스캔한 뒤 합친다.
+
+```bash
+python pipeline/jobs/flag_estimate_outliers.py ... --shard-index 0 --shard-count 2
+python pipeline/jobs/flag_estimate_outliers.py ... --shard-index 1 --shard-count 2
+python pipeline/jobs/flag_estimate_outliers.py ... --merge-only
+```
+
+배수는 스캔이 아니라 병합 단계에서 적용된다. `--output-dir`의 `case_metrics__shard*.json`을 남겨두면 배수를 바꿀 때 재스캔 없이 `--merge-only`만 다시 돌리면 된다. 사용한 배수와 그때의 사분위수·상한은 `outlier_summary.json`에 기록된다.
 
 ### 공통
 
