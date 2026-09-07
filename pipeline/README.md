@@ -35,9 +35,14 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 
 ## jobs
 
-| 스크립트 | 역할 |
-|---|---|
-| `validate_category_id_integrity.py` | `category_id` 기준 이미지·라벨·견적 조인 무결성 검증. orphan 라벨을 격리하고 검색 가능 사고 후보를 산출한다 |
+앞 단계의 산출물을 뒤 단계가 입력으로 받으므로 순서대로 실행한다.
+
+| 순서 | 스크립트 | 역할 |
+|---|---|---|
+| 1 | `validate_category_id_integrity.py` | `category_id` 기준 이미지·라벨·견적 조인 무결성 검증. orphan 라벨을 격리하고 검색 가능 사고 **후보**를 산출 |
+| 2 | `validate_search_readiness.py` | 1의 후보에 polygon 유효성과 표준 부품 코드 확보 여부를 추가 판정해 **최종 검색 가능 사고 수**를 확정 |
+
+### 1. category_id 무결성 검증
 
 ```bash
 python pipeline/jobs/validate_category_id_integrity.py \
@@ -46,6 +51,33 @@ python pipeline/jobs/validate_category_id_integrity.py \
 ```
 
 산출물: `validation_summary.json`, `batch_job_execution.json`, `data_validation_error.jsonl`, `quarantine_manifest.csv`, `category_id_integrity.csv`, `case_id_linkage.csv`
+
+### 2. 검색 준비도 검증
+
+1단계가 만든 `case_id_linkage.csv`를 입력으로 받는다.
+
+```bash
+python pipeline/jobs/validate_search_readiness.py \
+  --subset-root "<AI-Hub 견적서 보유 subset 경로>" \
+  --linkage-csv "<1단계 output-dir>/case_id_linkage.csv" \
+  --output-dir "<결과를 쓸 경로>"
+```
+
+산출물: `search_readiness_summary.json`, `search_readiness_report.md`, `case_search_readiness.csv`, `group_partial_*.json`
+
+라벨 JSON 45만여 개를 전수 파싱하므로 오래 걸린다. 그룹·샤드 단위로 나눠 돌린 뒤 병합할 수 있다.
+
+```bash
+# 그룹 하나만, 20개 샤드 중 0번
+python pipeline/jobs/validate_search_readiness.py ... --only-group TRAIN:DAMAGE --shard-index 0 --shard-count 20
+
+# 샤드 산출물을 병합해 최종 리포트 생성 (스캔 생략)
+python pipeline/jobs/validate_search_readiness.py ... --merge-only
+```
+
+`--catalog-path`는 생략하면 `pipeline/`으로 잡힌다. 저장소 밖에서 실행할 때만 지정한다.
+
+### 공통
 
 원천 데이터와 실행 산출물은 저장소 밖에 둔다. `--output-dir`은 저장소 바깥 경로를 지정한다.
 
