@@ -44,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthFlowTest {
 
     private static final String KAKAO_ID = "3812345678";
+    private static final String GOOGLE_SUB = "104729384756102938475";
 
     @Autowired
     private MockMvc mockMvc;
@@ -131,6 +132,45 @@ class AuthFlowTest {
                 .andExpect(jsonPath("$.data.nickname").value("보영"));
     }
 
+    /**
+     * 가입 흐름은 provider 를 가리지 않는다. 컨트롤러·핸들러·세션 승격이 모두
+     * {@code UserPrincipal} 만 보고 동작하므로, 구글이 붙어도 분기가 생기지 않아야 한다.
+     */
+    @Test
+    @DisplayName("구글도 같은 흐름으로 가입된다 — provider 별 분기가 없다")
+    void googleFollowsTheSameSignupFlow() throws Exception {
+        MockHttpSession session = pendingSession(Provider.GOOGLE, GOOGLE_SUB, "구글표시이름");
+
+        mockMvc.perform(get("/api/auth/signup").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.provider").value("GOOGLE"))
+                .andExpect(jsonPath("$.data.socialNickname").value("구글표시이름"));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody("보영")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.provider").value("GOOGLE"))
+                .andExpect(jsonPath("$.data.email").doesNotExist());
+
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.provider").value("GOOGLE"));
+
+        assertThat(memberRepository.findByProviderAndProviderUserId(Provider.GOOGLE, GOOGLE_SUB))
+                .isPresent();
+    }
+
+    @Test
+    @DisplayName("구글 가입 대기 세션도 보호 API 에서 403 SIGNUP_REQUIRED 다")
+    void googlePendingSignupIsAlsoBlocked() throws Exception {
+        mockMvc.perform(get("/api/vehicles/me")
+                        .session(pendingSession(Provider.GOOGLE, GOOGLE_SUB, "구글표시이름")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("SIGNUP_REQUIRED"));
+    }
+
     @Test
     @DisplayName("필수 약관이 빠지면 가입을 거절한다")
     void rejectsSignupMissingRequiredTerms() throws Exception {
@@ -185,10 +225,15 @@ class AuthFlowTest {
 
     /** 소셜 인증만 끝난 상태의 세션. {@code OAuth2SuccessHandler} 가 만들어 내는 것과 같은 모양이다. */
     private MockHttpSession pendingSession() {
+        return pendingSession(Provider.KAKAO, KAKAO_ID, "카카오닉네임");
+    }
+
+    private MockHttpSession pendingSession(Provider provider, String providerUserId,
+                                           String socialNickname) {
         UserPrincipal principal =
-                UserPrincipal.ofPendingSignup(Provider.KAKAO, KAKAO_ID, "카카오닉네임");
+                UserPrincipal.ofPendingSignup(provider, providerUserId, socialNickname);
         Authentication authentication = new OAuth2AuthenticationToken(
-                principal, principal.getAuthorities(), Provider.KAKAO.registrationId());
+                principal, principal.getAuthorities(), provider.registrationId());
 
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
