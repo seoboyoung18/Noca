@@ -7,7 +7,7 @@
 ```
 pipeline/
 ├── standardization/   표준 코드 정의와 정규화 모듈 (런타임 공용)
-├── jobs/              배치 스크립트 (후속 이슈에서 추가)
+├── jobs/              배치 스크립트
 ├── sql/               스키마 DDL·migration (후속 이슈에서 추가)
 └── requirements.txt
 ```
@@ -32,6 +32,22 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 ```
 
 `PARTS`, `DAMAGES`, `WORKS`, `DEFAULT_WORK_BY_DAMAGE`는 패키지 최상위에서 바로 import한다. `standardization.catalog`를 직접 참조하지 않는다.
+
+## jobs
+
+| 스크립트 | 역할 |
+|---|---|
+| `validate_category_id_integrity.py` | `category_id` 기준 이미지·라벨·견적 조인 무결성 검증. orphan 라벨을 격리하고 검색 가능 사고 후보를 산출한다 |
+
+```bash
+python pipeline/jobs/validate_category_id_integrity.py \
+  --subset-root "<AI-Hub 견적서 보유 subset 경로>" \
+  --output-dir "<결과를 쓸 경로>"
+```
+
+산출물: `validation_summary.json`, `batch_job_execution.json`, `data_validation_error.jsonl`, `quarantine_manifest.csv`, `category_id_integrity.csv`, `case_id_linkage.csv`
+
+원천 데이터와 실행 산출물은 저장소 밖에 둔다. `--output-dir`은 저장소 바깥 경로를 지정한다.
 
 ## 실행 환경
 
