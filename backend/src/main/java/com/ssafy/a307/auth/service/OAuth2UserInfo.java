@@ -13,6 +13,9 @@ import java.util.Map;
  * {@link #of} 에 갈래를 하나 더하는 것으로 끝나게 하기 위해서다.
  *
  * @param providerUserId 반드시 문자열이다. 카카오는 숫자 id 를, 구글은 문자열 sub 를 준다.
+ * @param nickname       <b>null 일 수 있다.</b> 가입 화면 초기값으로만 쓰이고 최종 닉네임은
+ *                       사용자가 입력하므로, 없다고 로그인을 막지 않는다.
+ *                       {@code NicknamePolicy} 가 자동 생성값으로 대체한다.
  */
 public record OAuth2UserInfo(Provider provider, String providerUserId, String nickname) {
 
@@ -36,21 +39,28 @@ public record OAuth2UserInfo(Provider provider, String providerUserId, String ni
     @SuppressWarnings("unchecked")
     private static OAuth2UserInfo ofKakao(Map<String, Object> attributes) {
         Object id = require(attributes.get("id"), "id");
-        Map<String, Object> account =
-                (Map<String, Object>) require(attributes.get("kakao_account"), "kakao_account");
-        Map<String, Object> profile =
-                (Map<String, Object>) require(account.get("profile"), "kakao_account.profile");
-        Object nickname = require(profile.get("nickname"), "kakao_account.profile.nickname");
 
-        return new OAuth2UserInfo(Provider.KAKAO, String.valueOf(id), String.valueOf(nickname));
+        // 닉네임 경로는 통째로 없을 수 있다. 동의 항목에서 닉네임이 빠지면
+        // kakao_account 나 profile 자체가 오지 않는다. 중간 어디가 비어도 null 로 흘린다.
+        Object nickname = null;
+        if (attributes.get("kakao_account") instanceof Map<?, ?> account
+                && account.get("profile") instanceof Map<?, ?> profile) {
+            nickname = ((Map<String, Object>) profile).get("nickname");
+        }
+
+        return new OAuth2UserInfo(Provider.KAKAO, String.valueOf(id), asStringOrNull(nickname));
     }
 
     /** 구글 OIDC 응답. sub 가 이미 문자열이라 변환할 것이 없다. */
     private static OAuth2UserInfo ofGoogle(Map<String, Object> attributes) {
         Object sub = require(attributes.get("sub"), "sub");
-        Object name = require(attributes.get("name"), "name");
 
-        return new OAuth2UserInfo(Provider.GOOGLE, String.valueOf(sub), String.valueOf(name));
+        return new OAuth2UserInfo(Provider.GOOGLE, String.valueOf(sub),
+                asStringOrNull(attributes.get("name")));
+    }
+
+    private static String asStringOrNull(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     /**

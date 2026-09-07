@@ -3,6 +3,7 @@ package com.ssafy.a307.auth.service;
 import com.ssafy.a307.auth.principal.UserPrincipal;
 import com.ssafy.a307.member.entity.Member;
 import com.ssafy.a307.member.service.MemberService;
+import com.ssafy.a307.member.service.NicknamePolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
@@ -39,8 +40,12 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 .map(this::toActivePrincipal)
                 .orElseGet(() -> {
                     log.debug("가입 대기 상태로 진입 provider={}", info.provider());
+                    // 소셜이 닉네임을 주지 않았거나 12자를 넘으면 여기서 초기값으로 다듬는다.
+                    // 세션에는 가입 화면에 바로 채워 넣을 수 있는 값만 담긴다.
                     return UserPrincipal.ofPendingSignup(
-                            info.provider(), info.providerUserId(), info.nickname());
+                            info.provider(),
+                            info.providerUserId(),
+                            NicknamePolicy.initialFrom(info.nickname()));
                 });
     }
 
