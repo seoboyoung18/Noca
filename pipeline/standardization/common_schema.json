@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bareun-gyeonjeok.example/schemas/inference-standardized-1.1.0.json",
+  "title": "Standardized vehicle damage inference",
+  "description": "Downstream canonical output after the Notion-defined raw YOLO model contract has been validated and model outputs have been paired.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "image", "detections"],
+  "properties": {
+    "schema_version": {"const": "1.1.0"},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "width", "height"],
+      "properties": {
+        "id": {"type": ["string", "integer", "null"]},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "detections": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/detection"}
+    }
+  },
+  "$defs": {
+    "namedCode": {
+      "type": "object",
+      "required": ["code", "name_en", "name_ko"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+        "name_en": {"type": "string", "minLength": 1},
+        "name_ko": {"type": "string", "minLength": 1}
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {"type": "number", "minimum": 0},
+        "y": {"type": "number", "minimum": 0}
+      }
+    },
+    "detection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["part", "damage", "geometry", "confidence", "work_candidates", "work_decision", "work_rule_version"],
+      "properties": {
+        "part": {
+          "allOf": [{"$ref": "#/$defs/namedCode"}],
+          "type": "object",
+          "required": ["code", "name_en", "name_ko", "group", "side", "raw_label"],
+          "properties": {
+            "code": {"type": "string"}, "name_en": {"type": "string"}, "name_ko": {"type": "string"},
+            "group": {"enum": ["BODY_PANEL", "BUMPER", "GLASS", "LAMP", "MIRROR", "WHEEL", "UNDERBODY"]},
+            "side": {"enum": ["LEFT", "RIGHT", "CENTER"]},
+            "raw_label": {"type": "string"}
+          }
+        },
+        "damage": {
+          "allOf": [{"$ref": "#/$defs/namedCode"}],
+          "type": "object",
+          "required": ["code", "name_en", "name_ko", "raw_label"],
+          "properties": {
+            "code": {"enum": ["SCRATCHED", "SEPARATED", "CRUSHED", "BREAKAGE"]},
+            "name_en": {"type": "string"}, "name_ko": {"type": "string"}, "raw_label": {"type": "string"}
+          }
+        },
+        "geometry": {
+          "type": "object", "additionalProperties": false,
+          "required": ["coordinate_system", "bbox_format", "bbox", "segmentation"],
+          "properties": {
+            "coordinate_system": {"const": "PIXEL_XY_TOP_LEFT"},
+            "bbox_format": {"const": "XYWH"},
+            "bbox": {
+              "type": "object", "additionalProperties": false,
+              "required": ["x", "y", "width", "height"],
+              "properties": {
+                "x": {"type": "number", "minimum": 0}, "y": {"type": "number", "minimum": 0},
+                "width": {"type": "number", "exclusiveMinimum": 0}, "height": {"type": "number", "exclusiveMinimum": 0}
+              }
+            },
+            "segmentation": {
+              "type": "object", "additionalProperties": false,
+              "required": ["format", "polygons", "area_px", "area_ratio"],
+              "properties": {
+                "format": {"const": "POLYGONS"},
+                "polygons": {
+                  "type": "array", "minItems": 1,
+                  "items": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/point"}}
+                },
+                "area_px": {"type": "number", "exclusiveMinimum": 0},
+                "area_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+              }
+            }
+          }
+        },
+        "confidence": {
+          "type": "object", "additionalProperties": false, "required": ["part", "damage"],
+          "properties": {
+            "part": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "damage": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+          }
+        },
+        "work_candidates": {"type": "array", "items": {"$ref": "#/$defs/namedCode"}, "uniqueItems": true},
+        "work_decision": {"const": "CANDIDATE"},
+        "work_rule_version": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
