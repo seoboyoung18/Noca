@@ -2,7 +2,7 @@
 로그아웃,,No,POST,/api/auth/logout,,—,보영,인증,서버 세션 무효화. 자체 JWT 미발급이라 토큰 재발급 API 없음,필요,1차,
 세션 확인,,No,GET,/api/auth/session,,member,보영,인증,FE 초기 진입 시 로그인 상태·회원 요약 반환,필요,1차,
 회원가입 (약관 동의 후 계정 생성),,No,POST,/api/auth/signup,,member · terms_agreement,보영,인증,동의 완료 후 계정 생성. SERVICE·PRIVACY 둘 다 필수. 한 트랜잭션,불필요,1차,
-OAuth 콜백,,No,GET,/login/oauth2/code/{provider},,member,보영,인증,"신규는 signupToken 발급(5분), 기존은 세션 생성 후 FE로 302. 콜백에서 회원 생성 금지",불필요,1차,
+OAuth 콜백,,No,GET,/login/oauth2/code/{provider},,member,보영,인증,"신규는 가입 대기 세션 발급(ROLE_SIGNUP_PENDING, 10분), 기존은 로그인 세션 생성 후 FE로 302. 콜백에서 회원 생성 금지",불필요,1차,
 소셜 인증 시작 (카카오·구글),,No,GET,/oauth2/authorization/{provider},,member,보영,인증,Spring Security 제공. provider=kakao|google,불필요,1차,
 회원 탈퇴,,No,DELETE,/api/members/me,,member,보영,회원,soft delete. provider_user_id 무효화. 소셜 unlink·S3 삭제는 트랜잭션 밖 best-effort,필요,1차,
 내 정보 조회,,No,GET,/api/members/me,,member,보영,회원,등록 차량 수·사고 접수 건수 포함. 카카오 이메일 미제공 시 null,필요,1차,

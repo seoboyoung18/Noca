@@ -14,9 +14,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 회원 가입·조회·탈퇴. 소셜 인증 자체는 {@code auth} 패키지가 담당하고,
@@ -90,6 +94,36 @@ public class MemberService {
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(ErrorCode.CONFLICT, "이미 가입된 계정입니다.");
         }
+    }
+
+    /**
+     * 재동의 대상 항목. 약관이 개정되면 기존 동의는 옛 버전에 대한 것이라 증빙 구실을 못 한다.
+     * 판별 규칙 자체는 {@link TermsPolicy#reagreementTargets} 에 있다.
+     * <p>
+     * 전용 쿼리를 만들지 않고 이력을 통째로 읽어 메모리에서 집계한다. 회원당 행 수가
+     * (필수 약관 2종 × 개정 횟수)라 정렬·집계를 DB 로 미룰 근거가 아직 없다.
+     * <p>
+     * 정렬을 붙이는 이유 — 조회 순서는 보장되지 않는다. 같은 항목에 이력이 여러 개 쌓였을 때
+     * (1.0 동의 → 개정 → 1.1 재동의) 어느 쪽이 "최신"인지가 조회 순서에 좌우되면 안 된다.
+     * {@code agreedAt} 이 같을 수 있어({@code @CreatedDate} 가 한 트랜잭션에서 같은 값을 넣는다)
+     * {@code agreementId} 로 한 번 더 가른다.
+     * <p>
+     * 회원 상태는 보지 않는다. 탈퇴 회원을 걸러내는 것은 이 판별이 아니라 부르는 쪽의 일이다.
+     *
+     * @return 다시 동의받아야 할 항목. 비어 있으면 재동의가 필요 없다
+     */
+    @Transactional(readOnly = true)
+    public Set<TermsType> reagreementTargets(Long memberId) {
+        Map<TermsType, String> latestAgreed = termsAgreementRepository.findAllByMemberId(memberId).stream()
+                .sorted(Comparator.comparing(TermsAgreement::getAgreedAt)
+                        .thenComparing(TermsAgreement::getAgreementId))
+                .collect(Collectors.toMap(
+                        TermsAgreement::getTermsType,
+                        TermsAgreement::getVersion,
+                        (earlier, later) -> later,
+                        () -> new EnumMap<>(TermsType.class)));
+
+        return TermsPolicy.reagreementTargets(latestAgreed);
     }
 
     /**
