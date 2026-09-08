@@ -8,6 +8,7 @@ REVIEW_CONFLICT / OUT_OF_SCOPE_PART로 분류해 남긴다.
 import argparse
 import json
 import re
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -16,7 +17,12 @@ _parser.add_argument("--audit-json", type=Path, required=True,
                      help="extract_estimate_labels.py 산출물")
 _parser.add_argument("--output", type=Path, required=True,
                      help="매핑 결과 JSON 산출 경로")
+_parser.add_argument("--catalog-path", type=Path, default=Path(__file__).resolve().parents[1],
+                     help="standardization 패키지가 있는 경로. 저장소 밖에서 실행할 때만 지정한다")
 _args = _parser.parse_args()
+
+sys.path.insert(0, str(_args.catalog_path.resolve()))
+from standardization import NormalizationError, normalize_estimate_work  # noqa: E402
 
 input_path = _args.audit_json
 output_path = _args.output
@@ -607,31 +613,21 @@ for row in data["rows"]:
             code_counts[code] = code_counts.get(code, 0) + 1
             code_item_counts[code] = code_item_counts.get(code, 0) + row["count"]
 
-WORK_MAP = {
-    "도장": ("COATING", "도장"),
-    "탈착": ("REMOVE_INSTALL", "탈부착"),
-    "교환": ("EXCHANGE", "교환"),
-    "판금": ("SHEET_METAL", "판금"),
-    "수리": ("REPAIR", "수리"),
-    "오버홀": ("OVERHAUL", "오버홀"),
-    "1/2OH": ("OVERHAUL_HALF", "1/2 오버홀"),
-    "1/3OH": ("OVERHAUL_THIRD", "1/3 오버홀"),
-    "1/4OH": ("OVERHAUL_QUARTER", "1/4 오버홀"),
-    "1/2오버홀": ("OVERHAUL_HALF", "1/2 오버홀"),
-    "1/3오버홀": ("OVERHAUL_THIRD", "1/3 오버홀"),
-    "1/4오버홀": ("OVERHAUL_QUARTER", "1/4 오버홀"),
-    "조정": ("ADJUSTMENT", "조정"),
-    "견인": ("TOWING", "견인"),
-    "견인비": ("TOWING", "견인"),
-    "구난": ("RESCUE", "구난"),
-    "구난비": ("RESCUE", "구난"),
-    "불인정": ("NOT_APPROVED", "불인정"),
-}
+# 작업 어휘는 standardization.ESTIMATE_WORKS가 단일 기준이다. 여기서 다시 정의하지 않는다.
 work_rows = []
 for raw_work, count in data["work_counts"]:
-    code, name = WORK_MAP.get(raw_work, ("", ""))
-    work_rows.append({"raw_work": raw_work, "count": count, "standard_code": code, "standard_name": name,
-                      "status": "MAPPED" if code else "REVIEW"})
+    try:
+        work = normalize_estimate_work(raw_work)
+    except NormalizationError:
+        work = None
+    work_rows.append({
+        "raw_work": raw_work,
+        "count": count,
+        "standard_code": work["code"] if work else "",
+        "standard_name": work["name"] if work else "",
+        "category": work["category"] if work else "",
+        "status": "MAPPED" if work else "REVIEW",
+    })
 
 output = {
     "summary": {

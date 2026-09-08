@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from .catalog import DAMAGES, DEFAULT_WORK_BY_DAMAGE, PARTS, WORKS
+from .catalog import (
+    DAMAGES,
+    DEFAULT_WORK_BY_DAMAGE,
+    ESTIMATE_WORK_ALIASES,
+    ESTIMATE_WORKS,
+    PARTS,
+    WORKS,
+)
 
 
 class NormalizationError(ValueError):
@@ -18,6 +25,9 @@ def _index(catalog: dict[str, tuple]) -> dict[str, str]:
 PART_BY_RAW = _index(PARTS)
 DAMAGE_BY_RAW = _index(DAMAGES)
 WORK_BY_RAW = _index(WORKS)
+
+ESTIMATE_WORK_BY_RAW = {raw: code for code, (raw, _ko, _category) in ESTIMATE_WORKS.items()}
+ESTIMATE_WORK_BY_RAW.update(ESTIMATE_WORK_ALIASES)
 
 
 def _bbox(value: Any, width: int, height: int, normalized: bool) -> dict[str, float]:
@@ -177,3 +187,19 @@ def normalize_repair_label(value: str) -> dict[str, Any]:
         if code not in work_codes:  # source occasionally repeats a method
             work_codes.append(code)
     return {"part_code": part_code, "work_codes": work_codes, "raw_label": value}
+
+
+def normalize_estimate_work(value: Any) -> dict[str, Any]:
+    """견적서 `작업` 원문을 표준 코드로 정규화한다.
+
+    빈 값과 알 수 없는 값 모두 `NormalizationError`로 격리한다. 빈 값은 작업
+    행이 아닌 다른 종류의 행(부품가격·참고가)이므로 호출부가 먼저 걸러야 한다.
+    """
+    raw = "" if value is None else str(value).strip()
+    if not raw:
+        raise NormalizationError("estimate work is empty")
+    code = ESTIMATE_WORK_BY_RAW.get(raw)
+    if code is None:
+        raise NormalizationError(f"unknown estimate work: {raw!r}")
+    _representative, name, category = ESTIMATE_WORKS[code]
+    return {"code": code, "raw": raw, "name": name, "category": category}

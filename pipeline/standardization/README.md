@@ -5,7 +5,7 @@
 - 코드값은 변경하지 않는 영문 대문자 `UPPER_SNAKE_CASE`로 저장한다.
 - `raw_label`을 함께 보존해 모델/라벨링 버전 변경을 추적한다.
 - 부품은 AI-Hub `damage_part`의 32종을 기준으로 하며 좌·우를 별도 코드로 유지한다.
-- 작업은 라벨링 데이터의 4종(`coating`, `repair`, `sheet_metal`, `exchange`)을 기준으로 한다.
+- **작업 어휘는 두 벌이다.** 사진 손상에서 만드는 작업 후보는 라벨링 데이터의 4종(`coating`, `repair`, `sheet_metal`, `exchange`)이고, 견적서에 실제로 기재된 작업은 `ESTIMATE_WORKS` 13종이다. 두 어휘를 같은 필드나 의미로 섞지 않는다.
 - 표준 출력 좌표는 원본 이미지 픽셀, 좌상단 원점, bbox는 `[x,y,width,height]`로 고정한다.
 - 세그멘테이션 마스크는 `segmentation.polygons`에 복수 폴리곤으로 저장한다. 서로 떨어진 마스크 조각을 하나로 합치지 않는다.
 - 추론 요청 정보에는 실제 작업이 없으므로 `work_candidates`는 손상 기반 후보일 뿐이다. `work_decision=CANDIDATE`로 명시하며 견적 확정 작업으로 사용하지 않는다.
@@ -13,7 +13,36 @@
 
 ## 표준 코드
 
-부품 32종과 영문 원본 라벨·한글 표시명·그룹·방향은 `catalog.py`의 `PARTS`가 단일 기준이다. 손상은 `SCRATCHED`, `SEPARATED`, `CRUSHED`, `BREAKAGE`, 작업은 `COATING`(도장), `REPAIR`(수리), `SHEET_METAL`(판금), `EXCHANGE`(교환)이다.
+부품 32종과 영문 원본 라벨·한글 표시명·그룹·방향은 `catalog.py`의 `PARTS`가 단일 기준이다. 손상은 `SCRATCHED`, `SEPARATED`, `CRUSHED`, `BREAKAGE`다.
+
+### 작업 후보 — `WORKS` (사진 기반)
+
+`COATING`(도장), `REPAIR`(수리), `SHEET_METAL`(판금), `EXCHANGE`(교환) 4종. 손상 유형에서 만드는 **후보**이며 확정 작업이 아니다.
+
+### 견적 작업 — `ESTIMATE_WORKS` (견적서 기반)
+
+견적서 `작업` 필드의 원문을 정규화한다. `category`가 행의 성격을 결정한다.
+
+| category | 코드 | 원문 |
+|---|---|---|
+| `WORK` | `COATING` `REPAIR` `SHEET_METAL` `EXCHANGE` `REMOVE_INSTALL` `OVERHAUL` | 도장·수리·판금·교환·탈착·오버홀 |
+| `WORK` | `OVERHAUL_HALF` `OVERHAUL_THIRD` `OVERHAUL_QUARTER` | 1/2OH·1/3OH·1/4OH — 부분 오버홀 |
+| `WORK` | `ADJUSTMENT` | 조정 — 휠 얼라인먼트·헤드램프 에이밍 등 공임이 붙는 정비 작업 |
+| `ANCILLARY` | `TOWING` `RESCUE` | 견인·구난·탁송 — 수리 작업이 아닌 부대 비용 |
+| `STATUS` | `NOT_APPROVED` | 불인정 — 작업 유형이 아니라 손해사정 상태 |
+
+`불인정`은 원천이 `작업` 필드를 덮어쓴 형태라 **원래 작업 유형(판금·도장 등)은 복구할 수 없다.** 행 종류가 아니라 상태로 다루며, `line_type`에 넣으면 부품명·공임 정보를 잃는다.
+
+별칭(`1/2오버홀`, `견인비`, `구난비`)은 `ESTIMATE_WORK_ALIASES`에 둔다. 견적서 표본 6,000건(수리내역 82,803행) 기준으로 이 어휘가 작업이 기재된 행 전부를 덮는다.
+
+```python
+from standardization import normalize_estimate_work
+
+normalize_estimate_work("1/2OH")
+# {'code': 'OVERHAUL_HALF', 'raw': '1/2OH', 'name': '1/2 오버홀', 'category': 'WORK'}
+```
+
+빈 값과 알 수 없는 값은 모두 `NormalizationError`로 격리한다. 빈 값은 작업 행이 아닌 다른 종류의 행(부품가격·참고가)이므로 호출부가 먼저 걸러야 한다.
 
 ## 모델 개발자 전달 계약 — raw YOLO 출력
 

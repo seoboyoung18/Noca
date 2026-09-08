@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -28,15 +29,11 @@ from typing import Any
 import pandas as pd
 
 
-# 실제 견적서의 6종 작업 유형. 원문 한글은 표시·추적용으로, 영문 코드는
-# 적재·검색 계약용으로 함께 보존한다. 사진 손상 기반의 4종 후보 규칙과는 별개다.
-WORK_CODE_BY_TYPE = {
-    "교환": "EXCHANGE",
-    "탈착": "REMOVE_INSTALL",
-    "판금": "SHEET_METAL",
-    "도장": "COATING",
-    "오버홀": "OVERHAUL",
-    "수리": "REPAIR",
+# 작업 어휘는 standardization.ESTIMATE_WORKS가 단일 기준이다. 여기에는 어휘를
+# 다시 정의하지 않고, 현재 DB 계약(002 migration의 ck_rci_work)이 받아들이는
+# 코드 집합만 둔다. 행 종류 재설계(S15P21A307-414) 이후 이 제한은 사라진다.
+CONTRACT_WORK_CODES = {
+    "EXCHANGE", "REMOVE_INSTALL", "SHEET_METAL", "COATING", "OVERHAUL", "REPAIR",
 }
 
 ESTIMATE_REL = Path("1.Training") / "1.원천데이터_230126_add" / "TS_99. 붙임_견적서"
@@ -199,10 +196,15 @@ def main() -> None:
                         help="견적서 JSON 경로. 생략하면 --subset-root 기준으로 잡는다")
     parser.add_argument("--dataset-root", type=Path, default=None,
                         help="storage_key의 기준 경로. 생략하면 --subset-root의 상위 폴더")
+    parser.add_argument("--catalog-path", type=Path, default=Path(__file__).resolve().parents[1],
+                        help="standardization 패키지가 있는 경로. 저장소 밖에서 실행할 때만 지정한다")
     parser.add_argument("--sample-cases", type=int, default=10)
     parser.add_argument("--source", choices=("as", "sc"), default="as",
                         help="표본 출처. MVP 예상 수리비 기준은 as, sc는 별도 검증용")
     args = parser.parse_args()
+
+    sys.path.insert(0, str(args.catalog_path.resolve()))
+    from standardization import NormalizationError, normalize_estimate_work  # noqa: E402
 
     subset_root = args.subset_root.resolve()
     dataset_root = (args.dataset_root or subset_root.parent).resolve()
@@ -316,13 +318,27 @@ def main() -> None:
                     errors.append(("unknown_part_code", case_id, raw_name, {"work_type": work_type}))
                 continue
             if work_type:
-                work_code = WORK_CODE_BY_TYPE.get(work_type)
-                if not work_code:
-                    errors.append(("unsupported_work_type", case_id, raw_name, {
+                try:
+                    work = normalize_estimate_work(work_type)
+                except NormalizationError as exc:
+                    # 어휘에 없는 값. 원문을 버리지 않고 격리한다.
+                    errors.append(("unknown_work_type", case_id, raw_name, {
                         "work_type": work_type,
+                        "part_code": part_code,
+                        "reason": str(exc),
+                    }))
+                    continue
+                if work["category"] != "WORK" or work["code"] not in CONTRACT_WORK_CODES:
+                    # 어휘는 아는 값이지만 현재 DB 계약이 받지 못한다.
+                    # 부대 비용(견인·구난), 손해사정 상태(불인정), 부분 오버홀, 조정이 여기 걸린다.
+                    errors.append(("work_type_outside_contract", case_id, raw_name, {
+                        "work_type": work_type,
+                        "work_code": work["code"],
+                        "category": work["category"],
                         "part_code": part_code,
                     }))
                     continue
+                work_code = work["code"]
                 line_type = "WORK"
             elif (costs["part_cost"] is not None or costs["reference_part_price"] is not None) and (costs["labor_cost"] in {None, 0}):
                 # 신품가 또는 SC의 부품가격 행은 작업 공임에 억지로 합치지 않는다.
