@@ -23,6 +23,7 @@ ROI 이미지 유사도 검색,,No,GET,/api/analysis-jobs/{jobId}/similar-cases-
 검증 PDF 다운로드,,No,GET,/api/estimate-validations/{validationId}/pdf,,estimate_validation_report,보영,견적서검증,S3 Presigned URL 302. estimate_validation 과 1:1 (PK 겸 FK). PDF에 '특정 사업자를 평가하지 않습니다' 고지 필수,필요,1차,
 사고 건 생성,,No,POST,/api/accidents,,accident,재원,사고접수,등록 차량 선택 필수,필요,1차,
 검증 결과 조회,,No,GET,/api/estimate-validations/{validationId}/result,,estimate_validation · estimate_validation_item,보영,견적서검증,항목이 JSONB 가 아니라 테이블라 항목별 비교표 정렬·집계 가능. 저장된 llm_grade·llm_summary 렌더링 — 매번 LLM 재호출 금지. '확인 권장'만 사용,필요,1차,
+정비소 확인 질문 조회,,No,GET,/api/estimate-validations/{validationId}/questions,,estimate_validation_question,보영,견적서검증,검증 완료 시 저장한 질문 스냅샷을 display_order 순으로 반환. 조회 시 재생성하지 않음. 결과 조회 응답에도 같은 내용이 포함됨,필요,1차,
 사고 상세 조회,,No,GET,/api/accidents/{accidentId},,accident · accident_image · accident_image_asset · analysis_job,재원,사고접수,소유자 검사는 vehicle 을 거쳐 확인. 화면에 내보내는 이미지는 variant='BLURRED' 만 — 원본에는 번호판·얼굴이 찍힘,필요,1차,
 검증 이력 목록,,No,GET,/api/estimate-validations/me,,estimate_validation,보영,견적서검증,Pagination,필요,1차,
 실제 수리비 기록,,No,PUT,/api/accidents/{accidentId}/actual-cost,,accident,재원,사고접수,견적 오차 분석·모델 개선 데이터. 0 초과 정수,필요,1차,

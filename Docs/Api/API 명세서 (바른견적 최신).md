@@ -51,4 +51,51 @@ AI 분석 `analysis_job.status` + 단계별 `analysis_stage` · 견적 PDF `esti
 - HQ 체계 도입. 공임 = 표준 정비시간 × 단가 — 원천 견적서 22건 전부 일치 확인
 - **사진 상한 10장 확정.** 촬영 가이드가 8방향 + 근접 2장을 권장하므로 그 기준과 맞춤니다. 장당 20MB
 
+**견적서 검증 — 등급·임계값·결과 조회 계약 (S15P21A307-314·315·316)**
+
+구현 코드는 `d84c6d5 Feat: 견적 검증 이상 항목 탐지 및 결과 저장 구현 (S15P21A307-310)`에 함께 머지되어 있습니다.
+
+- **등급은 3단계**이며 값과 표시 문구가 서버 enum에 고정되어 있습니다. `APPROPRIATE` 적정 범위 · `CAUTION` 주의 · `NEEDS_REVIEW` 확인 필요. 결과 조회 응답의 `gradeDisplayName`이 한글 문구를 그대로 내려주므로 FE가 하드코딩하지 않습니다. DDL `ck_ev_grade`가 같은 세 값을 강제합니다.
+- **판정은 결정론적이고 평가 순서가 있습니다.** `NEEDS_REVIEW`를 먼저 보고, 세 조건 중 **하나만** 걸려도 그 등급입니다.
+
+```text
+NEEDS_REVIEW   reviewItemCount        >= needs-review-item-count            (현재 3)
+            OR 개별 항목 최대 초과배수 >= severe-over-p75-multiplier          (현재 1.5)
+            OR 총액 차이 비율          >= needs-review-total-difference-ratio (현재 0.20)
+
+CAUTION        reviewItemCount        >  0
+            OR 총액 차이 비율          >= caution-total-difference-ratio      (현재 0.10)
+
+APPROPRIATE    위 어느 조건에도 걸리지 않음
+```
+
+- 경계는 항목 수 하한(`> 0`)만 초과이고 나머지 넷은 전부 이상(`>=`)입니다. `GradeDeciderTest`가 경계값을 고정합니다.
+- 판정 입력 세 가지의 출처 — `reviewItemCount`는 `flag`가 붙은 항목 수, `highestReferenceRatio`는 항목별 `subtotal ÷ referenceP75`의 최댓값(비교 자료 없는 항목은 제외), `totalDifferenceRatio`는 `|claimedTotal − aiTotalMedian| ÷ aiTotalMedian`입니다. **총액 차이 비율은 절대값**이라 견적이 AI 예상보다 낮아도 등급이 올라갑니다.
+- ⚠️ **`estimateId`를 보내지 않거나 `aiTotalMedian`이 없으면 총액 차이 비율이 0으로 고정**되어 등급이 항목 수와 개별 초과배수만으로 결정됩니다.
+- `reviewItemCount`는 `flag`가 붙은 항목을 전부 셉니다. 비교 자료가 없어 붙는 `UNMAPPED_ITEM`·`INSUFFICIENT_REFERENCE`도 포함되므로 "확인 권장 N건" 안에 판독 한계가 섞일 수 있습니다.
+- **임계값 5개와 presigned 유효시간은 `app.estimate-validation.*` 프로퍼티**입니다. 코드 수정 없이 값을 바꾸고 재기동하면 됩니다 (`application.properties` 89~94행, 테스트용은 `src/test/resources/application.properties` 46~51행).
+
+| 프로퍼티 | 제약 | 현재 값 | 값을 올리면 |
+| --- | --- | --- | --- |
+| `reference-percentile` | `@Min(1) @Max(100)` | 75 | 변화 없음 (아래 ⚠️) |
+| `severe-over-p75-multiplier` | `@DecimalMin("1.0", exclusive)` | 1.5 | 판정 완화 |
+| `caution-total-difference-ratio` | `@DecimalMin("0.0")` | 0.10 | 판정 완화 |
+| `needs-review-total-difference-ratio` | `@DecimalMin("0.0")` | 0.20 | 판정 완화 |
+| `needs-review-item-count` | `@Min(1)` | 3 | 판정 완화 |
+| `presigned-url-minutes` | `@Min(1) @Max(1440)` | 10 | PDF 링크 유효시간 증가 |
+
+- **기본값을 두지 않은 것이 의도입니다.** `@DefaultValue`가 없어 프로퍼티가 하나라도 빠지면 기동이 실패합니다 — 근거 없는 기본값으로 사용자에게 확인을 권하지 않겠다는 정책입니다. 교차 제약 `@AssertTrue`가 `needs-review-total-difference-ratio >= caution-total-difference-ratio`를 강제하므로 두 값을 거꾸로 넣어도 기동 단계에서 멈춥니다.
+- **현재 값은 전부 잠정치입니다.** 요구사항에 "예: 60%" 형태로 적힌 값이라 실데이터로 캘리브레이션해야 하며, 화면·문서에 확정된 기준처럼 쓰지 않습니다.
+- ⚠️ **`reference-percentile`은 현재 어떤 프로덕션 코드도 읽지 않습니다.** 바인딩·검증만 되고 비교 기준은 `repair_cost_stat.cost_p75`로 하드코딩되어 있어, 값을 바꿔도 판정이 변하지 않습니다. `GradePolicy` 인터페이스에도 이 값은 없습니다. 분위를 실제로 가변으로 만들려면 별도 구현이 필요합니다 (answer28 6장 D1).
+- `EstimateValidationProperties`는 `GradePolicy` 인터페이스를 구현합니다. 판정 도메인(`GradeDecider`)이 스프링 설정 타입에 의존하지 않게 하려는 분리이며, 그래서 경계값 테스트가 스프링 컨텍스트 없이 돕니다.
+- **총액 차이는 저장하지 않고 조회 시점에 계산합니다.** `estimate_validation`에는 `claimed_total`·`review_item_count`·`total_item_count`만 있고 `total_diff` 류 컬럼이 없습니다. AI 견적이 재산정되면 차이도 따라 바뀌어야 하므로 저장하면 낡은 값이 남기 때문이며, **누락이 아니라 의도된 설계**입니다. 항목 수는 판정 시점의 사실이라 컬럼으로 굳혔습니다 — 이 비대칭이 의도입니다.
+- `GET /api/estimate-validations/{validationId}/result`의 총액 차이는 두 개입니다. `differenceFromMedian = claimedTotal − aiTotalMedian` · `differenceFromRangeMax = claimedTotal − aiTotalMax`. 둘 다 음수가 될 수 있습니다. **화면 헤드라인은 `differenceFromMedian`을 씁니다** — 서버가 만든 `summary` 문장과 등급 판정의 총액 차이 비율이 모두 중앙값 기준이라 다른 값을 쓰면 화면 안에서 숫자가 어긋납니다. `differenceFromRangeMax`는 "범위를 벗어났는가"를 판정하는 보조 값입니다.
+- 결과 응답 필드의 출처는 세 갈래입니다. **저장** — `claimedTotal`·`reviewItemCount`·`totalItemCount`·`grade`·`summary`·`status`·`createdAt`·`completedAt`·`items[]`·`questions[]`. **계산** — `differenceFromMedian`·`differenceFromRangeMax`·`shopEstimateDifferenceFromActual`·`aiMedianDifferenceFromActual`·`actualWithinAiRange`. **상수** — `gradeDisplayName`·`legalNotice`.
+- 실제 수리비 관련 6개 필드(`actualRepairCost`·`actualRepairCompletedDate`·`repairShopName`·`shopEstimateDifferenceFromActual`·`aiMedianDifferenceFromActual`·`actualWithinAiRange`)는 `PUT /api/accidents/{accidentId}/actual-cost` 입력 전에는 전부 null입니다. 이 엔드포인트는 `/api/estimate-validations` 아래가 아니라 `/api/accidents` 아래입니다.
+- `items[].displayDecision`은 서버가 `flag == null ? "범위 내" : "확인 권장"`으로 만들어 내려줍니다. 한 항목에 플래그가 여럿 붙어도 `questionOrder`가 가장 낮은 하나만 저장·응답됩니다.
+- **소유권 검사는 Repository 쿼리 조건에 있습니다** (`findByValidationIdAndMemberId` 등). 남의 검증·없는 검증이 서비스에서 구별되지 않으므로 **둘 다 404 `NOT_FOUND`**이며 403을 쓰지 않습니다. 완료 전 결과·PDF 조회는 409 `CONFLICT`입니다.
+- `legalNotice`는 `EstimateValidationService.LEGAL_NOTICE` 상수를 응답에 실어 화면과 PDF가 같은 고지를 쓰게 한 것입니다. 판정 문구는 **"확인 권장" 표현만** 쓰며 "부당청구"·"과다청구 확정" 같은 단정적 표현을 쓰지 않습니다.
+- ⚠️ **지금은 로그인해도 이 API들이 전부 500입니다.** `CurrentMemberProvider.currentMemberId()`가 아직 `UnsupportedOperationException`을 던지는 스텁이고, 이 도메인을 포함한 컨트롤러 4개(호출 15곳)가 이를 씁니다. API 계약과는 무관하며 해당 클래스 본문만 교체되면 표대로 동작합니다 (answer28 6장 D2).
+- 자세한 요청·응답 예시와 FE 대응 지침은 `Docs/Api/견적서 검증 API — FE 인수인계.md` 에 있습니다.
+
 [A307 백엔드 API 명세서 (MVP / SUB 구분으로 봐주세요)](A307%20%EB%B0%B1%EC%97%94%EB%93%9C%20API%20%EB%AA%85%EC%84%B8%EC%84%9C%20(MVP%20SUB%20%EA%B5%AC%EB%B6%84%EC%9C%BC%EB%A1%9C%20%EB%B4%90%EC%A3%BC%EC%84%B8%EC%9A%94)%206d5b2f1a7ebe82879fa1016d57526854.csv)
