@@ -98,4 +98,31 @@ APPROPRIATE    위 어느 조건에도 걸리지 않음
 - ⚠️ **지금은 로그인해도 이 API들이 전부 500입니다.** `CurrentMemberProvider.currentMemberId()`가 아직 `UnsupportedOperationException`을 던지는 스텁이고, 이 도메인을 포함한 컨트롤러 4개(호출 15곳)가 이를 씁니다. API 계약과는 무관하며 해당 클래스 본문만 교체되면 표대로 동작합니다 (answer28 6장 D2).
 - 자세한 요청·응답 예시와 FE 대응 지침은 `Docs/Api/견적서 검증 API — FE 인수인계.md` 에 있습니다.
 
+**사고 조회 계약 (prompt30 · S15P21A307-225)**
+
+- `GET /api/accidents/{accidentId}` 사고 상세 조회, `GET /api/accidents/me` 사고 이력 목록. **둘 다 세션 인증 필수**입니다. `PUBLIC_PATHS`에 `/api/accidents/**`가 없어 매핑을 추가하는 즉시 인가 대상이 되며, `SecurityConfig`는 수정하지 않았습니다.
+- 성공 응답은 `200`이고 항목 스키마는 **`POST /api/accidents` 응답과 완전히 같습니다**(`AccidentResponse` 재사용). FE가 접수·상세·목록에 같은 타입을 씁니다.
+
+```json
+// GET /api/accidents/{accidentId}
+{ "data": { "accidentId": 2, "vehicleId": 7, "vehicleInputType": "REGISTERED", "modelId": 14,
+            "manufacturer": "현대", "modelName": "아반떼", "vehicleType": "SEDAN",
+            "carClass": "Mid-size", "modelYear": 2020, "createdAt": "2026-09-08T04:12:00Z" } }
+
+// GET /api/accidents/me
+{ "data": { "accidents": [ /* 위와 같은 객체들 */ ] } }
+```
+
+- 목록은 `AccidentListResponse(List<AccidentResponse> accidents)`로 **한 번 감쌉니다.** 공통 규약이 `data`에 객체를 요구하므로 배열을 그대로 넣지 않습니다 — `VehicleListResponse`와 같은 형태입니다.
+- **없는 사고·남의 사고·다른 회원 차량의 사고를 구분하지 않고 전부 404 `NOT_FOUND` "사고를 찾을 수 없습니다."** 입니다. **403을 쓰지 않습니다** — 403은 그 사고가 존재한다는 사실을 알려줍니다. `POST /api/accidents`의 차량 조회, `PUT .../actual-cost`와 같은 판단이며 메시지도 동일합니다.
+- **소유자 검사는 Repository 쿼리 조건**(`join fetch a.vehicle v where v.memberId = :memberId`)에 있습니다. 조회한 뒤 Java에서 `memberId`를 비교하지 않습니다.
+- **폐차·매각(soft delete)한 차량의 사고도 상세·목록 모두에 그대로 남습니다.** `deleted_at` 필터를 넣지 않았습니다 — 명세서 CSV 37행 비고 *"폐차 차량의 사고도 이력에 나와야 하므로 deleted_at 필터 없음"* 이 그 계약입니다.
+- **차량 필드는 현재 값이 아니라 접수 당시 스냅샷**입니다(prompt21 계약과 동일). 차량 연식 수정·소프트 삭제·모델 마스터 표시값 변경 후에도 응답이 바뀌지 않습니다. 다만 `vehicleId`만 현재 연관 차량에서 옵니다 — 기존 `POST /api/accidents` 응답과 같은 동작이라 바꾸지 않았습니다.
+- **목록 정렬은 `createdAt DESC, accidentId DESC`** 입니다. 같은 시각에 접수된 두 건의 순서가 흔들리지 않도록 2차 키를 넣었습니다.
+- **사고가 0건인 회원은 404가 아니라 `200` + 빈 배열**입니다. 빈 상태 화면을 404 처리에 넣지 마세요.
+- **페이지네이션·정렬·필터 쿼리 파라미터가 없습니다.** 명세서에 없어 발명하지 않았습니다. 필요해지면 별도 이슈로 추가합니다.
+- 목록 쿼리는 `join fetch a.vehicle v`로 N+1을 막습니다. `AccidentResponse.from`이 LAZY인 `vehicle`의 id를 읽기 때문에 fetch join이 없으면 건수만큼 추가 쿼리가 나갑니다.
+- **이미지·AI 분석 상태·견적 요약은 이번 범위가 아닙니다.** 명세서 근거 테이블에 `analysis_job`·`estimate`·`accident_image`가 함께 적혀 있으나 앞의 둘은 엔티티가 없고, 이미지는 CSV 27행 비고가 요구하는 `variant='BLURRED'` 생성 기능(`S15P21A307-226~228·386`)이 아직 없습니다. 지금 원본이나 `RESIZED`를 내보내면 번호판·얼굴이 그대로 나갑니다. 이미지 목록은 `GET /api/accidents/{accidentId}/images`가 따로 있으므로 상세 응답에 끼워 넣지 않았습니다. **`null` 고정 필드를 미리 만들지 않았습니다.**
+- 자세한 요청·응답 예시와 FE 대응 지침은 `Docs/Api/사고 조회 API — FE 인수인계.md` 에 있습니다.
+
 [A307 백엔드 API 명세서 (MVP / SUB 구분으로 봐주세요)](A307%20%EB%B0%B1%EC%97%94%EB%93%9C%20API%20%EB%AA%85%EC%84%B8%EC%84%9C%20(MVP%20SUB%20%EA%B5%AC%EB%B6%84%EC%9C%BC%EB%A1%9C%20%EB%B4%90%EC%A3%BC%EC%84%B8%EC%9A%94)%206d5b2f1a7ebe82879fa1016d57526854.csv)

@@ -31,6 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Date;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
@@ -422,6 +424,132 @@ class AccidentServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(ErrorCode.NOT_FOUND);
         }
+    }
+
+    @Nested
+    @DisplayName("조회")
+    class Query {
+
+        @Test
+        @DisplayName("상세 조회는 접수 당시 스냅샷을 그대로 돌려준다")
+        void findOneReturnsSnapshot() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse created =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            flushAndClear();
+
+            AccidentResponse found = accidentService.findOne(ME, created.accidentId());
+
+            assertThat(found.accidentId()).isEqualTo(created.accidentId());
+            assertThat(found.vehicleId()).isEqualTo(vehicle.vehicleId());
+            assertThat(found.vehicleInputType()).isEqualTo(VehicleInputType.REGISTERED);
+            assertThat(found.modelId()).isEqualTo(avante);
+            assertThat(found.manufacturer()).isEqualTo("현대");
+            assertThat(found.modelName()).isEqualTo("아반떼");
+            assertThat(found.vehicleType()).isEqualTo(VehicleType.SEDAN);
+            assertThat(found.carClass()).isEqualTo(CarClass.MID_SIZE);
+            assertThat(found.modelYear()).isEqualTo(2020);
+            assertThat(found.createdAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("없는 사고와 남의 사고는 모두 404 — 존재 여부를 알려주지 않는다")
+        void inaccessibleAccidentIsNotFound() {
+            VehicleResponse mine = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse created =
+                    accidentService.create(ME, new AccidentCreateRequest(mine.vehicleId()));
+            flushAndClear();
+
+            assertAccidentNotFound(() -> accidentService.findOne(ME, 999999L));
+            assertAccidentNotFound(() -> accidentService.findOne(OTHER, created.accidentId()));
+        }
+
+        @Test
+        @DisplayName("차량을 폐차·매각해도 소유자에게 사고 상세가 그대로 보인다")
+        void softDeletedVehicleDoesNotHideAccidentDetail() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse created =
+                    accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            vehicleService.delete(ME, vehicle.vehicleId());
+            flushAndClear();
+
+            AccidentResponse found = accidentService.findOne(ME, created.accidentId());
+
+            assertThat(found.accidentId()).isEqualTo(created.accidentId());
+            assertThat(found.modelName()).isEqualTo("아반떼");
+        }
+
+        @Test
+        @DisplayName("목록은 createdAt 역순이고 같은 시각이면 accidentId 역순이다")
+        void listIsNewestFirstWithStableTieBreak() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            long older = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId())).accidentId();
+            long tieOld = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId())).accidentId();
+            long tieNew = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId())).accidentId();
+            flushAndClear();
+
+            setCreatedAt(older, Instant.parse("2026-09-01T00:00:00Z"));
+            setCreatedAt(tieOld, Instant.parse("2026-09-02T00:00:00Z"));
+            setCreatedAt(tieNew, Instant.parse("2026-09-02T00:00:00Z"));
+            flushAndClear();
+
+            assertThat(accidentService.findMine(ME))
+                    .extracting(AccidentResponse::accidentId)
+                    .containsExactly(tieNew, tieOld, older);
+        }
+
+        @Test
+        @DisplayName("목록에 남의 사고가 섞이지 않는다")
+        void listExcludesOtherMembersAccidents() {
+            VehicleResponse mine = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            VehicleResponse theirs = vehicleService.create(OTHER, new VehicleCreateRequest(avante, 2021));
+            long myAccident = accidentService.create(
+                    ME, new AccidentCreateRequest(mine.vehicleId())).accidentId();
+            accidentService.create(OTHER, new AccidentCreateRequest(theirs.vehicleId()));
+            flushAndClear();
+
+            assertThat(accidentService.findMine(ME))
+                    .extracting(AccidentResponse::accidentId)
+                    .containsExactly(myAccident);
+        }
+
+        @Test
+        @DisplayName("폐차·매각한 차량의 사고도 이력 목록에 남는다")
+        void listKeepsAccidentsOfSoftDeletedVehicles() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            long accidentId = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId())).accidentId();
+            vehicleService.delete(ME, vehicle.vehicleId());
+            flushAndClear();
+
+            assertThat(accidentService.findMine(ME))
+                    .extracting(AccidentResponse::accidentId)
+                    .containsExactly(accidentId);
+        }
+
+        @Test
+        @DisplayName("사고가 한 건도 없으면 예외가 아니라 빈 목록이다")
+        void listIsEmptyWhenMemberHasNoAccident() {
+            assertThat(accidentService.findMine(ME)).isEmpty();
+        }
+    }
+
+    private void assertAccidentNotFound(
+            org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {
+        assertThatThrownBy(callable)
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("사고를 찾을 수 없습니다.")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+    }
+
+    /** @CreatedDate 가 잡는 시각을 고정해 정렬 2차 키(accidentId)를 검증할 수 있게 한다. */
+    private void setCreatedAt(long accidentId, Instant createdAt) {
+        jdbcTemplate.update("update accident set created_at = ? where accident_id = ?",
+                OffsetDateTime.ofInstant(createdAt, ZoneOffset.UTC), accidentId);
     }
 
     private void flushAndClear() {
