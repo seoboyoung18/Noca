@@ -225,10 +225,12 @@ CREATE TABLE repair_case (
     model_year   SMALLINT,
     repair_year  SMALLINT,
     labor_rate   INTEGER,
-    total_cost   INTEGER     NOT NULL,
+    total_cost   INTEGER,
+    claim_amount INTEGER,
+    paid_amount  INTEGER,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uk_rc       UNIQUE (source, external_ref),
-    CONSTRAINT ck_rc_src   CHECK (source    IN ('AIHUB_AS','SERVICE')),
+    CONSTRAINT ck_rc_src   CHECK (source    IN ('AIHUB_AS','AIHUB_SC','SERVICE')),
     CONSTRAINT ck_rc_class CHECK (car_class IN ('CityCar','Compact','Mid-size','Full-size'))
 );
 
@@ -236,12 +238,58 @@ CREATE TABLE repair_case_item (
     case_item_id  BIGSERIAL   PRIMARY KEY,
     case_id       BIGINT      NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
     part_code     VARCHAR(50) NOT NULL REFERENCES part_code(part_code) ON DELETE RESTRICT,
-    work_type     VARCHAR(20) NOT NULL,
+    raw_item_name VARCHAR(500),
+    line_type     VARCHAR(20) NOT NULL DEFAULT 'WORK',
+    work_type     VARCHAR(20),
+    work_code     VARCHAR(30),
     hq            NUMERIC(6,2),
+    reference_part_price INTEGER,
     part_cost     INTEGER,
     labor_cost    INTEGER,
-    item_total    INTEGER     NOT NULL,
-    CONSTRAINT ck_rci_work CHECK (work_type IN ('교환','탈착','판금','도장','오버홀','수리'))
+    pre_adjustment_part_cost  INTEGER,
+    pre_adjustment_labor_cost INTEGER,
+    post_adjustment_part_cost  INTEGER,
+    post_adjustment_labor_cost INTEGER,
+    item_total    INTEGER,
+    CONSTRAINT ck_rci_line_type CHECK (line_type IN ('WORK','PART_PRICE')),
+    CONSTRAINT ck_rci_work CHECK (
+        (line_type = 'PART_PRICE' AND work_type IS NULL AND work_code IS NULL)
+        OR
+        (line_type = 'WORK' AND work_type IS NOT NULL AND work_code IS NOT NULL
+         AND (work_type, work_code) IN (
+             ('교환', 'EXCHANGE'),
+             ('탈착', 'REMOVE_INSTALL'),
+             ('판금', 'SHEET_METAL'),
+             ('도장', 'COATING'),
+             ('오버홀', 'OVERHAUL'),
+             ('수리', 'REPAIR')
+         ))
+    )
+);
+
+-- 검색 적재 배치의 실행 이력과 격리된 원천 오류를 보존한다.
+CREATE TABLE batch_job_execution (
+    batch_job_execution_id BIGSERIAL PRIMARY KEY,
+    job_name               VARCHAR(100) NOT NULL,
+    job_version            VARCHAR(100),
+    status                 VARCHAR(20)  NOT NULL DEFAULT 'RUNNING',
+    input_ref              VARCHAR(500),
+    started_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    completed_at           TIMESTAMPTZ,
+    summary                JSONB,
+    error_message          TEXT,
+    CONSTRAINT ck_bje_status CHECK (status IN ('RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED'))
+);
+
+CREATE TABLE data_validation_error (
+    data_validation_error_id BIGSERIAL PRIMARY KEY,
+    batch_job_execution_id   BIGINT NOT NULL REFERENCES batch_job_execution(batch_job_execution_id) ON DELETE RESTRICT,
+    error_type               VARCHAR(50) NOT NULL,
+    source_ref               VARCHAR(500),
+    case_external_ref        VARCHAR(100),
+    category_id              VARCHAR(100),
+    error_detail             JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE repair_case_image (
@@ -476,6 +524,9 @@ CREATE INDEX ix_er_queue          ON estimate_report (status, created_at)
 -- case_id 제거로 43MB -> 약 20MB
 CREATE INDEX ix_rci_search        ON repair_case_item (part_code, work_type);
 CREATE INDEX ix_rci_case          ON repair_case_item (case_id);
+CREATE INDEX ix_dve_batch         ON data_validation_error (batch_job_execution_id, created_at);
+CREATE INDEX ix_dve_type          ON data_validation_error (error_type, created_at);
+CREATE INDEX ix_dve_case_ref      ON data_validation_error (case_external_ref);
 CREATE INDEX ix_rc_class          ON repair_case (car_class);
 CREATE INDEX ix_rc_model          ON repair_case (model_id) WHERE model_id IS NOT NULL;
 CREATE INDEX ix_rcimg_case        ON repair_case_image (case_id);

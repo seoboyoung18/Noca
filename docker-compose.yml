@@ -50,6 +50,7 @@ services:
       # 사고가 이미 한 번 있었으니, DDL 커밋을 pull 하면 이 절차를 밟는다.
       - ./Docs/Erd/A307_ddl_final.sql:/docker-entrypoint-initdb.d/01-ddl.sql:ro
       - ./Docs/Erd/vehicle_model_seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ./Docs/Erd/A307_part_code_seed.sql:/docker-entrypoint-initdb.d/03-part-code-seed.sql:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-a307} -d a307"]
