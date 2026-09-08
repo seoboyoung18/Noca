@@ -2,6 +2,7 @@ package com.ssafy.a307.accident.controller;
 
 import com.ssafy.a307.accident.dto.AccidentResponse;
 import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
+import com.ssafy.a307.accident.entity.VehicleInputType;
 import com.ssafy.a307.accident.service.AccidentService;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
@@ -51,7 +52,7 @@ class AccidentControllerTest {
     private CurrentMemberProvider currentMemberProvider;
 
     private final AccidentResponse accident = new AccidentResponse(
-            1L, 7L, 14L, "현대", "아반떼",
+            1L, 7L, VehicleInputType.REGISTERED, 14L, "현대", "아반떼",
             VehicleType.SEDAN, CarClass.MID_SIZE, 2020,
             Instant.parse("2026-09-04T12:00:00Z"));
 
@@ -73,6 +74,7 @@ class AccidentControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.accidentId").value(1))
                 .andExpect(jsonPath("$.data.vehicleId").value(7))
+                .andExpect(jsonPath("$.data.vehicleInputType").value("REGISTERED"))
                 .andExpect(jsonPath("$.data.modelId").value(14))
                 .andExpect(jsonPath("$.data.manufacturer").value("현대"))
                 .andExpect(jsonPath("$.data.modelName").value("아반떼"))
@@ -80,6 +82,36 @@ class AccidentControllerTest {
                 .andExpect(jsonPath("$.data.carClass").value("Mid-size"))
                 .andExpect(jsonPath("$.data.modelYear").value(2020))
                 .andExpect(jsonPath("$.data.vehicle").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/accidents — 즉시 입력은 201과 DIRECT 스냅샷을 반환한다")
+    void createWithDirectVehicle() throws Exception {
+        AccidentResponse direct = new AccidentResponse(
+                2L, 8L, VehicleInputType.DIRECT, 14L, "현대", "아반떼",
+                VehicleType.SEDAN, CarClass.MID_SIZE, 2020,
+                Instant.parse("2026-09-04T12:00:00Z"));
+        given(accidentService.create(eq(ME), any())).willReturn(direct);
+
+        mockMvc.perform(post("/api/accidents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "directVehicle": {
+                                    "manufacturer": " 현대 ",
+                                    "modelName": " 아반떼 ",
+                                    "modelYear": 2020
+                                  }
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.accidentId").value(2))
+                .andExpect(jsonPath("$.data.vehicleId").value(8))
+                .andExpect(jsonPath("$.data.vehicleInputType").value("DIRECT"))
+                .andExpect(jsonPath("$.data.modelId").value(14))
+                .andExpect(jsonPath("$.data.manufacturer").value("현대"))
+                .andExpect(jsonPath("$.data.modelName").value("아반떼"))
+                .andExpect(jsonPath("$.data.modelYear").value(2020));
     }
 
     @Test
@@ -97,14 +129,56 @@ class AccidentControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/accidents — vehicleId 가 없으면 400 INVALID_REQUEST")
-    void createWithoutVehicleId() throws Exception {
+    @DisplayName("POST /api/accidents — 두 입력 방식을 모두 생략하면 400 INVALID_REQUEST")
+    void createWithoutVehicleInput() throws Exception {
         mockMvc.perform(post("/api/accidents")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ }"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.data").doesNotExist());
+
+        then(accidentService).should(never()).create(any(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/accidents — 두 입력 방식을 동시에 보내면 400 INVALID_REQUEST")
+    void createWithBothVehicleInputs() throws Exception {
+        mockMvc.perform(post("/api/accidents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": 7,
+                                  "directVehicle": {
+                                    "manufacturer": "현대",
+                                    "modelName": "아반떼",
+                                    "modelYear": 2020
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+
+        then(accidentService).should(never()).create(any(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/accidents — 즉시 입력 제조사·차량명 누락이나 공백은 400")
+    void rejectsBlankDirectVehicleNames() throws Exception {
+        expectDirectVehicleBadRequest("null", "\"아반떼\"", "2020");
+        expectDirectVehicleBadRequest("\"   \"", "\"아반떼\"", "2020");
+        expectDirectVehicleBadRequest("\"현대\"", "null", "2020");
+        expectDirectVehicleBadRequest("\"현대\"", "\"   \"", "2020");
+
+        then(accidentService).should(never()).create(any(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/accidents — 즉시 입력 연식 누락·1979·2101은 400")
+    void rejectsInvalidDirectVehicleYear() throws Exception {
+        expectDirectVehicleBadRequest("\"현대\"", "\"아반떼\"", "null");
+        expectDirectVehicleBadRequest("\"현대\"", "\"아반떼\"", "1979");
+        expectDirectVehicleBadRequest("\"현대\"", "\"아반떼\"", "2101");
 
         then(accidentService).should(never()).create(any(), any());
     }
@@ -186,5 +260,22 @@ class AccidentControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("NOT_FOUND"))
                 .andExpect(jsonPath("$.error.message").value("사고를 찾을 수 없습니다."));
+    }
+
+    private void expectDirectVehicleBadRequest(
+            String manufacturer, String modelName, String modelYear) throws Exception {
+        mockMvc.perform(post("/api/accidents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "directVehicle": {
+                                    "manufacturer": %s,
+                                    "modelName": %s,
+                                    "modelYear": %s
+                                  }
+                                }
+                                """.formatted(manufacturer, modelName, modelYear)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
 }

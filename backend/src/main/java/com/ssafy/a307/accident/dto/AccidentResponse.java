@@ -1,7 +1,7 @@
 package com.ssafy.a307.accident.dto;
 
 import com.ssafy.a307.accident.entity.Accident;
-import com.ssafy.a307.vehicle.dto.VehicleResponse;
+import com.ssafy.a307.accident.entity.VehicleInputType;
 import com.ssafy.a307.vehicle.entity.CarClass;
 import com.ssafy.a307.vehicle.entity.VehicleType;
 
@@ -14,6 +14,7 @@ import java.time.Instant;
 public record AccidentResponse(
         Long accidentId,
         Long vehicleId,
+        VehicleInputType vehicleInputType,
         Long modelId,
         String manufacturer,
         String modelName,
@@ -24,18 +25,16 @@ public record AccidentResponse(
 ) {
 
     public static AccidentResponse from(Accident accident) {
-        // 차량 → DTO 변환은 VehicleResponse 가 이미 하고 있다. 같은 매핑을 두 벌 두지 않는다.
-        VehicleResponse vehicle = VehicleResponse.from(accident.getVehicle());
-
         return new AccidentResponse(
                 accident.getAccidentId(),
-                vehicle.vehicleId(),
-                vehicle.modelId(),
-                vehicle.manufacturer(),
-                vehicle.modelName(),
-                vehicle.vehicleType(),
-                vehicle.carClass(),
-                vehicle.modelYear(),
+                accident.getVehicle().getVehicleId(),
+                accident.getVehicleInputType(),
+                accident.getSnapshotModelId(),
+                accident.getSnapshotManufacturer(),
+                accident.getSnapshotModelName(),
+                accident.getSnapshotVehicleType(),
+                accident.getSnapshotCarClass(),
+                accident.getSnapshotModelYear().intValue(),
                 accident.getCreatedAt()
         );
     }

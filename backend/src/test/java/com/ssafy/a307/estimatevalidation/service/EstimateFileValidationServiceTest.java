@@ -49,7 +49,13 @@ class EstimateFileValidationServiceTest {
         jdbc.update("insert into member(member_id,provider,provider_user_id,nickname,role,status) values(?,'KAKAO','file-member','tester','USER','ACTIVE')", ME);
         jdbc.update("insert into vehicle_model(model_id,manufacturer,model_name,vehicle_type,car_class,is_active) values(702,'현대','쏘나타','SEDAN','Mid-size',true)");
         jdbc.update("insert into vehicle(vehicle_id,member_id,model_id,model_year) values(702,?,702,2025)", ME);
-        jdbc.update("insert into accident(accident_id,vehicle_id) values(?,702)", ACCIDENT);
+        jdbc.update("""
+                insert into accident(
+                    accident_id, vehicle_id, vehicle_input_type,
+                    snapshot_model_id, snapshot_manufacturer, snapshot_model_name,
+                    snapshot_vehicle_type, snapshot_car_class, snapshot_model_year)
+                values(?, 702, 'REGISTERED', 702, '현대', '쏘나타', 'SEDAN', 'Mid-size', 2025)
+                """, ACCIDENT);
     }
 
     @Test

@@ -110,11 +110,23 @@ CREATE TABLE accident (
     -- member_id 없음: accident → vehicle → member 로 도달 가능한 이행적 종속.
     -- 직접 보관하면 차량 주인과 사고 주인이 어긋나도 DB 가 막지 못함
     vehicle_id              BIGINT      NOT NULL REFERENCES vehicle(vehicle_id) ON DELETE RESTRICT,
+    -- 접수 당시 차량 정보. 차량/마스터 수정·소프트 삭제와 무관하게 과거 조건을 보존
+    vehicle_input_type      VARCHAR(10)  NOT NULL,
+    snapshot_model_id       BIGINT       NOT NULL,
+    snapshot_manufacturer   VARCHAR(50)  NOT NULL,
+    snapshot_model_name     VARCHAR(100) NOT NULL,
+    snapshot_vehicle_type   VARCHAR(20)  NOT NULL,
+    snapshot_car_class      VARCHAR(20)  NOT NULL,
+    snapshot_model_year     SMALLINT     NOT NULL,
     actual_repair_cost      INTEGER,
     actual_repair_completed_date DATE,
     repair_shop_name        VARCHAR(100),
     actual_cost_recorded_at TIMESTAMPTZ,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_ac_input_type CHECK (vehicle_input_type IN ('REGISTERED','DIRECT')),
+    CONSTRAINT ck_ac_vehicle_type CHECK (snapshot_vehicle_type IN ('SEDAN','SUV','VAN','TRUCK')),
+    CONSTRAINT ck_ac_car_class CHECK (snapshot_car_class IN ('CityCar','Compact','Mid-size','Full-size')),
+    CONSTRAINT ck_ac_model_year CHECK (snapshot_model_year BETWEEN 1980 AND 2100),
     CONSTRAINT ck_ac_cost CHECK (actual_repair_cost IS NULL OR actual_repair_cost > 0)
 );
 

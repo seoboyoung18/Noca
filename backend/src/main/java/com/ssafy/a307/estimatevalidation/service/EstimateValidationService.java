@@ -199,11 +199,10 @@ public class EstimateValidationService {
                 .findByMemberIdOrderByCreatedAtDesc(memberId, PageRequest.of(page, size));
         List<ValidationHistoryResponse.Entry> entries = result.stream().map(validation -> {
             var accident = validation.getAccident();
-            var vehicle = accident.getVehicle();
-            var model = vehicle.getModel();
             return new ValidationHistoryResponse.Entry(
-                    validation.getValidationId(), accident.getAccidentId(), model.getManufacturer(),
-                    model.getModelName(), vehicle.getModelYear(), validation.getFileType(),
+                    validation.getValidationId(), accident.getAccidentId(),
+                    accident.getSnapshotManufacturer(), accident.getSnapshotModelName(),
+                    accident.getSnapshotModelYear(), validation.getFileType(),
                     validation.getStatus(), validation.getLlmGrade(), validation.getClaimedTotal(),
                     validation.getReviewItemCount(), validation.getTotalItemCount(),
                     validation.getCreatedAt(), validation.getCompletedAt());
@@ -272,7 +271,7 @@ public class EstimateValidationService {
                         EstimateReadRepository.AnalyzedPartView::getPartCode,
                         Function.identity(), (left, right) -> left, LinkedHashMap::new));
         Map<Integer, ReferenceSnapshot> result = new HashMap<>();
-        String carClass = accident.getVehicle().getModel().getCarClass().getCode();
+        String carClass = accident.getSnapshotCarClass().getCode();
         for (EstimateLine line : lines) {
             StandardRepairMethod method = line.workType().standardMethod().orElse(null);
             EstimateReadRepository.AnalyzedPartView analyzed = analysisByPart.get(line.partCode());

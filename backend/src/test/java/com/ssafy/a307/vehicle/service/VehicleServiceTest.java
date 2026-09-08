@@ -195,10 +195,14 @@ class VehicleServiceTest {
 
         @Test
         @DisplayName("연식을 바꾸고 updated_at 을 갱신한다 — DB 트리거가 없으므로 애플리케이션이 채운다")
-        void updatesModelYearAndTimestamp() {
+        void updatesModelYearAndTimestamp() throws InterruptedException {
             VehicleResponse created = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
             flushAndClear();
             Instant before = updatedAtOf(created.vehicleId());
+
+            // H2 TIMESTAMP WITH TIME ZONE은 마이크로초 정밀도라 생성·수정이 같은 틱이면
+            // 서로 다른 @LastModifiedDate 값도 동일하게 반올림된다.
+            Thread.sleep(1);
 
             VehicleResponse updated = vehicleService.update(
                     ME, created.vehicleId(), new VehicleUpdateRequest(2021, null));
@@ -270,7 +274,13 @@ class VehicleServiceTest {
         void deletesEvenWithAccidentHistory() {
             VehicleResponse created = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
             flushAndClear();
-            jdbcTemplate.update("insert into accident (vehicle_id) values (?)", created.vehicleId());
+            jdbcTemplate.update("""
+                    insert into accident(
+                        vehicle_id, vehicle_input_type,
+                        snapshot_model_id, snapshot_manufacturer, snapshot_model_name,
+                        snapshot_vehicle_type, snapshot_car_class, snapshot_model_year)
+                    values (?, 'REGISTERED', ?, '현대', '아반떼', 'SEDAN', 'Mid-size', 2020)
+                    """, created.vehicleId(), avante);
 
             vehicleService.delete(ME, created.vehicleId());
             flushAndClear();

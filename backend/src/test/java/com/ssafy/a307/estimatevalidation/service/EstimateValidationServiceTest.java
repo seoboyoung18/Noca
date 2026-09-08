@@ -46,8 +46,8 @@ class EstimateValidationServiceTest {
         jdbc.update("insert into vehicle_model(model_id, manufacturer, model_name, vehicle_type, car_class, is_active) values(201,'현대','아반떼','SEDAN','Mid-size',true)");
         jdbc.update("insert into vehicle(vehicle_id,member_id,model_id,model_year) values(211,?,?,2024)", ME, 201L);
         jdbc.update("insert into vehicle(vehicle_id,member_id,model_id,model_year) values(212,?,?,2024)", OTHER, 201L);
-        jdbc.update("insert into accident(accident_id,vehicle_id) values(?,211)", MY_ACCIDENT);
-        jdbc.update("insert into accident(accident_id,vehicle_id) values(?,212)", OTHER_ACCIDENT);
+        insertAccident(MY_ACCIDENT, 211L);
+        insertAccident(OTHER_ACCIDENT, 212L);
         jdbc.update("insert into part_code(part_code,name_ko,layout_zone,display_order,is_active) values('P-FENDER','프론트 펜더','FRONT',1,true)");
         jdbc.update("insert into part_name_mapping(raw_name,part_code) values('프론트 펜더','P-FENDER')");
         jdbc.update("insert into analysis_job(job_id,accident_id,status,retry_count) values(401,?,'COMPLETED',0)", MY_ACCIDENT);
@@ -58,6 +58,16 @@ class EstimateValidationServiceTest {
                     cost_min,cost_p25,cost_median,cost_p75,cost_max)
                 values(601,'Mid-size','P-FENDER','Scratched','sheet_metal','PUBLIC',20,90000,110000,130000,150000,180000)
                 """);
+    }
+
+    private void insertAccident(long accidentId, long vehicleId) {
+        jdbc.update("""
+                insert into accident(
+                    accident_id, vehicle_id, vehicle_input_type,
+                    snapshot_model_id, snapshot_manufacturer, snapshot_model_name,
+                    snapshot_vehicle_type, snapshot_car_class, snapshot_model_year)
+                values(?, ?, 'REGISTERED', 201, '현대', '아반떼', 'SEDAN', 'Mid-size', 2024)
+                """, accidentId, vehicleId);
     }
 
     @Test
@@ -117,6 +127,12 @@ class EstimateValidationServiceTest {
     void historyLoadsPageAndVehicleSummaryWithoutNPlusOne() {
         service.registerManual(ME, request(150_000));
         service.registerManual(ME, request(150_001));
+        jdbc.update("update vehicle set model_year=2025 where vehicle_id=211");
+        jdbc.update("""
+                update vehicle_model
+                set manufacturer='현대자동차', model_name='아반떼 변경', car_class='Full-size'
+                where model_id=201
+                """);
         entityManager.flush();
         entityManager.clear();
         var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
@@ -125,8 +141,25 @@ class EstimateValidationServiceTest {
         var history = service.history(ME, 0, 20);
 
         assertThat(history.content()).hasSize(2);
-        assertThat(history.content()).allSatisfy(entry -> assertThat(entry.modelName()).isEqualTo("아반떼"));
+        assertThat(history.content()).allSatisfy(entry -> {
+            assertThat(entry.manufacturer()).isEqualTo("현대");
+            assertThat(entry.modelName()).isEqualTo("아반떼");
+            assertThat(entry.modelYear()).isEqualTo((short) 2024);
+        });
         assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+    }
+
+    @Test
+    void referenceLookupUsesAccidentSnapshotCarClassAfterModelMasterChanges() {
+        jdbc.update("update vehicle_model set car_class='Full-size' where model_id=201");
+
+        var response = service.registerManual(ME, request(150_001));
+        var result = service.result(ME, response.validationId());
+
+        assertThat(result.items()).singleElement().satisfies(item -> {
+            assertThat(item.referenceMedian()).isEqualTo(130_000);
+            assertThat(item.referenceP75()).isEqualTo(150_000);
+        });
     }
 
     @Test
