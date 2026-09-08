@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * 차량 도메인과 같은 방식이다 — memberId 를 첫 파라미터로 받고,
@@ -59,6 +60,28 @@ public class AccidentService {
         }
 
         return AccidentResponse.from(accidentRepository.save(Accident.open(vehicle, inputType)));
+    }
+
+    /**
+     * 없는 사고·남의 사고·다른 회원 차량의 사고를 구분하지 않고 전부 404 다 —
+     * 403 은 그 사고가 존재한다는 사실을 알려준다. {@code create} 의 차량 조회와 같은 판단이다.
+     *
+     * <p>소유자 검사는 Repository 쿼리 조건에 있고, 차량이 소프트 삭제되어도
+     * 소유자에게서 사고를 숨기지 않는다. 차량 필드는 접수 당시 스냅샷이다.
+     */
+    @Transactional(readOnly = true)
+    public AccidentResponse findOne(Long memberId, Long accidentId) {
+        return accidentRepository.findByAccidentIdAndMemberId(accidentId, memberId)
+                .map(AccidentResponse::from)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "사고를 찾을 수 없습니다."));
+    }
+
+    /** 사고가 한 건도 없으면 404 가 아니라 빈 목록이다. 폐차한 차량의 사고도 남는다. */
+    @Transactional(readOnly = true)
+    public List<AccidentResponse> findMine(Long memberId) {
+        return accidentRepository.findAllByMemberId(memberId).stream()
+                .map(AccidentResponse::from)
+                .toList();
     }
 
     @Transactional

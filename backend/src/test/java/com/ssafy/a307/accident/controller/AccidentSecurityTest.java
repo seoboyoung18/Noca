@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -57,5 +58,24 @@ class AccidentSecurityTest {
 
         then(accidentService).should(never()).create(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/{id} — 비로그인 요청은 401이다")
+    void unauthenticatedFindOneIsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/accidents/1"))
+                .andExpect(status().isUnauthorized());
+
+        then(accidentService).should(never()).findOne(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/me — 비로그인 요청은 401이다")
+    void unauthenticatedFindMineIsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/accidents/me"))
+                .andExpect(status().isUnauthorized());
+
+        then(accidentService).should(never()).findMine(org.mockito.ArgumentMatchers.any());
     }
 }

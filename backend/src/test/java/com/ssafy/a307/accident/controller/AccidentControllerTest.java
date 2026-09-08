@@ -21,12 +21,14 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -260,6 +262,71 @@ class AccidentControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("NOT_FOUND"))
                 .andExpect(jsonPath("$.error.message").value("사고를 찾을 수 없습니다."));
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/{id} — 200 과 접수 당시 스냅샷을 준다")
+    void findOne() throws Exception {
+        given(accidentService.findOne(ME, 1L)).willReturn(accident);
+
+        mockMvc.perform(get("/api/accidents/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accidentId").value(1))
+                .andExpect(jsonPath("$.data.manufacturer").value("현대"))
+                .andExpect(jsonPath("$.data.modelName").value("아반떼"))
+                .andExpect(jsonPath("$.data.createdAt").value("2026-09-04T12:00:00Z"));
+
+        then(accidentService).should().findOne(eq(ME), eq(1L));
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/{id} — 없는 사고·남의 사고는 404 NOT_FOUND")
+    void findOneIsNotFound() throws Exception {
+        given(accidentService.findOne(ME, 999L))
+                .willThrow(new BusinessException(ErrorCode.NOT_FOUND, "사고를 찾을 수 없습니다."));
+
+        mockMvc.perform(get("/api/accidents/999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("사고를 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/me — 200 과 accidents 배열을 준다")
+    void findMine() throws Exception {
+        given(accidentService.findMine(ME)).willReturn(List.of(accident));
+
+        mockMvc.perform(get("/api/accidents/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accidents").isArray())
+                .andExpect(jsonPath("$.data.accidents[0].accidentId").value(1))
+                .andExpect(jsonPath("$.data.accidents[0].manufacturer").value("현대"));
+
+        then(accidentService).should().findMine(eq(ME));
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/me — /{accidentId} 매핑에 잡히지 않는다")
+    void meIsNotCapturedByAccidentIdMapping() throws Exception {
+        given(accidentService.findMine(ME)).willReturn(List.of(accident));
+
+        mockMvc.perform(get("/api/accidents/me"))
+                .andExpect(status().isOk());
+
+        then(accidentService).should().findMine(eq(ME));
+        then(accidentService).should(never()).findOne(any(), any());
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/me — 사고가 없으면 404 가 아니라 빈 배열이다")
+    void findMineWithoutAccidents() throws Exception {
+        given(accidentService.findMine(ME)).willReturn(List.of());
+
+        mockMvc.perform(get("/api/accidents/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accidents").isArray())
+                .andExpect(jsonPath("$.data.accidents.length()").value(0));
     }
 
     private void expectDirectVehicleBadRequest(
