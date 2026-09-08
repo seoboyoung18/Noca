@@ -1,3 +1,8 @@
 # 데이터 파이프라인 실행 의존성
+# psycopg    — 스테이징 테이블 적재
+# pandas     — 표준화 워크북(.xlsx)·검증 CSV 읽기
+# openpyxl   — pandas의 .xlsx 리더 백엔드
 # 나머지 모듈(json, csv, zipfile, unicodedata 등)은 모두 표준 라이브러리다.
 psycopg[binary]==3.3.5
+pandas==2.3.3
+openpyxl==3.1.5
