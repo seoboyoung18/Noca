@@ -8,10 +8,14 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -28,6 +32,12 @@ import java.util.List;
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+
+    /** 로그아웃. {@code PUBLIC_PATHS} 에 없어도 LogoutFilter 가 인가 필터보다 앞이라 도달한다. */
+    private static final String LOGOUT_PATH = "/api/auth/logout";
+
+    /** Spring Session 이 세션 ID 를 담는 쿠키 이름(기본값). */
+    private static final String SESSION_COOKIE = "SESSION";
 
     /**
      * 인증 없이 열어 두는 경로. 이보다 넓히면 소유자 검사를 우회할 길이 생긴다.
@@ -91,10 +101,21 @@ public class SecurityConfig {
                 .failureHandler(oAuth2FailureHandler)
             )
             .logout(logout -> logout
-                .logoutUrl("/api/auth/logout")
-                .logoutSuccessHandler((req, res, auth) -> res.setStatus(204))
-                .deleteCookies("SESSION")
+                // logoutUrl() 이 아니라 매처를 직접 준다. csrf 를 끈 상태에서 logoutUrl() 만 쓰면
+                // LogoutFilter 가 GET·PUT·DELETE 까지 받아, <img src=".../api/auth/logout"> 한 줄이나
+                // 브라우저 프리페치만으로 남의 세션이 끊긴다. 명세대로 POST 만 받는다.
+                .logoutRequestMatcher(PathPatternRequestMatcher.withDefaults()
+                    .matcher(HttpMethod.POST, LOGOUT_PATH))
+                // 세션 무효화. Spring Session 이 감싼 세션이라 invalidate() 가 Redis 키까지 지운다
+                // (indexed 저장소여서 principal 인덱스 항목도 함께 정리된다).
                 .invalidateHttpSession(true)
+                .clearAuthentication(true)
+                // Spring Session 도 세션이 죽으면 만료 쿠키를 내려보내지만, 그건 세션 저장소가
+                // 붙어 있을 때만이다. 응답에 만료 Set-Cookie 가 항상 실리도록 여기서도 지운다.
+                .deleteCookies(SESSION_COOKIE)
+                // 본문 없는 204. 인가 필터보다 앞이라 세션이 없어도 여기까지 오며,
+                // 그때도 204 다 — 로그아웃은 멱등이어야 프론트가 버튼을 두 번 눌러도 안전하다.
+                .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT))
             )
             .exceptionHandling(ex -> ex
                 // 401 은 기존 동작(본문 없는 sendError)을 유지한다. 공통 에러 포맷으로 바꾸면
