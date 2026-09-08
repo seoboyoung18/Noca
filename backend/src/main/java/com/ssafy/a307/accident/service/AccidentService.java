@@ -1,6 +1,7 @@
 package com.ssafy.a307.accident.service;
 
 import com.ssafy.a307.accident.dto.AccidentCreateRequest;
+import com.ssafy.a307.accident.dto.AccidentPageResponse;
 import com.ssafy.a307.accident.dto.AccidentResponse;
 import com.ssafy.a307.accident.dto.DirectVehicleInput;
 import com.ssafy.a307.accident.dto.ActualRepairCostRequest;
@@ -14,6 +15,7 @@ import com.ssafy.a307.vehicle.entity.Vehicle;
 import com.ssafy.a307.vehicle.repository.VehicleRepository;
 import com.ssafy.a307.vehicle.service.VehicleRegistrationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -82,6 +84,30 @@ public class AccidentService {
         return accidentRepository.findAllByMemberId(memberId).stream()
                 .map(AccidentResponse::from)
                 .toList();
+    }
+
+    /** 페이지 파라미터 기본값. 명세서에 값이 없어 잠정치이며 컨트롤러와 이 상수만 고치면 된다. */
+    public static final int DEFAULT_PAGE_SIZE = 20;
+
+    /** 한 번에 내보낼 수 있는 상한. 초과 요청은 거절하지 않고 이 값으로 줄인다. */
+    public static final int MAX_PAGE_SIZE = 100;
+
+    /**
+     * 페이지 단위 이력 조회.
+     *
+     * <p>범위를 넘는 {@code page} 는 404 가 아니라 <b>빈 목록 + 200</b> 이다. 목록 API 가
+     * 비어 있는 것은 오류가 아니라는 {@link #findMine} 의 판단을 그대로 따른다.
+     *
+     * <p>음수 {@code page} 와 1 미만 {@code size} 는 400 이 아니라 각각 0·기본값으로 보정한다.
+     * 잘못된 페이지 파라미터로 화면이 깨지는 것보다 첫 페이지를 보여주는 편이 낫고,
+     * 명세서가 이 경우의 오류 코드를 정하지 않았다.
+     */
+    @Transactional(readOnly = true)
+    public AccidentPageResponse findMinePaged(Long memberId, Integer page, Integer size) {
+        int safePage = page == null || page < 0 ? 0 : page;
+        int safeSize = size == null || size < 1 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
+        return AccidentPageResponse.from(
+                accidentRepository.findPageByMemberId(memberId, PageRequest.of(safePage, safeSize)));
     }
 
     @Transactional

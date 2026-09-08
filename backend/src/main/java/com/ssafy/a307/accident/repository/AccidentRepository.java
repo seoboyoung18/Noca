@@ -1,7 +1,10 @@
 package com.ssafy.a307.accident.repository;
 
 import com.ssafy.a307.accident.entity.Accident;
+import com.ssafy.a307.accident.dto.AccidentResponse;
 import com.ssafy.a307.accident.dto.AccidentVehicleSearchCondition;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -51,4 +54,41 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
             order by a.createdAt desc, a.accidentId desc
             """)
     List<Accident> findAllByMemberId(@Param("memberId") Long memberId);
+
+    /**
+     * 페이지 단위 이력 조회. 정렬·소유자 검사·soft delete 정책은 {@link #findAllByMemberId} 와 같다.
+     *
+     * <p><b>{@code join fetch} 를 쓰지 않고 생성자 투영을 쓴다.</b> {@code join fetch} 와
+     * {@code Pageable} 을 함께 주면 Hibernate 가 전체 행을 메모리로 올린 뒤 자르므로
+     * ({@code HHH90003004}) 페이징의 의미가 사라진다. 투영은 LAZY 연관을 아예 건드리지 않아
+     * N+1 도 없고 필요한 열만 읽는다.
+     *
+     * <p>{@code countQuery} 를 따로 준 이유 — 기본 count 는 select 절을 그대로 감싸려 해
+     * 생성자 투영과 맞지 않는다. 정렬은 count 에 불필요하므로 함께 뺐다.
+     */
+    @Query(value = """
+            select new com.ssafy.a307.accident.dto.AccidentResponse(
+                a.accidentId,
+                v.vehicleId,
+                a.vehicleInputType,
+                a.snapshotModelId,
+                a.snapshotManufacturer,
+                a.snapshotModelName,
+                a.snapshotVehicleType,
+                a.snapshotCarClass,
+                cast(a.snapshotModelYear as integer),
+                a.createdAt
+            )
+            from Accident a
+            join a.vehicle v
+            where v.memberId = :memberId
+            order by a.createdAt desc, a.accidentId desc
+            """,
+            countQuery = """
+            select count(a)
+            from Accident a
+            join a.vehicle v
+            where v.memberId = :memberId
+            """)
+    Page<AccidentResponse> findPageByMemberId(@Param("memberId") Long memberId, Pageable pageable);
 }

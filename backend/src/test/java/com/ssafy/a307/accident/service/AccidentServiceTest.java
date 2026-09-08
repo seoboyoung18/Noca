@@ -1,6 +1,7 @@
 package com.ssafy.a307.accident.service;
 
 import com.ssafy.a307.accident.dto.AccidentCreateRequest;
+import com.ssafy.a307.accident.dto.AccidentPageResponse;
 import com.ssafy.a307.accident.dto.AccidentResponse;
 import com.ssafy.a307.accident.dto.AccidentVehicleSearchCondition;
 import com.ssafy.a307.accident.dto.ActualRepairCostRequest;
@@ -534,6 +535,98 @@ class AccidentServiceTest {
         @DisplayName("사고가 한 건도 없으면 예외가 아니라 빈 목록이다")
         void listIsEmptyWhenMemberHasNoAccident() {
             assertThat(accidentService.findMine(ME)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("페이지네이션 — 첫 페이지는 최신순으로 size 만큼만, 메타가 정확하다")
+        void pagedListReturnsFirstPageWithMeta() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            for (int i = 0; i < 3; i++) {
+                accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            }
+            flushAndClear();
+
+            AccidentPageResponse first = accidentService.findMinePaged(ME, 0, 2);
+
+            assertThat(first.accidents()).hasSize(2);
+            assertThat(first.page()).isZero();
+            assertThat(first.size()).isEqualTo(2);
+            assertThat(first.totalElements()).isEqualTo(3);
+            assertThat(first.totalPages()).isEqualTo(2);
+            assertThat(first.hasNext()).isTrue();
+        }
+
+        @Test
+        @DisplayName("페이지네이션 — 마지막 페이지는 hasNext 가 false 이고 남은 건수만 준다")
+        void pagedListMarksLastPage() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            for (int i = 0; i < 3; i++) {
+                accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            }
+            flushAndClear();
+
+            AccidentPageResponse last = accidentService.findMinePaged(ME, 1, 2);
+
+            assertThat(last.accidents()).hasSize(1);
+            assertThat(last.hasNext()).isFalse();
+        }
+
+        @Test
+        @DisplayName("페이지네이션 — 범위를 넘는 page 는 404 가 아니라 빈 목록이다")
+        void pagedListReturnsEmptyBeyondLastPage() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            flushAndClear();
+
+            AccidentPageResponse beyond = accidentService.findMinePaged(ME, 99, 20);
+
+            assertThat(beyond.accidents()).isEmpty();
+            assertThat(beyond.totalElements()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("페이지네이션 — 파라미터가 없으면 첫 페이지 20건이다")
+        void pagedListAppliesDefaults() {
+            AccidentPageResponse defaults = accidentService.findMinePaged(ME, null, null);
+
+            assertThat(defaults.page()).isZero();
+            assertThat(defaults.size()).isEqualTo(AccidentService.DEFAULT_PAGE_SIZE);
+        }
+
+        @Test
+        @DisplayName("페이지네이션 — size 상한을 넘기면 100 으로 줄이고, 음수 page 는 0 으로 보정한다")
+        void pagedListClampsOutOfRangeParams() {
+            AccidentPageResponse clamped = accidentService.findMinePaged(ME, -5, 500);
+
+            assertThat(clamped.page()).isZero();
+            assertThat(clamped.size()).isEqualTo(AccidentService.MAX_PAGE_SIZE);
+        }
+
+        @Test
+        @DisplayName("페이지네이션 — 남의 사고는 총 건수에도 포함되지 않는다")
+        void pagedListExcludesOtherMembersFromTotal() {
+            VehicleResponse mine = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            VehicleResponse theirs = vehicleService.create(OTHER, new VehicleCreateRequest(avante, 2021));
+            accidentService.create(ME, new AccidentCreateRequest(mine.vehicleId()));
+            accidentService.create(OTHER, new AccidentCreateRequest(theirs.vehicleId()));
+            flushAndClear();
+
+            assertThat(accidentService.findMinePaged(ME, 0, 20).totalElements()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("페이지네이션 — 폐차 차량의 사고도 포함되고 스냅샷 값을 그대로 준다")
+        void pagedListKeepsSoftDeletedVehicleSnapshot() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            vehicleService.delete(ME, vehicle.vehicleId());
+            flushAndClear();
+
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+
+            assertThat(paged.accidents()).hasSize(1);
+            assertThat(paged.accidents().getFirst().manufacturer()).isEqualTo("현대");
+            assertThat(paged.accidents().getFirst().modelYear()).isEqualTo(2020);
         }
     }
 

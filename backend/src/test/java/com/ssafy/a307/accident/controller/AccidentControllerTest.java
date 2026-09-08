@@ -1,5 +1,6 @@
 package com.ssafy.a307.accident.controller;
 
+import com.ssafy.a307.accident.dto.AccidentPageResponse;
 import com.ssafy.a307.accident.dto.AccidentResponse;
 import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
 import com.ssafy.a307.accident.entity.VehicleInputType;
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -295,7 +298,7 @@ class AccidentControllerTest {
     @Test
     @DisplayName("GET /api/accidents/me — 200 과 accidents 배열을 준다")
     void findMine() throws Exception {
-        given(accidentService.findMine(ME)).willReturn(List.of(accident));
+        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accident), 0, 20, 1));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk())
@@ -303,30 +306,72 @@ class AccidentControllerTest {
                 .andExpect(jsonPath("$.data.accidents[0].accidentId").value(1))
                 .andExpect(jsonPath("$.data.accidents[0].manufacturer").value("현대"));
 
-        then(accidentService).should().findMine(eq(ME));
+        then(accidentService).should().findMinePaged(eq(ME), eq(null), eq(null));
     }
 
     @Test
     @DisplayName("GET /api/accidents/me — /{accidentId} 매핑에 잡히지 않는다")
     void meIsNotCapturedByAccidentIdMapping() throws Exception {
-        given(accidentService.findMine(ME)).willReturn(List.of(accident));
+        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accident), 0, 20, 1));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk());
 
-        then(accidentService).should().findMine(eq(ME));
+        then(accidentService).should().findMinePaged(eq(ME), eq(null), eq(null));
         then(accidentService).should(never()).findOne(any(), any());
     }
 
     @Test
     @DisplayName("GET /api/accidents/me — 사고가 없으면 404 가 아니라 빈 배열이다")
     void findMineWithoutAccidents() throws Exception {
-        given(accidentService.findMine(ME)).willReturn(List.of());
+        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(), 0, 20, 0));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accidents").isArray())
                 .andExpect(jsonPath("$.data.accidents.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/me — 페이지 메타를 함께 준다")
+    void findMineReturnsPageMeta() throws Exception {
+        given(accidentService.findMinePaged(ME, 1, 20)).willReturn(page(List.of(accident), 1, 20, 21));
+
+        mockMvc.perform(get("/api/accidents/me").param("page", "1").param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.totalElements").value(21))
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+
+        then(accidentService).should().findMinePaged(eq(ME), eq(1), eq(20));
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/me — page·size 를 서비스에 그대로 전달한다")
+    void findMinePassesPageParams() throws Exception {
+        given(accidentService.findMinePaged(ME, 3, 5)).willReturn(page(List.of(), 3, 5, 0));
+
+        mockMvc.perform(get("/api/accidents/me").param("page", "3").param("size", "5"))
+                .andExpect(status().isOk());
+
+        then(accidentService).should().findMinePaged(eq(ME), eq(3), eq(5));
+    }
+
+    @Test
+    @DisplayName("GET /api/accidents/me — 숫자가 아닌 page 는 400 이며 서비스를 부르지 않는다")
+    void findMineRejectsNonNumericPage() throws Exception {
+        mockMvc.perform(get("/api/accidents/me").param("page", "abc"))
+                .andExpect(status().isBadRequest());
+
+        then(accidentService).should(never()).findMinePaged(any(), any(), any());
+    }
+
+    private static AccidentPageResponse page(
+            List<AccidentResponse> content, int page, int size, long total) {
+        return AccidentPageResponse.from(
+                new PageImpl<>(content, PageRequest.of(page, size), total));
     }
 
     private void expectDirectVehicleBadRequest(
