@@ -16,7 +16,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Lob;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
@@ -74,7 +73,21 @@ public class EstimateValidation {
     @Column(name = "llm_grade", length = 20)
     private ValidationGrade llmGrade;
 
-    @Lob
+    /**
+     * LLM 요약. 실제 컬럼은 PostgreSQL {@code TEXT} · H2 {@code VARCHAR} 로 길이 제한이 없다.
+     * <p>
+     * <b>{@code @Lob} 을 붙이면 안 된다.</b> Hibernate 6 부터 {@code @Lob} 이 붙은 String 은
+     * JDBC {@code CLOB} 으로 해석되고, PostgreSQL 에서 {@code CLOB} 은 {@code oid}(Large Object)로
+     * 매핑된다. 기준 DDL 이 {@code TEXT} 라 {@code ddl-auto=validate} 가 기동을 막는다.
+     * 요약 텍스트에 Large Object 는 과하기도 하다 — 값이 {@code pg_largeobject} 에 따로 들어가
+     * 조회하면 숫자 OID 만 보이고, 행을 지워도 고아 객체가 남는다. (S15P21A307-417)
+     * <p>
+     * {@code length} 를 적지 않은 것도 의도다. 지정이 없으면 Hibernate 는 {@code varchar(255)} 로
+     * 보지만 그 값은 <b>DDL 생성에만</b> 쓰이고, 이 프로젝트는 DDL 을 손으로 관리하며
+     * {@code validate} 만 쓴다. 저장 시점에는 길이를 검사하지 않아 255자를 넘겨도 그대로 들어간다
+     * (1000자 저장·조회 실측). 다만 누군가 {@code ddl-auto=update} 로 스키마를 만들면
+     * 그때는 255 가 실제 제한이 되므로, 그 설정을 쓰지 않는다.
+     */
     @Column(name = "llm_summary")
     private String llmSummary;
 

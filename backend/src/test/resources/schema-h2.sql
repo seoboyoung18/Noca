@@ -237,7 +237,9 @@ CREATE TABLE estimate_validation (
     claimed_total    INTEGER,
     llm_model        VARCHAR(50),
     llm_grade        VARCHAR(20),
-    llm_summary      CLOB,
+    -- PostgreSQL DDL 의 TEXT 와 짝을 맞춘다. CLOB 이면 엔티티(String)가 기대하는
+    -- VARCHAR 와 어긋나 스키마 검증이 실패한다.
+    llm_summary      VARCHAR,
     failure_reason   VARCHAR(200),
     review_item_count INTEGER NOT NULL DEFAULT 0,
     total_item_count INTEGER NOT NULL DEFAULT 0,
