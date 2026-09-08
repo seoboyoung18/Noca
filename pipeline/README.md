@@ -57,6 +57,14 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 |---|---|---|
 | 5 | `flag_estimate_outliers.py` | 수리 항목 수·최종금액의 사분위수 기반 이상치를 검수 대상으로 플래그 (삭제하지 않음) |
 
+**D. 검색 테이블 적재** — 앞 결과를 DB로
+
+| 순서 | 스크립트 | 역할 |
+|---|---|---|
+| 6 | `generate_part_name_mapping_seed.py` | 4의 매핑 워크북에서 `part_name_mapping` 기준 데이터 SQL 생성 |
+| 7 | `build_search_sample_sql.py` | 2가 확정한 검색 가능 사고를 `repair_case`·`repair_case_image`·`repair_case_item` 적재 SQL로 생성 |
+| 8 | `load_aihub_damage_dataset.py` | 원천 라벨 JSON을 `aihub_*` 스테이징 테이블에 직접 적재 (검색 테이블과 별개 계층) |
+
 A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. 두 결과를 교차 검증해 합치는 작업은 `part_code` 마스터 확정 후로 남아 있다.
 
 ### 1. category_id 무결성 검증
@@ -152,6 +160,52 @@ python pipeline/jobs/flag_estimate_outliers.py ... --merge-only
 
 배수는 스캔이 아니라 병합 단계에서 적용된다. `--output-dir`의 `case_metrics__shard*.json`을 남겨두면 배수를 바꿀 때 재스캔 없이 `--merge-only`만 다시 돌리면 된다. 사용한 배수와 그때의 사분위수·상한은 `outlier_summary.json`에 기록된다.
 
+### 6. part_name_mapping seed 생성
+
+```bash
+python pipeline/jobs/generate_part_name_mapping_seed.py \
+  --workbook "<표준화 매핑 워크북>.xlsx" \
+  --output "<결과를 쓸 경로>/A307_PART_NAME_MAPPING_SEED.sql"
+```
+
+확정 매핑(`MAPPED`, `MAPPED_EXTENDED`)만 포함한다. 사람 확인이 필요하거나 범위 밖인 항목은 억지로 확정하지 않고 제외한다. `--workbook` 대신 `--workbook-dir`을 주면 그 폴더에서 가장 최근 수정된 `.xlsx`를 쓴다.
+
+### 7. 검색 테이블 적재 SQL 생성
+
+```bash
+python pipeline/jobs/build_search_sample_sql.py \
+  --subset-root "<AI-Hub 견적서 보유 subset 경로>" \
+  --readiness-csv "<2단계 output-dir>/case_search_readiness.csv" \
+  --mapping-workbook "<표준화 매핑 워크북>.xlsx" \
+  --output-dir "<결과를 쓸 경로>" \
+  --sample-cases 10 \
+  --source as
+```
+
+산출물: `A307_SEARCH_SAMPLE_<N>_LOAD.sql`
+
+`as-` 표본은 `총계`와 각 항목의 부품비·공임을 적재한다. 작업 유형이 없는 `신품가` 행은 공임 작업에 합치지 않고 `line_type=PART_PRICE`인 별도 행으로 보존한다. 신품가는 청구 부품비와 다를 수 있어 `reference_part_price`에만 보관하며 `item_total`에는 더하지 않는다. 실제 작업 행은 한글 원문 작업명과 6종 표준 코드(`EXCHANGE`, `REMOVE_INSTALL`, `SHEET_METAL`, `COATING`, `OVERHAUL`, `REPAIR`)를 함께 적재한다.
+
+`sc-`는 `--source sc`로 별도 생성한다. 손해사정 전 부품비·공임을 공통 비용값으로 두고, 손해사정 후 값은 별도 열에 보존한다. 청구액·지급액도 사례 헤더에 저장하되, `as-총계`와는 검증 전까지 한 수리비 분포로 합치지 않는다. ROI 임베딩은 두 표본 모두 적재하지 않는다.
+
+표준 `part_code`가 확인된 항목만 넣고, 확정할 수 없는 항목은 버리지 않고 `data_validation_error`에 남긴다. 오류가 하나라도 있으면 `batch_job_execution.status`가 `PARTIAL`로 기록된다.
+
+`--sample-cases`로 건수를 조절한다. 표본 검증을 끝낸 뒤 늘린다.
+
+기존 로컬 DB에는 먼저 `pipeline/sql/002_repair_case_item_contract.sql`을 적용한다. 이 migration은 `AIHUB_SC` 출처, 부품가격 별도 행, 표준 작업 코드, 손해사정 전·후 비용 열과 배치 오류 로그 테이블을 추가한다.
+
+### 8. 원천 라벨 스테이징 적재
+
+```bash
+python pipeline/jobs/load_aihub_damage_dataset.py \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --dsn "$DATABASE_URL"
+```
+
+`aihub_vehicle_case` / `aihub_vehicle_image` / `aihub_damage_annotation` / `aihub_annotation_repair_method`에 원천 라벨을 그대로 넣는다. 검색 테이블(`repair_case` 계열)과는 별개 계층이다.
+
+`--dry-run`으로 DB 없이 JSON·경로·날짜 포맷만 검증할 수 있다. 날짜는 `MM/DD/YYYY`, `YYYY-MM-DD`, `YYYYMMDD` 세 포맷을 받는다. 파싱하지 못한 값은 조용히 `NULL`로 넘기지 않고, 실행 끝에 원문과 건수를 출력한 뒤 비정상 종료(exit 1)한다.
+
 ### 공통
 
 원천 데이터와 실행 산출물은 저장소 밖에 둔다. `--output-dir`은 저장소 바깥 경로를 지정한다.
@@ -164,7 +218,7 @@ Python 3.10 이상.
 pip install -r pipeline/requirements.txt
 ```
 
-`psycopg` 외 의존성은 없다. 나머지는 모두 표준 라이브러리다.
+의존성은 `psycopg`(적재), `pandas`·`openpyxl`(표준화 워크북·검증 CSV 읽기) 셋이다. 나머지는 모두 표준 라이브러리다.
 
 ## 테스트
 
