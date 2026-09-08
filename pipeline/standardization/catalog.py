@@ -51,3 +51,40 @@ DEFAULT_WORK_BY_DAMAGE = {
     "BREAKAGE": ("REPAIR", "EXCHANGE"),
 }
 
+# ---------------------------------------------------------------------------
+# 견적서 실제 작업 어휘.
+#
+# 위 WORKS 4종은 사진 손상에서 만든 **작업 후보** 규칙이고, 아래는 견적서에
+# 실제로 기재된 작업이다. 두 어휘를 같은 필드나 의미로 섞지 않는다.
+#
+# category
+#   WORK      — 공임이 붙는 수리 작업
+#   ANCILLARY — 수리 작업이 아닌 부대 비용(견인·구난·탁송)
+#   STATUS    — 작업 유형이 아니라 손해사정 상태. 원천이 `작업` 필드를 덮어써
+#               원래 작업 유형은 복구할 수 없다.
+#
+# 값: code -> (원문 대표 표기, 한글 표시명, category)
+ESTIMATE_WORKS = {
+    "COATING": ("도장", "도장", "WORK"),
+    "REPAIR": ("수리", "수리", "WORK"),
+    "SHEET_METAL": ("판금", "판금", "WORK"),
+    "EXCHANGE": ("교환", "교환", "WORK"),
+    "REMOVE_INSTALL": ("탈착", "탈부착", "WORK"),
+    "OVERHAUL": ("오버홀", "오버홀", "WORK"),
+    "OVERHAUL_HALF": ("1/2OH", "1/2 오버홀", "WORK"),
+    "OVERHAUL_THIRD": ("1/3OH", "1/3 오버홀", "WORK"),
+    "OVERHAUL_QUARTER": ("1/4OH", "1/4 오버홀", "WORK"),
+    "ADJUSTMENT": ("조정", "조정", "WORK"),
+    "TOWING": ("견인", "견인", "ANCILLARY"),
+    "RESCUE": ("구난", "구난", "ANCILLARY"),
+    "NOT_APPROVED": ("불인정", "불인정", "STATUS"),
+}
+
+# 원문 표기 흔들림. 대표 표기 외에 실제로 나타나는 별칭만 등록한다.
+ESTIMATE_WORK_ALIASES = {
+    "1/2오버홀": "OVERHAUL_HALF",
+    "1/3오버홀": "OVERHAUL_THIRD",
+    "1/4오버홀": "OVERHAUL_QUARTER",
+    "견인비": "TOWING",
+    "구난비": "RESCUE",
+}
