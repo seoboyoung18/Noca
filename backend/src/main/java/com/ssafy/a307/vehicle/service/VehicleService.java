@@ -6,8 +6,6 @@ import com.ssafy.a307.vehicle.dto.VehicleCreateRequest;
 import com.ssafy.a307.vehicle.dto.VehicleResponse;
 import com.ssafy.a307.vehicle.dto.VehicleUpdateRequest;
 import com.ssafy.a307.vehicle.entity.Vehicle;
-import com.ssafy.a307.vehicle.entity.VehicleModel;
-import com.ssafy.a307.vehicle.repository.VehicleModelRepository;
 import com.ssafy.a307.vehicle.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,7 +22,7 @@ import java.util.List;
 public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
-    private final VehicleModelRepository vehicleModelRepository;
+    private final VehicleRegistrationService vehicleRegistrationService;
 
     /**
      * 같은 회원이 같은 모델·연식을 여러 번 등록할 수 있다 (실제로 같은 차종 2대를 보유할 수 있다).
@@ -32,12 +30,8 @@ public class VehicleService {
      */
     @Transactional
     public VehicleResponse create(Long memberId, VehicleCreateRequest request) {
-        VehicleModel model = vehicleModelRepository.findByModelIdAndActiveTrue(request.modelId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST,
-                        "등록할 수 없는 차량 모델입니다."));
-
-        Vehicle vehicle = vehicleRepository.save(
-                Vehicle.register(memberId, model, request.modelYear().shortValue()));
+        Vehicle vehicle = vehicleRegistrationService.registerByModelId(
+                memberId, request.modelId(), request.modelYear());
 
         // 유효성 검사로 이미 읽은 model 을 그대로 쓴다. 추가 조회 없음.
         return VehicleResponse.from(vehicle);

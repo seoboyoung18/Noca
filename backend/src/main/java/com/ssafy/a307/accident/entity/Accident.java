@@ -1,9 +1,14 @@
 package com.ssafy.a307.accident.entity;
 
 import com.ssafy.a307.vehicle.entity.Vehicle;
+import com.ssafy.a307.vehicle.entity.CarClass;
+import com.ssafy.a307.vehicle.entity.VehicleModel;
+import com.ssafy.a307.vehicle.entity.VehicleType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -45,6 +50,29 @@ public class Accident {
     @JoinColumn(name = "vehicle_id", nullable = false)
     private Vehicle vehicle;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "vehicle_input_type", nullable = false, length = 10, updatable = false)
+    private VehicleInputType vehicleInputType;
+
+    @Column(name = "snapshot_model_id", nullable = false, updatable = false)
+    private Long snapshotModelId;
+
+    @Column(name = "snapshot_manufacturer", nullable = false, length = 50, updatable = false)
+    private String snapshotManufacturer;
+
+    @Column(name = "snapshot_model_name", nullable = false, length = 100, updatable = false)
+    private String snapshotModelName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "snapshot_vehicle_type", nullable = false, length = 20, updatable = false)
+    private VehicleType snapshotVehicleType;
+
+    @Column(name = "snapshot_car_class", nullable = false, length = 20, updatable = false)
+    private CarClass snapshotCarClass;
+
+    @Column(name = "snapshot_model_year", nullable = false, updatable = false)
+    private Short snapshotModelYear;
+
     /** 실제 수리비 입력 API(PUT .../actual-cost)에서 채운다. */
     @Column(name = "actual_repair_cost")
     private Integer actualRepairCost;
@@ -62,12 +90,21 @@ public class Accident {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    private Accident(Vehicle vehicle) {
+    private Accident(Vehicle vehicle, VehicleInputType vehicleInputType) {
         this.vehicle = vehicle;
+        this.vehicleInputType = vehicleInputType;
+
+        VehicleModel model = vehicle.getModel();
+        this.snapshotModelId = model.getModelId();
+        this.snapshotManufacturer = model.getManufacturer();
+        this.snapshotModelName = model.getModelName();
+        this.snapshotVehicleType = model.getVehicleType();
+        this.snapshotCarClass = model.getCarClass();
+        this.snapshotModelYear = vehicle.getModelYear();
     }
 
-    public static Accident open(Vehicle vehicle) {
-        return new Accident(vehicle);
+    public static Accident open(Vehicle vehicle, VehicleInputType vehicleInputType) {
+        return new Accident(vehicle, vehicleInputType);
     }
 
     /** PUT semantics: all actual-repair fields are replaced together. */

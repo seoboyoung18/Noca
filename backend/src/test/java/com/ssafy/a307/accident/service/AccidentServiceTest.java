@@ -2,8 +2,12 @@ package com.ssafy.a307.accident.service;
 
 import com.ssafy.a307.accident.dto.AccidentCreateRequest;
 import com.ssafy.a307.accident.dto.AccidentResponse;
+import com.ssafy.a307.accident.dto.AccidentVehicleSearchCondition;
 import com.ssafy.a307.accident.dto.ActualRepairCostRequest;
 import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
+import com.ssafy.a307.accident.dto.DirectVehicleInput;
+import com.ssafy.a307.accident.entity.VehicleInputType;
+import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.vehicle.dto.VehicleCreateRequest;
@@ -48,6 +52,10 @@ class AccidentServiceTest {
     @Autowired
     private AccidentService accidentService;
     @Autowired
+    private AccidentVehicleSearchConditionResolver searchConditionResolver;
+    @Autowired
+    private AccidentRepository accidentRepository;
+    @Autowired
     private VehicleService vehicleService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -80,12 +88,87 @@ class AccidentServiceTest {
             assertThat(response.accidentId()).isNotNull();
             assertThat(response.createdAt()).isNotNull();
             assertThat(response.vehicleId()).isEqualTo(vehicle.vehicleId());
+            assertThat(response.vehicleInputType()).isEqualTo(VehicleInputType.REGISTERED);
             assertThat(response.modelId()).isEqualTo(avante);
             assertThat(response.manufacturer()).isEqualTo("현대");
             assertThat(response.modelName()).isEqualTo("아반떼");
             assertThat(response.vehicleType()).isEqualTo(VehicleType.SEDAN);
             assertThat(response.carClass()).isEqualTo(CarClass.MID_SIZE);
             assertThat(response.modelYear()).isEqualTo(2020);
+        }
+
+        @Test
+        @DisplayName("등록 차량 접수는 모든 차량 스냅샷 필드를 저장한다")
+        void storesAllRegisteredVehicleSnapshotFields() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+
+            AccidentResponse response = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            flushAndClear();
+
+            Map<String, Object> stored = jdbcTemplate.queryForMap("""
+                    select vehicle_input_type, snapshot_model_id, snapshot_manufacturer,
+                           snapshot_model_name, snapshot_vehicle_type, snapshot_car_class,
+                           snapshot_model_year
+                    from accident where accident_id = ?
+                    """, response.accidentId());
+
+            assertThat(stored.get("VEHICLE_INPUT_TYPE")).isEqualTo("REGISTERED");
+            assertThat(((Number) stored.get("SNAPSHOT_MODEL_ID")).longValue()).isEqualTo(avante);
+            assertThat(stored.get("SNAPSHOT_MANUFACTURER")).isEqualTo("현대");
+            assertThat(stored.get("SNAPSHOT_MODEL_NAME")).isEqualTo("아반떼");
+            assertThat(stored.get("SNAPSHOT_VEHICLE_TYPE")).isEqualTo("SEDAN");
+            assertThat(stored.get("SNAPSHOT_CAR_CLASS")).isEqualTo("Mid-size");
+            assertThat(((Number) stored.get("SNAPSHOT_MODEL_YEAR")).intValue()).isEqualTo(2020);
+        }
+
+        @Test
+        @DisplayName("즉시 입력은 정확한 활성 모델로 차량·사고·스냅샷을 한 트랜잭션에서 만든다")
+        void createsDirectVehicleAndAccident() {
+            int before = vehicleCountFor(ME);
+
+            AccidentResponse response = accidentService.create(
+                    ME, direct("  현대  ", "  아반떼  ", 2020));
+            flushAndClear();
+
+            assertThat(response.vehicleInputType()).isEqualTo(VehicleInputType.DIRECT);
+            assertThat(response.modelId()).isEqualTo(avante);
+            assertThat(response.manufacturer()).isEqualTo("현대");
+            assertThat(response.modelName()).isEqualTo("아반떼");
+            assertThat(response.vehicleType()).isEqualTo(VehicleType.SEDAN);
+            assertThat(response.carClass()).isEqualTo(CarClass.MID_SIZE);
+            assertThat(response.modelYear()).isEqualTo(2020);
+            assertThat(vehicleCountFor(ME)).isEqualTo(before + 1);
+            assertThat(jdbcTemplate.queryForObject(
+                    "select member_id from vehicle where vehicle_id = ?",
+                    Long.class, response.vehicleId())).isEqualTo(ME);
+            assertThat(vehicleService.findMine(ME))
+                    .extracting(VehicleResponse::vehicleId)
+                    .contains(response.vehicleId());
+        }
+
+        @Test
+        @DisplayName("즉시 입력은 제조사·차량명이 정확히 일치하지 않거나 비활성 모델이면 400")
+        void rejectsUnknownOrInactiveDirectModel() {
+            insertModel("현대", "단종차", "SEDAN", "Mid-size", false);
+
+            assertInvalidDirectModel(direct("기아", "아반떼", 2020));
+            assertInvalidDirectModel(direct("현대", "아반떼 AD", 2020));
+            assertInvalidDirectModel(direct("현대", "단종차", 2020));
+        }
+
+        @Test
+        @DisplayName("즉시 입력은 같은 모델·연식 보유 차량이 있어도 새 차량을 만든다")
+        void directInputAllowsDuplicateVehicles() {
+            VehicleResponse existing = vehicleService.create(
+                    ME, new VehicleCreateRequest(avante, 2020));
+
+            AccidentResponse response = accidentService.create(
+                    ME, direct("현대", "아반떼", 2020));
+            flushAndClear();
+
+            assertThat(response.vehicleId()).isNotEqualTo(existing.vehicleId());
+            assertThat(vehicleCountFor(ME)).isEqualTo(2);
         }
 
         @Test
@@ -262,49 +345,82 @@ class AccidentServiceTest {
     }
 
     @Nested
-    @DisplayName("유사 사례 검색 경로 (지시서 3장)")
+    @DisplayName("사고 스냅샷 기반 유사 사례 검색 조건")
     class SimilarCasePath {
 
         @Test
-        @DisplayName("사고 하나로부터 조인만으로 car_class 에 도달한다")
-        void reachesCarClassFromAccident() {
+        @DisplayName("등록 차량과 즉시 입력은 같은 검색 조건 객체로 수렴한다")
+        void bothInputsResolveToSameSearchCondition() {
             VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
-            AccidentResponse accident =
+            AccidentResponse registered =
                     accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            AccidentResponse direct = accidentService.create(
+                    ME, direct("현대", "아반떼", 2020));
             flushAndClear();
 
-            Map<String, Object> row = jdbcTemplate.queryForMap("""
-                    select a.accident_id, v.vehicle_id, v.model_year,
-                           vm.model_id, vm.model_name, vm.car_class
-                    from accident a
-                    join vehicle v        on v.vehicle_id = a.vehicle_id
-                    join vehicle_model vm on vm.model_id  = v.model_id
-                    where a.accident_id = ?
-                    """, accident.accidentId());
-
-            assertThat(row.get("CAR_CLASS")).isEqualTo("Mid-size");
-            assertThat(row.get("MODEL_NAME")).isEqualTo("아반떼");
-            assertThat(((Number) row.get("MODEL_YEAR")).intValue()).isEqualTo(2020);
+            assertSearchCondition(
+                    searchConditionResolver.resolve(ME, registered.accidentId()), registered.accidentId());
+            assertSearchCondition(
+                    searchConditionResolver.resolve(ME, direct.accidentId()), direct.accidentId());
         }
 
         @Test
-        @DisplayName("차량을 소프트 삭제해도 경로가 끊기지 않는다 — 사고 이력에 차종이 남는다")
-        void pathSurvivesSoftDelete() {
+        @DisplayName("차량 수정·삭제와 모델 마스터 변경 후에도 두 분기의 응답·검색 조건은 불변이다")
+        void snapshotSurvivesVehicleAndModelChangesForBothInputs() {
             VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
-            AccidentResponse accident =
+            AccidentResponse registered =
                     accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
-            vehicleService.delete(ME, vehicle.vehicleId());
+            AccidentResponse direct = accidentService.create(
+                    ME, direct("현대", "아반떼", 2020));
+
+            vehicleService.update(ME, registered.vehicleId(),
+                    new com.ssafy.a307.vehicle.dto.VehicleUpdateRequest(2021, null));
+            vehicleService.update(ME, direct.vehicleId(),
+                    new com.ssafy.a307.vehicle.dto.VehicleUpdateRequest(2022, null));
+            vehicleService.delete(ME, registered.vehicleId());
+            vehicleService.delete(ME, direct.vehicleId());
+            jdbcTemplate.update("""
+                    update vehicle_model
+                    set manufacturer = '현대자동차', model_name = '아반떼 변경',
+                        vehicle_type = 'SUV', car_class = 'Full-size'
+                    where model_id = ?
+                    """, avante);
             flushAndClear();
 
-            String carClass = jdbcTemplate.queryForObject("""
-                    select vm.car_class
-                    from accident a
-                    join vehicle v        on v.vehicle_id = a.vehicle_id
-                    join vehicle_model vm on vm.model_id  = v.model_id
-                    where a.accident_id = ?
-                    """, String.class, accident.accidentId());
+            AccidentVehicleSearchCondition registeredCondition =
+                    searchConditionResolver.resolve(ME, registered.accidentId());
+            AccidentVehicleSearchCondition directCondition =
+                    searchConditionResolver.resolve(ME, direct.accidentId());
+            AccidentResponse reloaded = AccidentResponse.from(
+                    accidentRepository.findById(registered.accidentId()).orElseThrow());
 
-            assertThat(carClass).isEqualTo("Mid-size");
+            assertSearchCondition(registeredCondition, registered.accidentId());
+            assertSearchCondition(directCondition, direct.accidentId());
+            assertThat(reloaded.vehicleInputType()).isEqualTo(VehicleInputType.REGISTERED);
+            assertThat(reloaded.manufacturer()).isEqualTo("현대");
+            assertThat(reloaded.modelName()).isEqualTo("아반떼");
+            assertThat(reloaded.vehicleType()).isEqualTo(VehicleType.SEDAN);
+            assertThat(reloaded.carClass()).isEqualTo(CarClass.MID_SIZE);
+            assertThat(reloaded.modelYear()).isEqualTo(2020);
+        }
+
+        @Test
+        @DisplayName("검색 조건 조회도 남의 사고와 없는 사고를 404로 숨긴다")
+        void inaccessibleSearchConditionIsNotFound() {
+            VehicleResponse otherVehicle = vehicleService.create(
+                    OTHER, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse otherAccident = accidentService.create(
+                    OTHER, new AccidentCreateRequest(otherVehicle.vehicleId()));
+            flushAndClear();
+
+            assertThatThrownBy(() -> searchConditionResolver.resolve(ME, otherAccident.accidentId()))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+            assertThatThrownBy(() -> searchConditionResolver.resolve(ME, 999999L))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.NOT_FOUND);
         }
     }
 
@@ -321,12 +437,44 @@ class AccidentServiceTest {
 
     private long insertModel(String manufacturer, String modelName,
                              String vehicleType, String carClass) {
+        return insertModel(manufacturer, modelName, vehicleType, carClass, true);
+    }
+
+    private long insertModel(String manufacturer, String modelName,
+                             String vehicleType, String carClass, boolean active) {
         jdbcTemplate.update(
                 "insert into vehicle_model (manufacturer, model_name, vehicle_type, car_class, is_active)"
-                        + " values (?, ?, ?, ?, true)",
-                manufacturer, modelName, vehicleType, carClass);
+                        + " values (?, ?, ?, ?, ?)",
+                manufacturer, modelName, vehicleType, carClass, active);
         return jdbcTemplate.queryForObject(
                 "select model_id from vehicle_model where manufacturer = ? and model_name = ?",
                 Long.class, manufacturer, modelName);
+    }
+
+    private AccidentCreateRequest direct(String manufacturer, String modelName, int modelYear) {
+        return new AccidentCreateRequest(
+                null, new DirectVehicleInput(manufacturer, modelName, modelYear));
+    }
+
+    private void assertInvalidDirectModel(AccidentCreateRequest request) {
+        assertThatThrownBy(() -> accidentService.create(ME, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
+    }
+
+    private int vehicleCountFor(long memberId) {
+        return jdbcTemplate.queryForObject(
+                "select count(*) from vehicle where member_id = ?", Integer.class, memberId);
+    }
+
+    private void assertSearchCondition(
+            AccidentVehicleSearchCondition condition, Long accidentId) {
+        assertThat(condition.accidentId()).isEqualTo(accidentId);
+        assertThat(condition.modelId()).isEqualTo(avante);
+        assertThat(condition.manufacturer()).isEqualTo("현대");
+        assertThat(condition.modelName()).isEqualTo("아반떼");
+        assertThat(condition.carClass()).isEqualTo(CarClass.MID_SIZE);
+        assertThat(condition.modelYear()).isEqualTo(2020);
     }
 }

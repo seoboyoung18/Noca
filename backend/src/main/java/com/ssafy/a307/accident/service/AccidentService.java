@@ -2,14 +2,17 @@ package com.ssafy.a307.accident.service;
 
 import com.ssafy.a307.accident.dto.AccidentCreateRequest;
 import com.ssafy.a307.accident.dto.AccidentResponse;
+import com.ssafy.a307.accident.dto.DirectVehicleInput;
 import com.ssafy.a307.accident.dto.ActualRepairCostRequest;
 import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
 import com.ssafy.a307.accident.entity.Accident;
+import com.ssafy.a307.accident.entity.VehicleInputType;
 import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.vehicle.entity.Vehicle;
 import com.ssafy.a307.vehicle.repository.VehicleRepository;
+import com.ssafy.a307.vehicle.service.VehicleRegistrationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +29,7 @@ public class AccidentService {
 
     private final AccidentRepository accidentRepository;
     private final VehicleRepository vehicleRepository;
+    private final VehicleRegistrationService vehicleRegistrationService;
 
     /**
      * 같은 차량으로 사고를 여러 건 접수할 수 있다. 막을 이유가 없어 검사하지 않는다.
@@ -33,11 +37,28 @@ public class AccidentService {
      */
     @Transactional
     public AccidentResponse create(Long memberId, AccidentCreateRequest request) {
-        Vehicle vehicle = vehicleRepository
-                .findActiveByVehicleIdAndMemberId(request.vehicleId(), memberId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "차량을 찾을 수 없습니다."));
+        if (!request.isVehicleInputValid()) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_REQUEST,
+                    "vehicleId와 directVehicle 중 정확히 하나가 필요합니다.");
+        }
 
-        return AccidentResponse.from(accidentRepository.save(Accident.open(vehicle)));
+        Vehicle vehicle;
+        VehicleInputType inputType;
+        if (request.vehicleId() != null) {
+            vehicle = vehicleRepository
+                    .findActiveByVehicleIdAndMemberId(request.vehicleId(), memberId)
+                    .orElseThrow(() -> new BusinessException(
+                            ErrorCode.NOT_FOUND, "차량을 찾을 수 없습니다."));
+            inputType = VehicleInputType.REGISTERED;
+        } else {
+            DirectVehicleInput direct = request.directVehicle();
+            vehicle = vehicleRegistrationService.registerByExactModel(
+                    memberId, direct.manufacturer(), direct.modelName(), direct.modelYear());
+            inputType = VehicleInputType.DIRECT;
+        }
+
+        return AccidentResponse.from(accidentRepository.save(Accident.open(vehicle, inputType)));
     }
 
     @Transactional
