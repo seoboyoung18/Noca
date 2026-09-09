@@ -34,6 +34,7 @@ import com.ssafy.a307.estimatevalidation.entity.EstimateValidationItem;
 import com.ssafy.a307.estimatevalidation.entity.EstimateValidationQuestion;
 import com.ssafy.a307.estimatevalidation.entity.ReferenceSnapshot;
 import com.ssafy.a307.estimatevalidation.entity.RepairCostStatReadModel;
+import com.ssafy.a307.estimatevalidation.file.SummaryGenerationPort;
 import com.ssafy.a307.estimatevalidation.repository.EstimateReadRepository;
 import com.ssafy.a307.estimatevalidation.repository.EstimateValidationItemRepository;
 import com.ssafy.a307.estimatevalidation.repository.EstimateValidationQuestionRepository;
@@ -41,6 +42,7 @@ import com.ssafy.a307.estimatevalidation.repository.EstimateValidationRepository
 import com.ssafy.a307.estimatevalidation.repository.EstimateValidationStateView;
 import com.ssafy.a307.estimatevalidation.repository.RepairCostStatRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -55,10 +57,12 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EstimateValidationService {
@@ -76,6 +80,12 @@ public class EstimateValidationService {
     private final PartNameMappingService partNameMappingService;
     private final EstimateValidationProperties properties;
 
+    /**
+     * 요약 생성 어댑터. <b>없어도 된다</b> — 없으면 규칙 기반 템플릿 요약을 그대로 쓴다.
+     * {@code DocumentStoragePort} 와 같은 방식으로 프로퍼티가 켜졌을 때만 빈이 뜬다.
+     */
+    private final Optional<SummaryGenerationPort> summaryPort;
+
     private final EstimateValidationEngine engine = new EstimateValidationEngine();
     private final GradeDecider gradeDecider = new GradeDecider();
     private final RepairShopQuestionGenerator questionGenerator = new RepairShopQuestionGenerator();
@@ -92,6 +102,42 @@ public class EstimateValidationService {
             throw invalid("claimedTotal이 항목 소계 합계와 일치하지 않습니다.");
         }
 
+        EstimateValidation validation = EstimateValidation.processingManual(
+                memberId, accident, request.estimateId(), calculatedTotal);
+        runPipeline(validation, accident, estimate, lines, calculatedTotal, Instant.now());
+        EstimateValidation saved = validationRepository.save(validation);
+
+        return accepted(saved);
+    }
+
+    /**
+     * <b>입력 형태에 의존하지 않는 검증 본체.</b> 직접 입력과 파일 입력이 이것을 공유한다.
+     *
+     * <p>두 경로가 이 로직을 복제하면 <b>같은 견적서가 입력 방식에 따라 다른 등급을 받는</b> 날이
+     * 온다. 항목 리스트가 어디서 왔는지(요청 본문이냐 OCR 결과냐)는 여기 들어오기 전에 끝난
+     * 문제이고, 여기서부터는 완전히 같아야 한다.
+     *
+     * <p>호출자가 다른 것은 두 가지뿐이다.
+     * <ul>
+     *   <li>{@code lines} 의 출처 — 요청 본문 파싱이냐 OCR 결과 변환이냐</li>
+     *   <li>{@code validation} 의 상태 — {@code processingManual} 로 갓 만든 것이냐
+     *       DB 에 이미 있는 {@code PROCESSING} 행이냐</li>
+     * </ul>
+     *
+     * <p>리포트는 <b>없을 때만</b> 만든다. 파일 경로는 접수 시점에 이미 만들어 두었고
+     * ({@code EstimateFileValidationService.registerFile}), 다시 만들면 검증 하나에 리포트가
+     * 둘 생긴다.
+     *
+     * @param claimedTotal 항목 소계 합계. 완료 시 엔티티에 확정된다
+     */
+    @Transactional
+    public void runPipeline(
+            EstimateValidation validation,
+            Accident accident,
+            EstimateReadRepository.EstimateContextView estimate,
+            List<EstimateLine> lines,
+            int claimedTotal,
+            Instant now) {
         List<EstimateReadRepository.AnalyzedPartView> analyzedParts = completedAnalysisParts(estimate);
         AnalysisSnapshot analysis = estimate != null && "COMPLETED".equals(estimate.getAnalysisStatus())
                 ? new AnalysisSnapshot(true, analyzedParts.stream()
@@ -106,12 +152,9 @@ public class EstimateValidationService {
 
         List<ValidatedLine> validatedLines = engine.validate(new ValidationInput(lines, references, analysis));
         int reviewCount = Math.toIntExact(validatedLines.stream().filter(ValidatedLine::reviewRecommended).count());
-        ValidationGrade grade = decideGrade(validatedLines, snapshots, calculatedTotal, estimate, reviewCount);
-        String summary = summary(grade, reviewCount, validatedLines.size(), calculatedTotal, estimate);
-        Instant now = Instant.now();
+        ValidationGrade grade = decideGrade(validatedLines, snapshots, claimedTotal, estimate, reviewCount);
+        String summary = summary(grade, reviewCount, validatedLines.size(), claimedTotal, estimate);
 
-        EstimateValidation validation = EstimateValidation.processingManual(
-                memberId, accident, request.estimateId(), calculatedTotal);
         Map<Integer, EstimateValidationItem> persistedItemsByLine = new HashMap<>();
         for (ValidatedLine validated : validatedLines) {
             String reason = reason(validated, snapshots.get(validated.line().lineNo()));
@@ -131,11 +174,48 @@ public class EstimateValidationService {
             validation.addQuestion(EstimateValidationQuestion.from(
                     validation, persistedItemsByLine.get(generated.lineNo()), generated, now));
         }
-        validation.initializeReport();
-        validation.complete(grade, summary, reviewCount, validatedLines.size(), now);
-        EstimateValidation saved = validationRepository.save(validation);
+        if (validation.getReport() == null) validation.initializeReport();
+        applySummary(validation, grade, summary, reviewCount, validatedLines.size(), claimedTotal, now);
+    }
 
-        return accepted(saved);
+    /**
+     * 요약 문장을 정하고 완료로 넘긴다.
+     *
+     * <p>{@code SummaryGenerationPort} 구현체가 붙어 있으면 그것이 낸 문장을 쓰고, 없거나
+     * <b>실패하면 규칙 기반 템플릿으로 조용히 되돌린다.</b> 요약은 이미 계산이 끝난 값을
+     * 문장으로 옮기는 일일 뿐이라, 그것 때문에 검증 전체가 실패하면 안 된다.
+     *
+     * <p>{@code validationId} 가 아직 없는 신규 행(직접 입력)은 요약 어댑터를 부르지 않는다 —
+     * {@code SummaryRequest} 가 양수 ID 를 요구한다. 직접 입력 경로의 요약은 지금까지처럼
+     * 템플릿이며, 이 점은 answer35 6장에 후속 항목으로 적었다.
+     */
+    private void applySummary(
+            EstimateValidation validation, ValidationGrade grade, String templateSummary,
+            int reviewCount, int itemCount, int claimedTotal, Instant now) {
+        String text = templateSummary;
+        if (summaryPort.isPresent() && validation.getValidationId() != null) {
+            try {
+                SummaryGenerationPort.GeneratedSummary generated = summaryPort.get().generate(
+                        new SummaryGenerationPort.SummaryRequest(
+                                validation.getValidationId(), grade.name(), claimedTotal,
+                                summaryIssues(validation)));
+                text = generated.text();
+                validation.recordSummaryModel(generated.model());
+            } catch (RuntimeException e) {
+                log.warn("요약 생성에 실패해 템플릿 요약을 사용한다. validationId={}",
+                        validation.getValidationId(), e);
+            }
+        }
+        validation.complete(grade, text, reviewCount, itemCount, claimedTotal, now);
+    }
+
+    /** 요약 모델에 넘길 근거. <b>이미 확정된 항목별 판정만 넘긴다</b> — 새 판단을 맡기지 않는다. */
+    private List<SummaryGenerationPort.SummaryIssue> summaryIssues(EstimateValidation validation) {
+        return validation.getItems().stream()
+                .filter(item -> item.getLlmFlag() != null && item.getLlmReason() != null)
+                .map(item -> new SummaryGenerationPort.SummaryIssue(
+                        item.getLineNo(), item.getRawItemName(), item.getLlmFlag().name(), item.getLlmReason()))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -224,6 +304,17 @@ public class EstimateValidationService {
     public Accident ownedAccident(Long memberId, Long accidentId) {
         return accidentRepository.findByAccidentIdAndMemberId(accidentId, memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "사고 건을 찾을 수 없습니다."));
+    }
+
+    /**
+     * 항목 요청을 검증용 {@link EstimateLine} 으로 바꾼다. <b>파일 입력 경로가 쓰는 진입점이다.</b>
+     *
+     * <p>직접 입력이 쓰는 {@code toLines} 를 그대로 부른다 — 작업유형 매핑, 부품명 사전 매핑,
+     * 값 범위 검사가 모두 같다. <b>모델이 냈다고 검증을 느슨하게 하지 않는다.</b>
+     * 별도 경로를 만들면 두 입력이 같은 항목에 다른 판정을 내리기 시작한다.
+     */
+    public List<EstimateLine> toEstimateLines(List<ManualValidationItemRequest> items) {
+        return toLines(items, partNameMappingService.loadDictionary());
     }
 
     private List<EstimateLine> toLines(
