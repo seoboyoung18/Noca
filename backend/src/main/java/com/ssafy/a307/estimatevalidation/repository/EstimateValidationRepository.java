@@ -21,11 +21,48 @@ public interface EstimateValidationRepository extends JpaRepository<EstimateVali
     @EntityGraph(attributePaths = {"accident", "accident.vehicle", "accident.vehicle.model"})
     Optional<EstimateValidation> findByValidationIdAndMemberId(Long validationId, Long memberId);
 
+    /**
+     * 회원 전체 이력. <b>{@code validationId} 가 2차 정렬 키다 — 지우지 말 것.</b>
+     *
+     * <p>{@code created_at} 은 {@code TIMESTAMPTZ DEFAULT now()} 이고 PostgreSQL 의 {@code now()} 는
+     * <b>트랜잭션 시작 시각</b>이다. 한 트랜잭션에서 여러 건을 만들면 {@code created_at} 이
+     * 반드시 같아지고, 1차 키만으로는 상대 순서가 DB 가 정하는 대로가 된다. 그러면
+     * <b>페이지네이션이 깨진다</b> — 1페이지에 보인 항목이 2페이지에 또 나오거나 사라진다.
+     * {@code validation_id} 는 PK 이고 단조 증가하므로 같은 시각 안에서 생성 순서를 그대로 반영한다.
+     * {@code findQueuedIds}·{@code AccidentRepository} 가 쓰는 것과 같은 규칙이다.
+     *
+     * <p><b>{@code @EntityGraph} 를 지우지 말 것.</b> {@code history} 가 사고·차량·모델을 읽으므로
+     * 없으면 건수만큼 추가 쿼리가 나간다. 연관이 모두 ToOne 이라 {@code Page} 와 함께 써도
+     * {@code HHH90003004}(컬렉션 페치 + 페이지네이션) 경고가 나지 않는다.
+     */
     @EntityGraph(attributePaths = {"accident", "accident.vehicle", "accident.vehicle.model"})
-    Page<EstimateValidation> findByMemberIdOrderByCreatedAtDesc(Long memberId, Pageable pageable);
+    @Query("""
+            select v from EstimateValidation v
+             where v.memberId = :memberId
+             order by v.createdAt desc, v.validationId desc
+            """)
+    Page<EstimateValidation> findHistoryByMemberId(@Param("memberId") Long memberId, Pageable pageable);
 
-    java.util.List<EstimateValidation> findByAccident_AccidentIdAndMemberIdAndStatusOrderByCreatedAtDesc(
-            Long accidentId, Long memberId, com.ssafy.a307.estimatevalidation.domain.ValidationStatus status);
+    /**
+     * 한 사고의 완료된 검증들. 정렬 규칙은 {@link #findHistoryByMemberId} 와 같다.
+     *
+     * <p>여기서 순서가 흔들리면 <b>비용 비교의 "가장 최근 견적서" 가 뒤바뀐다</b> —
+     * 최신 견적으로 협상하려는 사용자에게 이전 견적을 먼저 보여 주게 된다.
+     *
+     * <p>{@code @EntityGraph} 를 붙이지 않은 것은 의도다. 호출처({@code CostComparisonService})가
+     * 검증 자신의 값만 읽고 사고·차량을 건드리지 않으므로 페치할 것이 없다.
+     */
+    @Query("""
+            select v from EstimateValidation v
+             where v.accident.accidentId = :accidentId
+               and v.memberId = :memberId
+               and v.status = :status
+             order by v.createdAt desc, v.validationId desc
+            """)
+    List<EstimateValidation> findCompletedByAccident(
+            @Param("accidentId") Long accidentId,
+            @Param("memberId") Long memberId,
+            @Param("status") com.ssafy.a307.estimatevalidation.domain.ValidationStatus status);
 
     /**
      * 큐에서 처리 대기 중인 건의 ID 를 오래된 순으로 가져온다.
@@ -73,13 +110,18 @@ public interface EstimateValidationRepository extends JpaRepository<EstimateVali
      * <p>{@code MANUAL} 을 제외하는 것은 안전장치다. 직접 입력은 한 트랜잭션 안에서
      * PROCESSING 을 거쳐 COMPLETED 로 끝나므로 이 상태로 남을 수 없지만, 남았다면 워커가
      * 건드릴 대상이 아니다 — 워커는 파일을 읽어 처리하는데 직접 입력에는 파일이 없다.
+     *
+     * <p>{@code validationId} 2차 정렬 키는 {@link #findQueuedIds} 와 맞춘 것이다. 여기서는
+     * 어느 것을 먼저 집든 결국 다 처리되므로 사용자에게 보이는 영향이 없지만, <b>같은 파일의
+     * 세 큐 조회가 서로 다른 정렬 규칙을 갖지 않게</b> 한다 — 다르면 다음 사람이 그 차이에
+     * 의미가 있는지 매번 확인해야 한다.
      */
     @Query("""
             select v.validationId from EstimateValidation v
              where v.status = com.ssafy.a307.estimatevalidation.domain.ValidationStatus.PROCESSING
                and v.fileType <> com.ssafy.a307.estimatevalidation.domain.EstimateFileType.MANUAL
                and v.createdAt < :threshold
-             order by v.createdAt asc
+             order by v.createdAt asc, v.validationId asc
             """)
     List<Long> findStaleProcessingIds(@Param("threshold") java.time.Instant threshold, Pageable pageable);
 

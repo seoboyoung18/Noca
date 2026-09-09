@@ -31,8 +31,7 @@ public class CostComparisonService {
         EstimateReadRepository.LatestEstimateView ai = estimateReadRepository
                 .findLatestCompletedForAccident(accidentId).orElse(null);
         List<EstimateValidation> validations = validationRepository
-                .findByAccident_AccidentIdAndMemberIdAndStatusOrderByCreatedAtDesc(
-                        accidentId, memberId, ValidationStatus.COMPLETED);
+                .findCompletedByAccident(accidentId, memberId, ValidationStatus.COMPLETED);
 
         CostComparisonResponse.AiEstimate aiResponse = ai == null ? null : new CostComparisonResponse.AiEstimate(
                 ai.getEstimateId(), ai.getVersion(), ai.getTotalMin(), ai.getTotalMedian(), ai.getTotalMax(),
