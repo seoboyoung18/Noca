@@ -39,7 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * HTTP 계약 검증 — 상태 코드, {data}/{error} 응답 형태, Bean Validation.
- * 인증은 아직 없으므로 CurrentMemberProvider 를 대역으로 바꿔 넣는다.
+ * CurrentMemberProvider 를 대역으로 바꿔 넣고 필터를 꺼 둔다 — 이 슬라이스는 계약만 본다.
+ * <b>인가 검증이 아니다.</b> 비로그인 401 은 {@code AccidentSecurityTest} 가 필터를 켠 채로 본다.
  */
 @WebMvcTest(AccidentController.class)
 @AutoConfigureMockMvc(addFilters = false)

@@ -44,6 +44,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * HTTP 계약 검증 — 상태 코드, {@code {data}}/{@code {error}} 응답 형태, Bean Validation.
  * {@code AccidentControllerTest} 와 같은 방식이다.
+ *
+ * <p>필터를 꺼 두었으므로 <b>인가 검증이 아니다</b> — 비로그인 401 은
+ * {@code AccidentImageSecurityTest} 가 필터를 켠 채로 본다.
  */
 @WebMvcTest(AccidentImageController.class)
 @AutoConfigureMockMvc(addFilters = false)

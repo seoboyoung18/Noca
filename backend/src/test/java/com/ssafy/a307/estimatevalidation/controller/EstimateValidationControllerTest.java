@@ -39,6 +39,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * HTTP 계약만 본다. CurrentMemberProvider 를 대역으로 바꿔 넣고 필터를 꺼 두었으므로
+ * <b>인가 검증이 아니다</b> — 비로그인 401 은 {@code EstimateValidationSecurityTest} 가
+ * 필터를 켠 채로 본다.
+ */
 @WebMvcTest({EstimateValidationController.class, CostComparisonController.class})
 @AutoConfigureMockMvc(addFilters = false)
 class EstimateValidationControllerTest {
