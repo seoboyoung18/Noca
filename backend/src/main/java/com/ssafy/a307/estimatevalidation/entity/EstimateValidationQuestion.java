@@ -20,11 +20,31 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
+/**
+ * 검증 결과에서 생성된 확인 질문.
+ *
+ * <p>{@code @Table(name = ...)} 을 명시한다. Hibernate 기본 명명 전략이 우연히 같은 이름을 만들더라도
+ * 그 우연에 기대지 않는다 — 명명 전략은 설정으로 바뀔 수 있고, 그때 조용히 테이블을 잃는다.
+ *
+ * <p>정본 DDL 의 UNIQUE 두 개를 <b>모두</b> 선언한다. {@code ddl-auto=validate} 는 UNIQUE 를 보지
+ * 않으므로 하나를 빠뜨려도 기동은 되지만, 엔티티만 읽는 사람이 정본에 없는 중복 허용을 가정하게
+ * 된다(answer24 F-6).
+ * <ul>
+ *   <li>{@code uk_evq_item_flag} — 한 항목에 같은 플래그의 질문이 두 번 붙지 않는다</li>
+ *   <li>{@code uk_evq_order} — 한 검증 안에서 표시 순서가 겹치지 않는다</li>
+ * </ul>
+ */
 @Entity
 @Table(
         name = "estimate_validation_question",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uk_evq_item_flag", columnNames = {"validation_item_id", "source_flag"}))
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_evq_item_flag",
+                        columnNames = {"validation_item_id", "source_flag"}),
+                @UniqueConstraint(
+                        name = "uk_evq_order",
+                        columnNames = {"validation_id", "display_order"})
+        })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class EstimateValidationQuestion {
