@@ -32,6 +32,7 @@ public class MemberService {
 
     private final MemberRepository memberRepository;
     private final TermsAgreementRepository termsAgreementRepository;
+    private final ForbiddenNicknamePolicy forbiddenNicknamePolicy;
 
     /** 소셜 로그인 시 회원을 찾는다. 탈퇴 회원은 익명화돼 있어 애초에 걸리지 않는다. */
     @Transactional(readOnly = true)
@@ -71,17 +72,25 @@ public class MemberService {
     }
 
     /**
-     * 닉네임 규칙 위반을 400 으로 바꾼다.
+     * 닉네임을 다듬고 규칙 위반을 400 으로 바꾼다. 길이와 금칙어를 한자리에서 보므로
+     * 가입과 수정이 같은 판정을 받는다.
      * <p>
      * {@link NicknamePolicy} 는 웹 계층을 모르는 순수 정책이라 {@code IllegalArgumentException}
      * 을 던진다. 그대로 두면 전역 핸들러의 catch-all 에 걸려 500 이 나간다.
      */
     private String normalizeNickname(String nickname) {
+        String normalized;
         try {
-            return NicknamePolicy.normalize(nickname);
+            normalized = NicknamePolicy.normalize(nickname);
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, e.getMessage());
         }
+
+        // 어떤 단어가 걸렸는지 알려주지 않는다 — 목록을 역추적해 우회법을 학습시킨다
+        if (forbiddenNicknamePolicy.isForbidden(normalized)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, "사용할 수 없는 닉네임입니다.");
+        }
+        return normalized;
     }
 
     /**

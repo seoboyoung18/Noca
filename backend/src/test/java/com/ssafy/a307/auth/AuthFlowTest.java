@@ -214,6 +214,18 @@ class AuthFlowTest {
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
 
+    /** 금칙어도 가입·수정이 같은 규칙을 쓴다. 가입에서만 통과하면 우회 경로가 된다. */
+    @Test
+    @DisplayName("금칙어가 든 닉네임으로는 가입할 수 없다")
+    void rejectsForbiddenNicknameOnSignup() throws Exception {
+        mockMvc.perform(post("/api/auth/signup")
+                        .session(pendingSession())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody("관리자")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
     @Test
     @DisplayName("이미 가입을 마친 세션으로 다시 가입하면 409 다")
     void rejectsDuplicateSignup() throws Exception {

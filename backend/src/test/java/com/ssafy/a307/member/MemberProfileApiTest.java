@@ -167,6 +167,23 @@ class MemberProfileApiTest {
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
 
+    /** 어떤 단어가 걸렸는지는 알려주지 않는다 — 목록을 역추적해 우회법을 학습시킨다. */
+    @Test
+    @DisplayName("금칙어가 든 닉네임은 거절한다 — 걸린 단어는 알려주지 않는다")
+    void rejectsForbiddenNickname() throws Exception {
+        MockHttpSession session = signedInSession("보영");
+
+        mockMvc.perform(patch("/api/members/me")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nickname":"바른견적운영팀"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.message").value("사용할 수 없는 닉네임입니다."));
+    }
+
     @Test
     @DisplayName("닉네임이 12자를 넘으면 거절한다")
     void rejectsTooLongNickname() throws Exception {
