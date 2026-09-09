@@ -574,6 +574,13 @@ CREATE INDEX ix_ev_accident       ON estimate_validation (accident_id, created_a
 CREATE INDEX ix_ev_queue          ON estimate_validation (status, created_at)
     WHERE status IN ('QUEUED','PROCESSING');
 -- ix_evi_validation 제거: uk_evi (validation_id, line_no) 와 동일
+-- 검증 결과 PDF 생성 큐. estimate_validation_report 의 PK 는 validation_id 라
+-- status·created_at 조회를 덮지 못한다 — 워커의 큐 조회·소진 조회·고아 회수 3개가 그 형태다.
+-- 형태는 ix_er_queue·ix_job_queue 와 같다. 부분 인덱스라 COMPLETED·FAILED 로 끝난 행은
+-- 인덱스에서 빠지므로, 검증이 쌓여도 인덱스는 큐에 남은 건수만큼만 커진다.
+-- retry_count 는 넣지 않았다: 0~3 네 값뿐이라 선택도가 낮고 크기만 커진다.
+CREATE INDEX ix_evr_queue         ON estimate_validation_report (status, created_at)
+    WHERE status IN ('QUEUED','PROCESSING');
 
 -- ── 감사 로그 ──
 CREATE INDEX ix_audit_actor       ON audit_log (actor_member_id, created_at DESC);
