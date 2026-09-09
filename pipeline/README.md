@@ -233,15 +233,18 @@ python -m unittest discover -s pipeline/standardization -t pipeline -p "test_*.p
 `docker-compose.yml`의 `a307-db`(pgvector/pg16)에 빈 DB를 만들 때 아래 순서를 지킨다.
 
 ```
-1) Docs/Erd/A307_ddl_final.sql                      기준 DDL
-2) pipeline/sql/002_repair_case_item_contract.sql   기존 DB만. 신규는 1)에 이미 반영됨
-3) pipeline/sql/003_aihub_staging.sql               원천 스테이징 계층
-4) Docs/Erd/A307_part_code_seed.sql                 part_code 56종
-5) Docs/Erd/A307_part_name_mapping_seed.sql         part_name_mapping 15,308행
+1) Docs/Erd/A307_ddl_final.sql                       기준 DDL
+2) pipeline/sql/002_repair_case_item_contract.sql    기존 DB만. 신규는 1)에 이미 반영됨
+3) pipeline/sql/003_aihub_staging.sql                원천 스테이징 계층
+4) pipeline/sql/004_repair_case_item_line_type.sql   기존 DB만. 신규는 1)에 이미 반영됨
+5) Docs/Erd/A307_part_code_seed.sql                  part_code 56종
+6) Docs/Erd/A307_part_name_mapping_seed.sql          part_name_mapping 15,308행
 ```
 
-**4)가 5)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
+**5)가 6)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
 
 3)은 원천 견적 JSON 원문을 담는 `aihub_estimate_raw`와 AI-Hub 라벨 원천 4종(`aihub_vehicle_case`, `aihub_vehicle_image`, `aihub_damage_annotation`, `aihub_annotation_repair_method`)을 만든다. 전부 `CREATE TABLE IF NOT EXISTS`라 재적용이 안전하다. `aihub_estimate_raw`는 `(source, external_ref)`를 PK로 두어 `ON CONFLICT`로 재실행이 멱등하며, `repair_case`를 FK로 참조하지 않아 Raw 적재가 검색 테이블 적재를 기다리지 않는다.
+
+4)는 2)가 둔 `line_type` 2종(WORK / PART_PRICE)을 4종으로 올리고 손해사정 상태·도장 재료비 컬럼을 추가한다. 2) 다음에 적용한다. 신규 DB는 1)에 이미 반영돼 있다.
 
 기준 ERD를 직접 고치지 않고 `pipeline/sql/` 아래 번호순 migration으로 적용한다. `Docs/Erd/A307_ddl_final.sql`은 백엔드와 공유하는 파일이므로 바꾸면 백엔드 담당자에게 알린다.

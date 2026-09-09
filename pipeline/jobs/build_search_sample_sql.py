@@ -2,7 +2,17 @@
 
 `validate_search_readiness.py`가 확정한 검색 가능 사고 중 앞에서부터 N건을 골라
 `repair_case` / `repair_case_image` / `repair_case_item` INSERT 문을 생성한다.
-ROI 임베딩은 적재하지 않는다. 견적서의 작업 행과 부품가격 행은 분리해 보존한다.
+ROI 임베딩은 적재하지 않는다.
+
+견적서 한 행은 `line_type` 4종으로 갈라 저장한다. 출처(AS/SC)를 몰라도 해석되어야 한다.
+
+  WORK            공임이 붙는 수리 작업. 정산 포함
+  PART_PRICE      SC의 부품 명세. 손해사정에 반영된 부품비. 정산 포함
+  REFERENCE_PRICE AS의 `신품가` 참고 정가. 정산 제외, item_total에 합산하지 않는다
+  ANCILLARY       견인·구난 등 수리가 아닌 부대 비용. part_code가 없다
+
+`불인정`은 행 종류가 아니라 `assessment_status`에 담는다. 원천이 `작업` 필드를
+덮어써서 원래 작업 유형은 복구할 수 없다.
 
 확정할 수 없는 항목은 버리지 않고 `data_validation_error`에 남기며,
 오류가 하나라도 있으면 `batch_job_execution.status`를 PARTIAL로 기록한다.
@@ -29,14 +39,13 @@ from typing import Any
 import pandas as pd
 
 
-# 작업 어휘는 standardization.ESTIMATE_WORKS가 단일 기준이다. 여기에는 어휘를
-# 다시 정의하지 않고, 현재 DB 계약(002 migration의 ck_rci_work)이 받아들이는
-# 코드 집합만 둔다. 행 종류 재설계(S15P21A307-414) 이후 이 제한은 사라진다.
-CONTRACT_WORK_CODES = {
-    "EXCHANGE", "REMOVE_INSTALL", "SHEET_METAL", "COATING", "OVERHAUL", "REPAIR",
-}
-
 ESTIMATE_REL = Path("1.Training") / "1.원천데이터_230126_add" / "TS_99. 붙임_견적서"
+
+# 원천 `부품가격`이 부품비가 아니라 도장 재료비인 작업. 정산상 공임 측 `재료대`에
+# 들어가므로 part_cost와 합치지 않는다. `작업=도장`만 옮기는 것이 가장 정확하다 —
+# 무작위 3,000건 표본에서 SUM(도장 행 부품가격) = 정산.공임.재료대가 AS 100.00%,
+# SC(손해사정후 기준) 99.90% 일치했고, 도장+수리+판금으로 넓히면 AS 81.90%로 떨어진다.
+PAINT_MATERIAL_WORK_CODE = "COATING"
 
 
 def sql_e(value: Any) -> str:
@@ -83,14 +92,23 @@ def new_part_price(raw_name: str) -> int | None:
     return money(match.group(1)) if match else None
 
 
-def estimate_item_costs(item: dict[str, Any], source: str, raw_name: str) -> dict[str, int | None]:
-    """AS/SC의 서로 다른 비용 구조를 공통 행 값으로 정규화한다."""
+def estimate_item_costs(
+    item: dict[str, Any], source: str, raw_name: str, work_code: str | None
+) -> dict[str, int | None]:
+    """AS/SC의 서로 다른 비용 구조를 공통 행 값으로 정규화한다.
+
+    원천 `부품가격`은 `작업=도장`이면 도장 재료비이고 그 밖에는 실제 부품비다.
+    두 의미를 한 열에 넣지 않도록 `work_code`로 갈라 담는다.
+    """
+    is_paint = work_code == PAINT_MATERIAL_WORK_CODE
+
     if source == "AIHUB_AS":
-        part_cost = money(item.get("부품가격"))
+        raw_part_cost = money(item.get("부품가격"))
         reference_part_price = new_part_price(raw_name)
         labor_cost = money(item.get("공임"))
         return {
-            "part_cost": part_cost,
+            "part_cost": None if is_paint else raw_part_cost,
+            "paint_material_cost": raw_part_cost if is_paint else None,
             "labor_cost": labor_cost,
             # 신품가는 청구 부품비와 일치하지 않을 수 있는 기준 가격이다.
             "reference_part_price": reference_part_price,
@@ -98,7 +116,8 @@ def estimate_item_costs(item: dict[str, Any], source: str, raw_name: str) -> dic
             "pre_labor_cost": None,
             "post_part_cost": None,
             "post_labor_cost": None,
-            "item_total": item_total(part_cost, labor_cost),
+            # 재료비는 정산상 공임에 포함되므로 합계에서 빼지 않는다.
+            "item_total": item_total(raw_part_cost, labor_cost),
         }
 
     before = item.get("손해사정전") or {}
@@ -109,7 +128,8 @@ def estimate_item_costs(item: dict[str, Any], source: str, raw_name: str) -> dic
     post_labor_cost = money(after.get("공임"))
     return {
         # SC의 공통 비용값은 손해사정 전 금액이다. 손해사정 후 값은 별도 열에 보존한다.
-        "part_cost": pre_part_cost,
+        "part_cost": None if is_paint else pre_part_cost,
+        "paint_material_cost": pre_part_cost if is_paint else None,
         "labor_cost": pre_labor_cost,
         "reference_part_price": None,
         "pre_part_cost": pre_part_cost,
@@ -228,7 +248,8 @@ def main() -> None:
     loaded_cases = 0
     loaded_images = 0
     loaded_items = 0
-    loaded_part_price_items = 0
+    loaded_by_line_type: dict[str, int] = defaultdict(int)
+    loaded_not_approved_items = 0
 
     for ordinal, case_id in enumerate(case_ids, start=1):
         estimate_path = estimate_dir / f"{case_id}.json"
@@ -312,11 +333,10 @@ def main() -> None:
             raw_name = str(item.get("작업항목 및 부품명") or "").strip()
             part_code = mapping.get(raw_name)
             work_type = str(item.get("작업") or "").strip()
-            costs = estimate_item_costs(item, source, raw_name)
-            if not part_code:
-                if raw_name:
-                    errors.append(("unknown_part_code", case_id, raw_name, {"work_type": work_type}))
-                continue
+            # SC는 손해사정을 거친 출처다. AS 견적서에는 손해사정 개념이 없어 NULL로 둔다.
+            assessment_status = "APPROVED" if source == "AIHUB_SC" else None
+            stored_work_type: str | None = work_type or None
+
             if work_type:
                 try:
                     work = normalize_estimate_work(work_type)
@@ -328,47 +348,74 @@ def main() -> None:
                         "reason": str(exc),
                     }))
                     continue
-                if work["category"] != "WORK" or work["code"] not in CONTRACT_WORK_CODES:
-                    # 어휘는 아는 값이지만 현재 DB 계약이 받지 못한다.
-                    # 부대 비용(견인·구난), 손해사정 상태(불인정), 부분 오버홀, 조정이 여기 걸린다.
-                    errors.append(("work_type_outside_contract", case_id, raw_name, {
-                        "work_type": work_type,
-                        "work_code": work["code"],
-                        "category": work["category"],
+                if work["category"] == "ANCILLARY":
+                    # 견인·구난은 수리 작업이 아닌 부대 비용이다. 원문 부품명이
+                    # `견인비`·`구난료`·`탁송비`처럼 부품이 아니어서 part_code가 없다.
+                    line_type = "ANCILLARY"
+                    work_code = work["code"]
+                elif work["category"] == "STATUS":
+                    # `불인정`은 작업 유형이 아니라 손해사정 결과다. 원천이 `작업` 필드를
+                    # 덮어써서 원래 작업 유형은 복구할 수 없으므로 work_type·work_code를
+                    # 비우고 상태만 남긴다. 원문 `불인정`은 assessment_status로 복구된다.
+                    line_type = "WORK"
+                    work_code = None
+                    stored_work_type = None
+                    assessment_status = "NOT_APPROVED"
+                else:
+                    line_type = "WORK"
+                    work_code = work["code"]
+            else:
+                work_code = None
+                probe = estimate_item_costs(item, source, raw_name, None)
+                if source == "AIHUB_AS" and probe["reference_part_price"] is not None:
+                    # AS `신품가`는 정산에 포함되지 않는 참고 정가다. item_total에 합산하지 않는다.
+                    line_type = "REFERENCE_PRICE"
+                elif source == "AIHUB_SC" and probe["part_cost"] is not None and probe["labor_cost"] in {None, 0}:
+                    # SC의 부품가격 행은 손해사정에 반영된 부품 명세다. 정산에 포함된다.
+                    line_type = "PART_PRICE"
+                else:
+                    errors.append(("missing_work_type", case_id, raw_name, {
                         "part_code": part_code,
+                        "part_cost": probe["part_cost"],
+                        "reference_part_price": probe["reference_part_price"],
+                        "labor_cost": probe["labor_cost"],
                     }))
                     continue
-                work_code = work["code"]
-                line_type = "WORK"
-            elif (costs["part_cost"] is not None or costs["reference_part_price"] is not None) and (costs["labor_cost"] in {None, 0}):
-                # 신품가 또는 SC의 부품가격 행은 작업 공임에 억지로 합치지 않는다.
-                line_type = "PART_PRICE"
-                work_code = None
-            else:
-                errors.append(("missing_work_type", case_id, raw_name, {
-                    "part_code": part_code,
-                    "part_cost": costs["part_cost"],
-                    "reference_part_price": costs["reference_part_price"],
-                    "labor_cost": costs["labor_cost"],
-                }))
+
+            if not part_code and line_type != "ANCILLARY":
+                if raw_name:
+                    errors.append(("unknown_part_code", case_id, raw_name, {
+                        "work_type": work_type,
+                        "line_type": line_type,
+                    }))
                 continue
+
+            costs = estimate_item_costs(item, source, raw_name, work_code)
+            if assessment_status == "NOT_APPROVED":
+                # 원래 작업이 도장인지 알 수 없어 `부품가격`을 부품비·재료비 어느 쪽으로도
+                # 확정할 수 없다. 원천 금액은 pre_adjustment_* 열에 그대로 보존된다.
+                # item_total은 그대로 둔다 — 합계는 원천에서 확정되고 나누는 것만 안 된다.
+                costs = {**costs, "part_cost": None, "paint_material_cost": None}
+
             case_sql.extend(
                 [
-                    "INSERT INTO repair_case_item (case_id, part_code, raw_item_name, line_type, work_type, work_code, hq, reference_part_price, part_cost, labor_cost, pre_adjustment_part_cost, pre_adjustment_labor_cost, post_adjustment_part_cost, post_adjustment_labor_cost, item_total)",
-                    f"VALUES (:case_{ordinal}_case_id, {sql_e(part_code)}, {sql_e(raw_name)}, {sql_e(line_type)}, {sql_e(work_type) if work_type else 'NULL'}, {sql_e(work_code)}, {sql_num(item.get('HQ%'))}, {sql_num(costs['reference_part_price'])}, {sql_num(costs['part_cost'])}, {sql_num(costs['labor_cost'])}, {sql_num(costs['pre_part_cost'])}, {sql_num(costs['pre_labor_cost'])}, {sql_num(costs['post_part_cost'])}, {sql_num(costs['post_labor_cost'])}, {sql_num(costs['item_total'])});",
+                    "INSERT INTO repair_case_item (case_id, part_code, raw_item_name, line_type, work_type, work_code, assessment_status, hq, reference_part_price, part_cost, paint_material_cost, labor_cost, pre_adjustment_part_cost, pre_adjustment_labor_cost, post_adjustment_part_cost, post_adjustment_labor_cost, item_total)",
+                    f"VALUES (:case_{ordinal}_case_id, {sql_e(part_code)}, {sql_e(raw_name)}, {sql_e(line_type)}, {sql_e(stored_work_type)}, {sql_e(work_code)}, {sql_e(assessment_status)}, {sql_num(item.get('HQ%'))}, {sql_num(costs['reference_part_price'])}, {sql_num(costs['part_cost'])}, {sql_num(costs['paint_material_cost'])}, {sql_num(costs['labor_cost'])}, {sql_num(costs['pre_part_cost'])}, {sql_num(costs['pre_labor_cost'])}, {sql_num(costs['post_part_cost'])}, {sql_num(costs['post_labor_cost'])}, {sql_num(costs['item_total'])});",
                     "",
                 ]
             )
             loaded_items += 1
-            if line_type == "PART_PRICE":
-                loaded_part_price_items += 1
+            loaded_by_line_type[line_type] += 1
+            if assessment_status == "NOT_APPROVED":
+                loaded_not_approved_items += 1
 
     batch_summary = {
         "requested_cases": len(case_ids),
         "loaded_cases": loaded_cases,
         "loaded_images": loaded_images,
         "loaded_items": loaded_items,
-        "loaded_part_price_items": loaded_part_price_items,
+        "loaded_items_by_line_type": dict(sorted(loaded_by_line_type.items())),
+        "loaded_not_approved_items": loaded_not_approved_items,
         "validation_errors": len(errors),
         "source": args.source,
         "source_workbook": Path(args.mapping_workbook).name,
@@ -379,14 +426,15 @@ def main() -> None:
         "-- ============================================================",
         f"-- A307 · 검색 표본 적재 ({len(case_ids)} cases)",
         "-- 대상: repair_case, repair_case_image, repair_case_item",
-        "-- 견적 금액·작업 행·부품가격 행을 적재한다. ROI 임베딩은 적재하지 않는다.",
+        "-- 견적 금액을 line_type 4종(WORK/PART_PRICE/REFERENCE_PRICE/ANCILLARY)으로 적재한다.",
+        "-- ROI 임베딩은 적재하지 않는다.",
         "-- 로컬 DB에서 1회성 표본 검증용으로 생성된 SQL이다.",
         "-- ============================================================",
         "\\set ON_ERROR_STOP on",
         "BEGIN;",
         "",
         "INSERT INTO batch_job_execution (job_name, job_version, status, input_ref, summary)",
-        f"VALUES ('search_sample_load', '002', 'RUNNING', {sql_e(Path(args.readiness_csv).name)}, {json_sql(batch_summary)})",
+        f"VALUES ('search_sample_load', '003', 'RUNNING', {sql_e(Path(args.readiness_csv).name)}, {json_sql(batch_summary)})",
         "RETURNING batch_job_execution_id \\gset batch_",
         "",
     ]

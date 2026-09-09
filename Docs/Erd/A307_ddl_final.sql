@@ -237,33 +237,62 @@ CREATE TABLE repair_case (
 CREATE TABLE repair_case_item (
     case_item_id  BIGSERIAL   PRIMARY KEY,
     case_id       BIGINT      NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
-    part_code     VARCHAR(50) NOT NULL REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    -- ANCILLARY 행은 부품이 아니라 부대 비용이라 표준 부품 코드가 없다.
+    -- 검색 대상 행 종류(WORK/PART_PRICE/REFERENCE_PRICE)는 ck_rci_part_code로 NOT NULL을 유지한다.
+    part_code     VARCHAR(50) REFERENCES part_code(part_code) ON DELETE RESTRICT,
     raw_item_name VARCHAR(500),
+    -- 행 종류. 출처(AIHUB_AS / AIHUB_SC)를 몰라도 해석되도록 4종으로 나눈다.
+    --   WORK            공임이 붙는 수리 작업. 정산 포함
+    --   PART_PRICE      손해사정에 반영된 부품 명세. 정산 포함
+    --   REFERENCE_PRICE AS 견적서의 `신품가` 참고 정가. 정산 제외, item_total 미합산
+    --   ANCILLARY       견인·구난 등 수리가 아닌 부대 비용. 정산 포함
     line_type     VARCHAR(20) NOT NULL DEFAULT 'WORK',
     work_type     VARCHAR(20),
     work_code     VARCHAR(30),
+    -- 손해사정 상태. `불인정`은 작업 유형이 아니라 손해사정 결과라 line_type이 아닌 여기에 둔다.
+    --   NULL / APPROVED / NOT_APPROVED
+    -- 원천이 `작업` 필드를 `불인정`으로 덮어써서 그 행의 원래 작업 유형(판금·도장 등)은
+    -- 복구할 수 없다. NOT_APPROVED 행의 work_type·work_code가 NULL인 것은 적재 누락이
+    -- 아니라 원천에 정보가 없다는 뜻이다.
+    assessment_status VARCHAR(20),
     hq            NUMERIC(6,2),
     reference_part_price INTEGER,
     part_cost     INTEGER,
+    -- 원천 `부품가격`은 `작업=도장`인 행에서 부품비가 아니라 도장 재료비이고, 정산상
+    -- 공임 측 `재료대`에 들어간다. part_cost와 합치면 부품 비용 통계가 틀어지므로 분리한다.
+    paint_material_cost INTEGER,
     labor_cost    INTEGER,
     pre_adjustment_part_cost  INTEGER,
     pre_adjustment_labor_cost INTEGER,
     post_adjustment_part_cost  INTEGER,
     post_adjustment_labor_cost INTEGER,
     item_total    INTEGER,
-    CONSTRAINT ck_rci_line_type CHECK (line_type IN ('WORK','PART_PRICE')),
+    CONSTRAINT ck_rci_line_type CHECK (line_type IN ('WORK','PART_PRICE','REFERENCE_PRICE','ANCILLARY')),
+    CONSTRAINT ck_rci_assessment CHECK (
+        assessment_status IS NULL OR assessment_status IN ('APPROVED','NOT_APPROVED')
+    ),
+    CONSTRAINT ck_rci_part_code CHECK (line_type = 'ANCILLARY' OR part_code IS NOT NULL),
+    -- 작업 어휘는 standardization.ESTIMATE_WORKS가 단일 기준이다. 여기서는 코드 집합만
+    -- 검사하고 (work_type, work_code) 쌍은 열거하지 않는다. work_type은 별칭이 흔들리는
+    -- 원문(`견인비`→TOWING)이라 쌍으로 묶으면 별칭마다 migration이 필요해진다.
+    -- NOT_APPROVED는 assessment_status로 가므로 여기 없다.
+    CONSTRAINT ck_rci_work_code CHECK (
+        work_code IS NULL OR work_code IN (
+            'COATING','REPAIR','SHEET_METAL','EXCHANGE','REMOVE_INSTALL','OVERHAUL',
+            'OVERHAUL_HALF','OVERHAUL_THIRD','OVERHAUL_QUARTER','ADJUSTMENT',
+            'TOWING','RESCUE'
+        )
+    ),
     CONSTRAINT ck_rci_work CHECK (
-        (line_type = 'PART_PRICE' AND work_type IS NULL AND work_code IS NULL)
+        (line_type IN ('PART_PRICE','REFERENCE_PRICE')
+         AND work_type IS NULL AND work_code IS NULL)
         OR
-        (line_type = 'WORK' AND work_type IS NOT NULL AND work_code IS NOT NULL
-         AND (work_type, work_code) IN (
-             ('교환', 'EXCHANGE'),
-             ('탈착', 'REMOVE_INSTALL'),
-             ('판금', 'SHEET_METAL'),
-             ('도장', 'COATING'),
-             ('오버홀', 'OVERHAUL'),
-             ('수리', 'REPAIR')
-         ))
+        -- `탁송`은 `작업` 값이 아니다. 원천에 `작업=탁송`은 0건이고 `탁송비`는 부품명으로
+        -- 나타나며 그 행의 `작업`은 견인 또는 구난이다.
+        (line_type = 'ANCILLARY' AND work_code IN ('TOWING','RESCUE'))
+        OR
+        -- 불인정 행은 원래 작업 유형이 복구 불가능하므로 work_code 없이 허용한다.
+        (line_type = 'WORK' AND (work_code IS NOT NULL OR assessment_status = 'NOT_APPROVED'))
     )
 );
 
