@@ -8,10 +8,19 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * 사고 이미지 스토리지 경계. <b>어댑터는 이 작업에서 만들지 않는다</b> —
- * AWS SDK 의존성 추가가 금지되어 있고 {@code S15P21A307-217 S3 버킷·IAM 정책 구성} 이 선행이다.
- * {@code DocumentStoragePort} 가 구현체 없이 포트만 있는 전례를 그대로 따르고, 소비자는
- * {@code Optional<AccidentImageStoragePort>} 로 주입받아 없으면 503 을 준다.
+ * 사고 이미지 스토리지 경계.
+ *
+ * <p><b>구현체는 프로퍼티로만 붙는다.</b> 소비자는 {@code Optional<AccidentImageStoragePort>} 로
+ * 받아 없으면 503 을 준다 — 가짜 성공이나 하드코딩 URL 을 만들지 않는다. 버킷을 비워 둔
+ * 로컬·테스트에서 AWS 를 요구하지 않기 위해서다.
+ *
+ * <p><b>이 Javadoc 은 원래 "어댑터는 이 작업에서 만들지 않는다 — AWS SDK 의존성 추가가
+ * 금지되어 있고 S15P21A307-217 이 선행이다" 고 적었다. 둘 다 더 이상 사실이 아니다 — 정정.</b>
+ * AWS SDK 는 {@code S15P21A307-89}(프로필 이미지) 때 이미 들어왔고
+ * ({@code software.amazon.awssdk:s3}, presigner 는 같은 모듈에 포함된다),
+ * 버킷과 기본 IAM 권한({@code ListBucket}·{@code PutObject}·{@code GetObject}·
+ * {@code DeleteObject}·{@code HeadObject})은 실측으로 확인됐다.
+ * 그래서 {@code S15P21A307-139}·{@code S15P21A307-142} 가 {@link S3AccidentImageStorage} 를 만들었다.
  *
  * <p><b>{@code DocumentStoragePort} 를 확장하지 않고 신설했다</b>(answer25 D5). 견적서 문서는
  * {@code store(byte[])} 와 다운로드 presigned 만 필요한데 이미지는 업로드 presigned·키 기준 읽기·
