@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bareun-gyeonjeok.example/schemas/search-metadata-1.0.0.json",
+  "title": "Bareun Quote search metadata",
+  "description": "One searchable metadata record per damage ROI. This is derived from the raw YOLO output and the standardized inference output; embeddings are stored separately.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case",
+    "image",
+    "roi",
+    "features",
+    "search",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "source",
+        "car_class"
+      ],
+      "properties": {
+        "case_id": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "minLength": 1
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "car_class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_id",
+        "source_image_ref",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "image_id": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "minLength": 1
+        },
+        "source_image_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "roi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roi_id",
+        "detection_id",
+        "bbox",
+        "quality_status",
+        "is_searchable",
+        "quality_reasons",
+        "part_clipped"
+      ],
+      "properties": {
+        "roi_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "coordinate_system",
+            "format",
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "coordinate_system": {
+              "const": "PIXEL_XY_TOP_LEFT"
+            },
+            "format": {
+              "const": "XYWH"
+            },
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "height": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "area_px": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "area_ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "quality_status": {
+          "type": "string",
+          "enum": [
+            "GOOD",
+            "LOW_CONFIDENCE",
+            "PARTIAL_PART",
+            "INVALID"
+          ]
+        },
+        "is_searchable": {
+          "type": "boolean"
+        },
+        "padding_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "effective_padding": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number"
+          }
+        },
+        "clipped": {
+          "type": "boolean"
+        },
+        "quality_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "part_clipped": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_code",
+        "damage_type",
+        "confidence"
+      ],
+      "properties": {
+        "part_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "damage_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "part",
+            "damage"
+          ],
+          "properties": {
+            "part": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "damage": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "is_searchable",
+        "exclusion_reason"
+      ],
+      "properties": {
+        "is_searchable": {
+          "type": "boolean"
+        },
+        "exclusion_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pipeline_version_id",
+        "model_name",
+        "model_version",
+        "raw_contract_version",
+        "normalization_version",
+        "roi_preprocessing_version"
+      ],
+      "properties": {
+        "model_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_contract_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalization_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "roi_preprocessing_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pipeline_version_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

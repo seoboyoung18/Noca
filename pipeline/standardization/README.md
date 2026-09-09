@@ -164,3 +164,13 @@ python -m unittest standardization.test_normalizer -v
 ## 모델 개발자에게 추가로 고정 요청할 항목
 
 raw 계약은 이미 확정되었으므로 bbox 포맷과 좌표계를 추가 협의 항목으로 두지 않는다. `normalize_inference` 내부 입력은 raw 모델 결과를 부품·손상 매칭한 뒤 사용하는 정규화 어댑터 입력이며, 모델 개발자에게 raw 결과 형식을 다시 요구하지 않는다.
+
+## 검색 메타데이터 계약
+
+`search_metadata_schema.json`은 정규화 출력에서 검색에 사용할 ROI 단위 메타데이터를 만든다. 한 손상 ROI마다 하나의 레코드다.
+
+`part_code`·`damage_type`은 1차 후보 필터의 강한 조건, `car_class`는 약한 조건이다. 심각도와 수리 방식은 검색 축에서 제외한다 — 수리 방식은 설계 2절 전제 5번대로 결과 통계·평가 지표로만 쓴다. `pipeline_version_id`는 필수이며 검색은 같은 값끼리만 비교한다.
+
+`quality_status`는 `GOOD` / `LOW_CONFIDENCE` / `PARTIAL_PART` / `INVALID` 4종이고 사유는 `quality_reasons` 목록에 남긴다. `PARTIAL_PART`는 부품 bbox가 이미지 경계에 닿은 경우(`part_clipped`)이며 규칙 버전은 `PART_CLIP_RULE_VERSION`이다. 좌표 비교만 하고 화면 밖 면적을 추정하지 않으므로 임계값을 정당화할 필요가 없고 표본으로 정오를 셀 수 있다. 대신 가려진 부품은 잡지 못한다. 설계의 `part_visibility_ratio`는 산출법이 정해질 때까지 null로 둔다.
+
+검색 메타데이터에는 임베딩 벡터를 넣지 않는다. ROI 전처리 버전과 모델·정규화 버전만 provenance로 보존하고, 벡터와 모델 버전은 `repair_case_roi_embedding`에서 별도로 관리한다. AI-Hub 원본 `level`은 `aihub_damage_annotation.severity_level`에 참고값으로만 남기고 검색 메타데이터에는 넣지 않는다.

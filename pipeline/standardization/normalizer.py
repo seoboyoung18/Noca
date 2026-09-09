@@ -127,7 +127,7 @@ def normalize_detection(raw: dict[str, Any], width: int, height: int,
         {"code": code, "name_en": WORKS[code][0], "name_ko": WORKS[code][1]}
         for code in DEFAULT_WORK_BY_DAMAGE[damage_code]
     ]
-    return {
+    result = {
         "part": {"code": part_code, "name_en": part_en, "name_ko": part_ko,
                  "group": group, "side": side, "raw_label": part_raw},
         "damage": {"code": damage_code, "name_en": damage_en,
@@ -149,6 +149,9 @@ def normalize_detection(raw: dict[str, Any], width: int, height: int,
         "work_decision": "CANDIDATE",
         "work_rule_version": "damage-default-v1",
     }
+    if raw.get("detection_id") is not None:
+        result["detection_id"] = str(raw["detection_id"])
+    return result
 
 
 def normalize_inference(payload: dict[str, Any]) -> dict[str, Any]:
