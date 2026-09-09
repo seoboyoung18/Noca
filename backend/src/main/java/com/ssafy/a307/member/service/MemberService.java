@@ -45,6 +45,46 @@ public class MemberService {
     }
 
     /**
+     * 세션이 가리키는 회원을 꺼낸다. 없거나 탈퇴 상태면 401 로 끊는다.
+     * <p>
+     * 인가 규칙이 {@code ROLE_USER} 이상을 요구하므로 여기 도달하면 회원이 확정돼 있어야
+     * 정상이다. 그래도 확인하는 이유는 세션은 살아 있는데 회원 행이 사라진 상태
+     * (다른 기기에서 탈퇴 등)가 가능하기 때문이다.
+     */
+    @Transactional(readOnly = true)
+    public Member activeMember(Long memberId) {
+        return memberRepository.findById(memberId)
+                .filter(Member::isActive)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.UNAUTHORIZED, "다시 로그인해 주세요."));
+    }
+
+    /**
+     * 닉네임을 바꾼다. <b>중복 검사를 하지 않는다</b> — 소셜 전용이라 닉네임이 식별자가 아니고
+     * DDL 에도 유니크 제약이 없다. 값이 겹쳐도 로그인·조회에 영향이 없다.
+     */
+    @Transactional
+    public Member changeNickname(Long memberId, String nickname) {
+        Member member = activeMember(memberId);
+        member.changeNickname(normalizeNickname(nickname));
+        return member;
+    }
+
+    /**
+     * 닉네임 규칙 위반을 400 으로 바꾼다.
+     * <p>
+     * {@link NicknamePolicy} 는 웹 계층을 모르는 순수 정책이라 {@code IllegalArgumentException}
+     * 을 던진다. 그대로 두면 전역 핸들러의 catch-all 에 걸려 500 이 나간다.
+     */
+    private String normalizeNickname(String nickname) {
+        try {
+            return NicknamePolicy.normalize(nickname);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
      * 약관 동의를 마친 신규 회원을 만든다. 회원과 동의 이력을 같은 트랜잭션에서 남긴다 —
      * 회원만 생기고 동의 이력이 빠지면 증빙이 사라지기 때문이다.
      * <p>
@@ -62,7 +102,7 @@ public class MemberService {
                     throw new BusinessException(ErrorCode.CONFLICT, "이미 가입된 계정입니다.");
                 });
 
-        Member member = insertMember(provider, providerUserId, nickname);
+        Member member = insertMember(provider, providerUserId, normalizeNickname(nickname));
 
         List<TermsAgreement> agreements = agreedTerms.stream()
                 .map(type -> TermsAgreement.of(member.getMemberId(), type, TermsPolicy.currentVersion(type)))

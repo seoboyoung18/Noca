@@ -199,6 +199,21 @@ class AuthFlowTest {
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
 
+    /**
+     * 가입과 수정이 같은 닉네임 규칙을 쓴다({@code NicknamePolicy}). 여기서 통과하는 값이
+     * {@code PATCH /api/members/me} 에서 거절되면 사용자가 이유를 알 수 없다.
+     */
+    @Test
+    @DisplayName("닉네임이 2자 미만이면 거절한다 — 수정과 같은 규칙이다")
+    void rejectsTooShortNickname() throws Exception {
+        mockMvc.perform(post("/api/auth/signup")
+                        .session(pendingSession())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody("영")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
     @Test
     @DisplayName("이미 가입을 마친 세션으로 다시 가입하면 409 다")
     void rejectsDuplicateSignup() throws Exception {

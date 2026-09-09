@@ -36,8 +36,13 @@ public class SecurityConfig {
     /** 로그아웃. {@code PUBLIC_PATHS} 에 없어도 LogoutFilter 가 인가 필터보다 앞이라 도달한다. */
     private static final String LOGOUT_PATH = "/api/auth/logout";
 
-    /** Spring Session 이 세션 ID 를 담는 쿠키 이름(기본값). */
-    private static final String SESSION_COOKIE = "SESSION";
+    /**
+     * Spring Session 이 세션 ID 를 담는 쿠키 이름(기본값).
+     * <p>
+     * 탈퇴({@code DELETE /api/members/me})도 같은 쿠키를 지워야 해서 공개한다.
+     * 쿠키 이름을 두 군데 적으면 한쪽만 바뀌었을 때 탈퇴 후 쿠키가 남는다.
+     */
+    public static final String SESSION_COOKIE = "SESSION";
 
     /**
      * 인증 없이 열어 두는 경로. 이보다 넓히면 소유자 검사를 우회할 길이 생긴다.
