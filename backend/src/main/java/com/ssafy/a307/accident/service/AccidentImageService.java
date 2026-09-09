@@ -95,11 +95,14 @@ public class AccidentImageService {
             String key = AccidentImageKeys.key(
                     accidentId, image.getImageId(), ImageVariant.ORIGINAL, format.canonicalExtension());
 
+            // 상한이 아니라 이 파일의 신고 크기를 넘긴다. 어댑터가 그 값을 presigned 에 정확값으로
+            // 서명하므로, 상한(20MB)을 넘기면 모든 업로드가 정확히 20MB 여야 하는 셈이 된다.
+            // 신고값은 바로 위 validateDeclared 가 이미 상한과 대조한 뒤다.
             AccidentImageStoragePort.PresignedUpload upload = storage.createPresignedUploadUrl(
                     new AccidentImageStoragePort.UploadUrlRequest(
                             key,
                             format.contentType(),
-                            properties.maxFileSizeBytes(),
+                            item.size(),
                             properties.presignedUrlValidity()));
 
             issued.add(new IssuedUploadUrl(
