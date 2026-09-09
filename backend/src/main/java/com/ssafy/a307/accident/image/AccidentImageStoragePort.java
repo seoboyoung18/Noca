@@ -20,13 +20,25 @@ import java.util.Objects;
  * 기존 것을 그대로 따른다.
  *
  * <p><b>제약 3단 방어의 2단이 이 인터페이스에 있다.</b> {@link UploadUrlRequest} 가
- * {@code contentType} 과 {@code maxBytes} 를 함께 받는 이유는, 어댑터가 presigned 자체에
- * {@code content-length-range} 와 {@code Content-Type} 조건을 박아 <b>S3 가 강제</b>하게
- * 만들어야 하기 때문이다. 서버는 원본 바이트를 받지 않으므로 이 조건이 없으면 신고값만 믿게 된다.
+ * {@code contentType} 과 {@code contentLength} 를 함께 받는 이유는, 어댑터가 presigned 자체에
+ * 그 조건을 박아 <b>S3 가 강제</b>하게 만들어야 하기 때문이다. 서버는 원본 바이트를 받지 않으므로
+ * 이 조건이 없으면 신고값만 믿게 된다.
+ *
+ * <p><b>{@code content-length-range} 가 아니라 정확값이다 — 정정.</b> 이 Javadoc 은 원래
+ * {@code content-length-range} 를 적었지만 그것은 presigned <b>POST</b> 의 정책 문서 조건이고,
+ * <b>AWS SDK for Java v2 의 {@code S3Presigner} 는 presigned POST 를 지원하지 않는다</b>
+ * (aws/aws-sdk-java-v2#1493 · #6577, 2026-09-09 확인). 그래서 {@code S3AccidentImageStorage} 는
+ * <b>범위 대신 신고 크기 정확값</b>을 서명한다. 범위보다 오히려 엄격하다 — 신고한 크기와
+ * 1바이트라도 다르면 S3 가 403 으로 거절한다. 대신 <b>FE 는 신고한 크기와 정확히 같은 바이트를
+ * 올려야 한다.</b>
  */
 public interface AccidentImageStoragePort {
 
-    /** 업로드용 presigned URL. 어댑터는 반드시 크기·Content-Type 조건을 URL 에 반영해야 한다. */
+    /**
+     * 업로드용 presigned URL. 어댑터는 반드시 크기·{@code Content-Type} 조건을 서명에 반영해야 한다.
+     * 반환하는 {@link PresignedUpload#requiredHeaders} 는 <b>짐작이 아니라 실제 서명된 헤더</b>에서
+     * 만들어야 한다 — 어긋나면 클라이언트가 403 을 받고 원인을 찾기 어렵다.
+     */
     PresignedUpload createPresignedUploadUrl(UploadUrlRequest request);
 
     /** 오브젝트 메타만 읽는다. 3단 재검증에서 실제 크기를 확인할 때 쓴다. */
@@ -49,15 +61,18 @@ public interface AccidentImageStoragePort {
     }
 
     /**
-     * @param maxBytes presigned 에 박을 크기 상한. 어댑터가 이 값을 무시하면 2단 방어가 사라진다
+     * @param contentLength presigned 에 박을 <b>정확한</b> 바이트 수. FE 가 신고한 파일 크기이며,
+     *                      1단 검증({@code AccidentImageValidator.validateDeclared})이 상한과
+     *                      대조한 뒤의 값이다. 어댑터가 이 값을 무시하면 2단 방어가 사라진다.
+     *                      <b>상한이 아니라 정확값인 이유</b>는 인터페이스 Javadoc 참조
      */
-    record UploadUrlRequest(String storageKey, String contentType, long maxBytes, Duration validity) {
+    record UploadUrlRequest(String storageKey, String contentType, long contentLength, Duration validity) {
         public UploadUrlRequest {
             requireKey(storageKey);
             if (contentType == null || contentType.isBlank()) {
                 throw new IllegalArgumentException("contentType is required");
             }
-            if (maxBytes < 1) throw new IllegalArgumentException("maxBytes must be positive");
+            if (contentLength < 1) throw new IllegalArgumentException("contentLength must be positive");
             Objects.requireNonNull(validity, "validity");
             if (validity.isZero() || validity.isNegative()) {
                 throw new IllegalArgumentException("validity must be positive");
