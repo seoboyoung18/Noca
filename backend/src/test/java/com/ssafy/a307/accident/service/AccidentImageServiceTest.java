@@ -222,15 +222,21 @@ class AccidentImageServiceTest {
             assertThat(jpeg.s3Key()).doesNotContain("front");
         }
 
+        /**
+         * <b>상한이 아니라 신고 크기가 실린다.</b> 어댑터가 그 값을 presigned 에 정확값으로
+         * 서명하므로, 상한(20MB)을 넘기면 모든 업로드가 정확히 20MB 여야 하는 셈이 된다.
+         * 신고값은 바로 앞의 1단 검증이 이미 상한과 대조한 뒤다.
+         */
         @Test
-        @DisplayName("presigned 조건에 Content-Type·크기 상한·프로퍼티 유효시간이 실린다")
+        @DisplayName("presigned 조건에 Content-Type·신고 크기·프로퍼티 유효시간이 실린다")
         void presignedCarriesConstraints() {
             service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
                     request(file("front.jpg", "image/jpeg", 1024, null)));
 
             AccidentImageStoragePort.UploadUrlRequest issued = storage.issued.get(0);
             assertThat(issued.contentType()).isEqualTo("image/jpeg");
-            assertThat(issued.maxBytes()).isEqualTo(properties.maxFileSizeBytes());
+            assertThat(issued.contentLength()).isEqualTo(1024L);
+            assertThat(issued.contentLength()).isNotEqualTo(properties.maxFileSizeBytes());
             assertThat(issued.validity())
                     .isEqualTo(Duration.ofMinutes(properties.presignedUrlMinutes()));
         }
