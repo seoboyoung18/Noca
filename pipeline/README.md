@@ -22,7 +22,12 @@ pipeline/
 | `normalizer.py` | 정규화 및 `NormalizationError` 격리 |
 | `raw_yolo_schema.json` | YOLO raw 출력 입력 계약 |
 | `common_schema.json` | 정규화 이후 downstream 출력 계약 |
+| `roi.py` | 손상 ROI 생성 규칙과 부품 연결·품질 판정 |
+| `search_metadata.py` | 정규화 결과를 ROI 단위 검색 메타데이터로 변환 |
+| `search_metadata_schema.json` | 검색 필터·ROI 품질·버전 추적 계약 |
 | `test_normalizer.py` | 회귀 테스트 |
+| `test_roi.py` | ROI 생성·부품 연결·품질 판정 테스트 |
+| `test_search_metadata.py` | 검색 메타데이터 변환 테스트 |
 | `README.md` | 코드값·좌표계 등 계약 결정사항 |
 
 사용 예:
@@ -32,6 +37,36 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 ```
 
 `PARTS`, `DAMAGES`, `WORKS`, `DEFAULT_WORK_BY_DAMAGE`는 패키지 최상위에서 바로 import한다. `standardization.catalog`를 직접 참조하지 않는다.
+
+### 검색 메타데이터
+
+`build_search_metadata`는 정규화된 추론 결과를 ROI 단위 검색 레코드로 바꾼다. 손상 검출
+하나가 레코드 하나다. 품질이 낮거나 검색 필드가 비어도 레코드는 남기고
+`search.is_searchable`만 false로 둔다 — 제외된 검출도 원본과 대조할 수 있어야 한다.
+
+1차 후보 필터는 `part_code`·`damage_type`을 강한 조건으로, `car_class`를 약한 조건으로
+쓴다(설계 `ERD/A307_SEARCH_SCHEMA_MVP.md` 5절). 심각도와 수리 방식은 검색 축에 넣지
+않는다 — 수리 방식은 같은 문서 2절 전제 5번대로 결과 통계와 평가 지표로만 쓴다. 비용·작업
+의미를 검색 메타데이터에 섞지 않으며, 임베딩 벡터도 별도 테이블에 저장한다.
+
+`pipeline_version_id`는 필수 인자다. 검색은 같은 값을 가진 레코드끼리만 비교한다(설계 2절
+전제 3번). 기본값을 두지 않은 이유는, 버전 없는 레코드가 한 번 적재되면 무엇으로 만든
+값인지 되찾을 수 없어 재적재해야 하기 때문이다. `roi_id`에도 붙어 두 버전의 같은 검출이
+충돌하지 않는다.
+
+`roi.quality_status`는 `GOOD` / `LOW_CONFIDENCE` / `PARTIAL_PART` / `INVALID` 4종이고
+사유는 `roi.quality_reasons` 목록에 남긴다. `PARTIAL_PART`는 부품 bbox가 이미지 경계에
+닿은 경우다 — 부품 일부가 화면 밖이라 면적 비율은 못 믿지만 부품 코드·손상 유형은
+정확하므로 후보에는 남긴다. 판정은 좌표 비교이며 화면 밖 면적을 추정하지 않는다. 가려진
+부품은 경계에 닿지 않으므로 잡지 못한다.
+
+부품 영역은 정규화된 추론 출력에 없다(detection의 `part`는 코드만 담는다). 호출부가
+`part_boxes_by_detection_id`로 넘기며, 넘기지 않으면 추측하지 않고 `part_clipped=null` +
+사유 `PART_BOX_UNKNOWN`으로 남긴다. `roi_box`가 돌려주는 clip 여부와는 다른 값이다 —
+그쪽은 손상 ROI가 잘렸는지고 이쪽은 부품이 잘렸는지다.
+
+표본 실측은 `roi.py` 상단 주석에 있다. TL_damage_part 라벨 1,200개에서 부품 경계 접촉
+3.1%, 손상의 부품 미연결 15.0%다. 부품 잘림보다 부품 연결 실패가 더 큰 변수다.
 
 ## jobs
 
