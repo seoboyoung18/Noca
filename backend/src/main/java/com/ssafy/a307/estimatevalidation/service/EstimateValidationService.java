@@ -276,7 +276,7 @@ public class EstimateValidationService {
         if (page < 0 || requestedSize < 1) throw invalid("page는 0 이상, size는 1 이상이어야 합니다.");
         int size = Math.min(requestedSize, MAX_PAGE_SIZE);
         Page<EstimateValidation> result = validationRepository
-                .findByMemberIdOrderByCreatedAtDesc(memberId, PageRequest.of(page, size));
+                .findHistoryByMemberId(memberId, PageRequest.of(page, size));
         List<ValidationHistoryResponse.Entry> entries = result.stream().map(validation -> {
             var accident = validation.getAccident();
             return new ValidationHistoryResponse.Entry(
