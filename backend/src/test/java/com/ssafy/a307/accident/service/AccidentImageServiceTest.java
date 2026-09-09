@@ -314,7 +314,7 @@ class AccidentImageServiceTest {
     class Complete {
 
         @Test
-        @DisplayName("ORIGINAL·RESIZED·THUMBNAIL asset 3행을 저장하고 품질을 판정한다")
+        @DisplayName("asset 3행을 저장하고 품질을 판정한다 — 응답에는 ORIGINAL 을 싣지 않는다")
         void completes() {
             IssuedUploadUrl issued = issueOne("front.jpg", "image/jpeg");
             byte[] uploaded = upload(issued, 400, 300);
@@ -331,10 +331,14 @@ class AccidentImageServiceTest {
             assertThat(result.status()).isEqualTo(ImageProcessingStatus.COMPLETED);
             assertThat(result.qualityStatus()).isEqualTo(ImageQualityStatus.PASS);
             assertThat(result.qualityReason()).isNull();
+            // 원본에는 EXIF(촬영 위치·기기)가 남아 있어 화면으로 내보내지 않는다.
             assertThat(result.assets()).extracting("variant")
-                    .containsExactlyInAnyOrder(
-                            ImageVariant.ORIGINAL, ImageVariant.RESIZED, ImageVariant.THUMBNAIL);
+                    .containsExactlyInAnyOrder(ImageVariant.RESIZED, ImageVariant.THUMBNAIL)
+                    .doesNotContain(ImageVariant.ORIGINAL);
+            assertThat(result.assets()).extracting("s3Key")
+                    .doesNotContain(issued.s3Key());
 
+            // 저장은 그대로 3행이다 — 분석 파이프라인이 원본을 읽어야 한다.
             assertThat(variants(issued.imageId()))
                     .containsExactlyInAnyOrder("ORIGINAL", "RESIZED", "THUMBNAIL");
             assertThat(storage.objects).containsKeys(
@@ -534,7 +538,10 @@ class AccidentImageServiceTest {
             assertThat(list.remainingSlots()).isEqualTo(properties.maxCountPerAccident() - 2);
             assertThat(list.images()).extracting("uploadState")
                     .containsExactly(ImageUploadState.COMPLETED, ImageUploadState.PENDING);
-            assertThat(list.images().get(0).assets()).hasSize(3);
+            // 저장은 3행이지만 응답에는 ORIGINAL 을 빼고 2행만 실린다.
+            assertThat(list.images().get(0).assets()).hasSize(2);
+            assertThat(list.images().get(0).assets()).extracting("variant")
+                    .containsExactlyInAnyOrder(ImageVariant.RESIZED, ImageVariant.THUMBNAIL);
             assertThat(list.images().get(1).assets()).isEmpty();
         }
 
