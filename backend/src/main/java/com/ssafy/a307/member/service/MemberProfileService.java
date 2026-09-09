@@ -20,12 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class MemberProfileService {
 
     private final MemberService memberService;
+    private final ProfileImageService profileImageService;
     private final VehicleRepository vehicleRepository;
     private final AccidentRepository accidentRepository;
 
     @Transactional(readOnly = true)
     public MemberProfileResponse profile(Long memberId) {
-        return withCounts(memberService.activeMember(memberId));
+        return assemble(memberService.activeMember(memberId));
     }
 
     /**
@@ -34,12 +35,24 @@ public class MemberProfileService {
      */
     @Transactional
     public MemberProfileResponse changeNickname(Long memberId, String nickname) {
-        return withCounts(memberService.changeNickname(memberId, nickname));
+        return assemble(memberService.changeNickname(memberId, nickname));
     }
 
-    private MemberProfileResponse withCounts(Member member) {
+    /** 이미지 등록·변경·삭제도 갱신된 프로필을 돌려준다 — 닉네임 수정과 같은 이유다. */
+    @Transactional
+    public MemberProfileResponse changeProfileImage(Long memberId, String uploadKey) {
+        return assemble(profileImageService.complete(memberId, uploadKey));
+    }
+
+    @Transactional
+    public MemberProfileResponse deleteProfileImage(Long memberId) {
+        return assemble(profileImageService.delete(memberId));
+    }
+
+    private MemberProfileResponse assemble(Member member) {
         return MemberProfileResponse.of(
                 member,
+                profileImageService.downloadUrlOrNull(member),
                 vehicleRepository.countActiveByMemberId(member.getMemberId()),
                 accidentRepository.countByMemberId(member.getMemberId()));
     }

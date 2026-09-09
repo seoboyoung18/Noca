@@ -5,8 +5,12 @@ import com.ssafy.a307.common.response.ApiResponse;
 import com.ssafy.a307.config.SecurityConfig;
 import com.ssafy.a307.member.dto.MemberProfileResponse;
 import com.ssafy.a307.member.dto.NicknameUpdateRequest;
+import com.ssafy.a307.member.dto.ProfileImageCompleteRequest;
+import com.ssafy.a307.member.dto.ProfileImageUploadUrlRequest;
+import com.ssafy.a307.member.dto.ProfileImageUploadUrlResponse;
 import com.ssafy.a307.member.service.MemberProfileService;
 import com.ssafy.a307.member.service.MemberService;
+import com.ssafy.a307.member.service.ProfileImageService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -22,6 +26,8 @@ import org.springframework.security.web.authentication.logout.SecurityContextLog
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -30,9 +36,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 
 /**
- * 마이페이지 — 내 정보 조회·닉네임 수정·탈퇴.
+ * 마이페이지 — 내 정보 조회·닉네임 수정·탈퇴·프로필 이미지.
  * <p>
- * 세 엔드포인트 모두 {@code /me} 만 있고 {@code /{memberId}} 형태가 없다.
+ * 모든 경로가 {@code /me} 로 시작하고 {@code /{memberId}} 형태가 없다.
  * 경로에서 회원을 받으면 남의 정보를 요구하는 요청이 성립해 소유자 검사를 따로 해야 하는데,
  * 세션에서만 꺼내면 그 문제가 아예 생기지 않는다.
  *
@@ -46,6 +52,7 @@ public class MemberController {
 
     private final MemberProfileService memberProfileService;
     private final MemberService memberService;
+    private final ProfileImageService profileImageService;
 
     /**
      * 탈퇴 뒤 세션을 끊는 처리. {@code LogoutFilter} 가 {@code /api/auth/logout} 에만 걸려 있어
@@ -95,5 +102,45 @@ public class MemberController {
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         logoutHandler.logout(request, response, authentication);
+    }
+
+    /**
+     * 프로필 이미지 업로드 URL 발급. 브라우저가 이 URL 로 staging 버킷에 직접 PUT 한 뒤
+     * {@link #changeProfileImage} 로 완료를 알린다.
+     * <p>
+     * 서버가 파일 본문을 받지 않으므로 multipart 상한(10MB)과 무관하다.
+     * 사고 이미지({@code POST /api/accidents/{id}/images/upload-urls})와 같은 흐름이다.
+     */
+    @PostMapping("/me/profile-image/upload-url")
+    public ApiResponse<ProfileImageUploadUrlResponse> issueProfileImageUploadUrl(
+            @Valid @RequestBody ProfileImageUploadUrlRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ApiResponse.of(profileImageService.issueUploadUrl(
+                principal.getMemberId(), request.contentType(), request.size()));
+    }
+
+    /**
+     * 업로드 완료 통보 — 등록과 변경이 같은 요청이다. 키가
+     * {@code profile/{memberId}} 하나로 고정돼 다시 올리면 덮어써지기 때문이다.
+     */
+    @PutMapping("/me/profile-image")
+    public ApiResponse<MemberProfileResponse> changeProfileImage(
+            @Valid @RequestBody ProfileImageCompleteRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ApiResponse.of(memberProfileService.changeProfileImage(
+                principal.getMemberId(), request.uploadKey()));
+    }
+
+    /**
+     * 이미지 삭제. 204 가 아니라 갱신된 프로필을 돌려준다 — 프론트가 기본 이미지로
+     * 다시 그리려면 어차피 프로필이 필요해서, 조회를 한 번 더 부르지 않게 한다.
+     */
+    @DeleteMapping("/me/profile-image")
+    public ApiResponse<MemberProfileResponse> deleteProfileImage(
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ApiResponse.of(memberProfileService.deleteProfileImage(principal.getMemberId()));
     }
 }

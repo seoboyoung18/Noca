@@ -182,6 +182,23 @@ class MemberProfileApiTest {
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
 
+    /**
+     * 테스트 설정은 버킷을 비워 둬서 S3 어댑터 빈이 만들어지지 않는다. 저장소가 없을 때
+     * 500 이 아니라 503 이 나가야 "설정이 빠졌다"는 게 드러난다.
+     */
+    @Test
+    @DisplayName("저장소가 구성되지 않으면 이미지 업로드는 503 이다")
+    void profileImageNeedsStorage() throws Exception {
+        mockMvc.perform(post("/api/members/me/profile-image/upload-url")
+                        .session(signedInSession("보영"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contentType":"image/jpeg","size":1024}
+                                """))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"));
+    }
+
     @Test
     @DisplayName("탈퇴하면 204 이고 같은 세션으로는 더 이상 조회되지 않는다")
     void withdrawEndsTheSession() throws Exception {

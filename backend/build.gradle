@@ -29,6 +29,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     // API 문서 · 스웨거 UI. 3.1.0 이 Spring Boot 4 / OpenAPI 3.1 대응 버전이다.
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
+    // S3. BOM 이 버전을 맞춘다. presigner 는 별도 아티팩트가 아니라 s3 모듈에 들어 있다.
+    // 자격증명은 기본 체인(로컬 aws configure · 배포 EC2 IAM 역할)을 쓰므로
+    // 액세스 키를 설정 파일에 두지 않는다.
+    implementation platform('software.amazon.awssdk:bom:2.29.52')
+    implementation 'software.amazon.awssdk:s3'
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'
     annotationProcessor 'org.projectlombok:lombok'

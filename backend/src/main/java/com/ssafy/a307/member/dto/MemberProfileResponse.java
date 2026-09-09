@@ -12,8 +12,9 @@ import java.time.Instant;
  * @param email           소셜에서 이메일을 받지 못하면 null 이다. 카카오는
  *                        {@code profile_nickname}, 구글은 {@code profile} 만 요청하므로
  *                        <b>현재는 두 provider 모두 null</b> 이다.
- * @param profileImageUrl 프로필 이미지 업로드(S15P21A307-89 잔여분)가 붙기 전까지 항상 null.
- *                        {@code member.profile_image_key} 컬럼은 있지만 채우는 경로가 없다.
+ * @param profileImageUrl service 버킷의 presigned GET URL. <b>유효 기간이 있어 매번 값이
+ *                        달라진다</b> — 캐시 키로 쓰거나 저장해 두면 안 된다. 이미지가 없거나
+ *                        저장소가 구성되지 않았으면 null 이고, 화면은 기본 이미지를 쓴다
  * @param vehicleCount    폐차·매각한 차량은 뺀 수. 차량 목록 화면과 숫자가 같아야 한다
  * @param accidentCount   폐차·매각한 차량의 사고도 포함한 수. 사고 이력 목록과 기준이 같다
  */
@@ -27,13 +28,14 @@ public record MemberProfileResponse(
         long accidentCount,
         Instant createdAt) {
 
-    public static MemberProfileResponse of(Member member, long vehicleCount, long accidentCount) {
+    public static MemberProfileResponse of(Member member, String profileImageUrl,
+                                           long vehicleCount, long accidentCount) {
         return new MemberProfileResponse(
                 member.getMemberId(),
                 member.getNickname(),
                 member.getEmail(),
                 member.getProvider(),
-                null,
+                profileImageUrl,
                 vehicleCount,
                 accidentCount,
                 member.getCreatedAt());
