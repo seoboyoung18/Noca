@@ -19,6 +19,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * HTTP 계약만 본다. 필터를 꺼 두었으므로 <b>인가 검증이 아니다</b> —
+ * 비로그인 401 은 {@code VehicleSecurityTest} 가 필터를 켠 채로 본다.
+ */
 @WebMvcTest(VehicleModelController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @DisplayName("VehicleModelController")
