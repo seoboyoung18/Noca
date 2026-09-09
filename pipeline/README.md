@@ -64,6 +64,8 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 | 6 | `generate_part_name_mapping_seed.py` | 4의 매핑 워크북에서 `part_name_mapping` 기준 데이터 SQL 생성 |
 | 7 | `build_search_sample_sql.py` | 2가 확정한 검색 가능 사고를 `repair_case`·`repair_case_image`·`repair_case_item` 적재 SQL로 생성 |
 | 8 | `load_aihub_damage_dataset.py` | 원천 라벨 JSON을 `aihub_*` 스테이징 테이블에 직접 적재 (검색 테이블과 별개 계층) |
+| 9 | `load_estimate_raw.py` | 원천 견적 JSON 125,006건을 `aihub_estimate_raw`에 원문 그대로 전수 적재 |
+| 10 | `build_label_path_index.py` | 라벨 파일의 사례·이미지 경로 인덱스 CSV 생성. 10은 9에 의존하지 않는다 |
 
 A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. 두 결과를 교차 검증해 합치는 작업은 `part_code` 마스터 확정 후로 남아 있다.
 
@@ -205,6 +207,47 @@ python pipeline/jobs/load_aihub_damage_dataset.py \
 `aihub_vehicle_case` / `aihub_vehicle_image` / `aihub_damage_annotation` / `aihub_annotation_repair_method`에 원천 라벨을 그대로 넣는다. 검색 테이블(`repair_case` 계열)과는 별개 계층이다.
 
 `--dry-run`으로 DB 없이 JSON·경로·날짜 포맷만 검증할 수 있다. 날짜는 `MM/DD/YYYY`, `YYYY-MM-DD`, `YYYYMMDD` 세 포맷을 받는다. 파싱하지 못한 값은 조용히 `NULL`로 넘기지 않고, 실행 끝에 원문과 건수를 출력한 뒤 비정상 종료(exit 1)한다.
+
+### 9. 원천 견적 JSON Raw 전수 적재
+
+```bash
+python pipeline/jobs/load_estimate_raw.py \
+  --estimate-root "<TS_99. 붙임_견적서 경로>" \
+  --dsn "$DATABASE_URL" \
+  --output-dir "<저장소 밖 결과 경로>"
+```
+
+원천 견적 JSON을 `aihub_estimate_raw`에 원문 그대로 넣는다. 파일명 stem이 `external_ref`이고 `as-`는 `AIHUB_AS`, `sc-`는 `AIHUB_SC`다. 파일 단위로 읽어 `--commit-every` 배치마다 커밋하므로 payload를 전부 메모리에 쌓지 않는다.
+
+`ON CONFLICT (source, external_ref) DO NOTHING`이다. `loaded_at`을 "원문을 처음 확보한 시점"으로 두기 위한 선택이며, `DO UPDATE`면 재실행마다 덮여 최초 확보 시점과 재개·재적재 구분을 잃는다. 원천이 실제로 갱신되면 새 배포본이므로 조용한 덮어쓰기로 처리하지 않는다.
+
+**중단 후 재개는 같은 명령을 다시 실행하면 된다.** 시작할 때 적재된 `(source, external_ref)`를 읽어 해당 파일은 읽기 자체를 건너뛰고, PK와 `ON CONFLICT`가 중복을 막는다. 실측 — 1,001건 적재 후 재실행하면 `inserted=0 skipped=1001`로 건수가 변하지 않고, 500건만 남긴 상태에서 재실행하면 `inserted=501 skipped=500`으로 채워지며 중복은 0건이다.
+
+깨진 JSON·인코딩 오류·읽기 실패·`as-`/`sc-` 아닌 파일명은 건너뛰지 않고 `data_validation_error`와 격리 manifest CSV에 `source_file`과 함께 남긴다. 원천 파일은 지우지 않는다. 격리 건이 있으면 `batch_job_execution.status`가 `PARTIAL`이 되고 종료코드 1로 끝난다.
+
+다건 INSERT를 쓴다. 표본 3,000건 실측에서 `executemany` 4,778건/초 · COPY→임시테이블 4,808건/초로 차이가 노이즈 수준이었고, 같은 표본의 파일 읽기가 281건/초여서 병목이 DB가 아니라 파일 I/O였다.
+
+`--shard-index`/`--shard-count`로 나눠 병렬 실행한 뒤 `--merge-only`로 산출물을 합칠 수 있다. 병목이 파일 I/O라 샤드 병렬이 실제로 시간을 줄인다.
+
+### 10. 라벨 경로 인덱스 생성
+
+```bash
+python pipeline/jobs/build_label_path_index.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --output-dir "<저장소 밖 결과 경로>"
+```
+
+산출물 `label_path_index.csv`의 컬럼은 `external_ref` / `dataset_split` / `label_type` / `source_image_id` / `file_name` / `label_path` / `image_path` / `image_exists`다. 이후 `aihub_vehicle_image` 적재의 입력이라 컬럼 이름을 그 테이블에 맞췄고, `image_path`만 이름이 다르다(테이블은 `file_path`). `image_exists`는 테이블 컬럼이 아니라 적재 전에 orphan 라벨을 걸러내는 판정값이다.
+
+`source_image_id`는 **라벨 파일명 접두**를 쓴다. 라벨 내용의 `images.id`는 표본 3,000건에서 전부 `1`이라 식별자로 쓸 수 없다. `load_aihub_damage_dataset.py`는 `images.id`를 그 컬럼에 넣으므로 `aihub_vehicle_image.source_image_id`에는 현재 1만 들어간다.
+
+라벨 파일명은 `<image_id>_<external_ref>.json`이다. **파일명만 믿지 않는다** — 파일명에서 뽑은 `external_ref`가 라벨 내용의 `categories.id`·`annotation.category_id`와 다르거나, 내용에 참조가 없거나 2종 이상이면 인덱스에 넣지 않고 격리한다.
+
+내용 추출은 `validate_category_id_integrity.py`와 같은 정규식 fast scan이다. 라벨 JSON에 segmentation 폴리곤이 들어 있어 전부 파싱하면 필요 없는 좌표 배열까지 객체로 만든다. 4개 그룹 1,600건에서 정규식과 `json.loads` 결과가 `images.file_name`·사례 참조 집합 모두 일치하는 것을 확인했다.
+
+인덱스 행을 메모리에 모아 마지막에 CSV로 쓴다. 라벨 457,670건 전수 실행 중 관측한 프로세스 메모리는 약 730MB다(실행 중간 시점 관측이며 최종 피크는 재지 않았다). 메모리가 빠듯한 환경에서는 `--shard-count`로 나눠 돌린 뒤 `--merge-only`로 합친다.
+
+`validate_category_id_integrity.py`가 이미 같은 트리를 걷지만 새 스크립트로 뒀다. 그 스크립트는 검색 가능 사고 후보 수를 확정하는 검증 게이트이고, 사례 참조를 **이미지** 파일명에서 유도해 이 인덱스가 요구하는 라벨 파일명 대조를 하지 않으며, `case_id_linkage.csv`는 사례 단위 집계라 파일 단위 경로가 없다. 트리를 두 번 걷는 비용은 일회성이고 `--shard-count`로 나눌 수 있다.
 
 ### 공통
 
