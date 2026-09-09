@@ -68,6 +68,16 @@ def sql_num(value: Any) -> str:
         return "NULL"
 
 
+def repair_case_image_key(case_variable: str, image_variable: str,
+                          variant: str = "original", extension: str = "jpg") -> str:
+    """RepairCaseImageKeys 규칙을 psql 변수 표현식으로 만든다."""
+    extension = extension.lower().lstrip(".")
+    return (
+        f"('repair-cases/' || :{case_variable} || '/images/' || :{image_variable} || "
+        f"'/{variant}.{extension}')"
+    )
+
+
 def money(value: Any) -> int | None:
     """견적서의 숫자 문자열을 정수 금액으로 변환한다."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -264,10 +274,11 @@ def main() -> None:
         estimate = json.loads(estimate_path.read_text(encoding="utf-8-sig"))
         classes: list[str] = []
         valid_labels: list[tuple[Path, Path, dict[str, Any]]] = []
+        missing_images: list[str] = []
         for label_path in labels:
             image_path = image_path_for_label(label_path)
             if not image_path.exists():
-                errors.append(("orphan_label", case_id, str(label_path), {"expected_image": str(image_path)}))
+                missing_images.append(str(image_path))
                 continue
             document = json.loads(label_path.read_text(encoding="utf-8-sig"))
             car_class = normalize_car_class((document.get("categories") or {}).get("supercategory_name"))
@@ -275,13 +286,17 @@ def main() -> None:
                 classes.append(car_class)
             valid_labels.append((label_path, image_path, document))
 
+        if missing_images:
+            errors.append(("missing_image", case_id, case_id, {"paths": missing_images}))
+            continue
         if not valid_labels or not classes:
             errors.append(("missing_car_class", case_id, case_id, {}))
             continue
 
         car_class = classes[0]
         if any(value != car_class for value in classes[1:]):
-            errors.append(("key_mismatch", case_id, case_id, {"car_classes": sorted(set(classes))}))
+            errors.append(("invalid_car_class", case_id, case_id, {"car_classes": sorted(set(classes))}))
+            continue
 
         vehicle = estimate.get("차량정보") or {}
         source = "AIHUB_AS" if case_id.startswith("as-") else "AIHUB_SC"
@@ -313,17 +328,23 @@ def main() -> None:
         loaded_cases += 1
 
         for label_path, image_path, document in valid_labels:
-            storage_key = image_path.relative_to(dataset_root).as_posix()
-            source_image_ref = storage_key
+            source_image_ref = image_path.relative_to(dataset_root).as_posix()
+            image_var = f"image_{ordinal}_"
+            storage_key = repair_case_image_key(
+                f"case_{ordinal}_case_id", f"{image_var}case_image_id"
+            )
             case_sql.extend(
                 [
                     "INSERT INTO repair_case_image (case_id, source_image_ref, storage_key, quality_status, is_searchable)",
-                    f"VALUES (:case_{ordinal}_case_id, {sql_e(source_image_ref)}, {sql_e(storage_key)}, 'VALID', TRUE)",
+                    f"VALUES (:case_{ordinal}_case_id, {sql_e(source_image_ref)}, {sql_e(source_image_ref)}, NULL, TRUE)",
                     "ON CONFLICT (source_image_ref) DO UPDATE SET",
                     "    case_id = EXCLUDED.case_id,",
                     "    storage_key = EXCLUDED.storage_key,",
                     "    quality_status = EXCLUDED.quality_status,",
-                    "    is_searchable = EXCLUDED.is_searchable;",
+                    "    is_searchable = EXCLUDED.is_searchable",
+                    f"RETURNING case_image_id \\gset {image_var}",
+                    f"UPDATE repair_case_image SET storage_key = {storage_key}",
+                    f" WHERE case_image_id = :{image_var}case_image_id;",
                     "",
                 ]
             )

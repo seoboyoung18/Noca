@@ -101,6 +101,8 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 | 8 | `load_aihub_damage_dataset.py` | 원천 라벨 JSON을 `aihub_*` 스테이징 테이블에 직접 적재 (검색 테이블과 별개 계층) |
 | 9 | `load_estimate_raw.py` | 원천 견적 JSON 125,006건을 `aihub_estimate_raw`에 원문 그대로 전수 적재 |
 | 10 | `build_label_path_index.py` | 라벨 파일의 사례·이미지 경로 인덱스 CSV 생성. 10은 9에 의존하지 않는다 |
+| 11 | `load_search_data.py` | 표본 또는 최종 검색 가능 범위를 `part_code`·`part_name_mapping`·`repair_case`·`repair_case_image`에 upsert |
+| 12 | `verify_search_sample.py` | 1,000건 표본의 연결·중복·차급·이미지·원천 건수·재실행 멱등성 검증 |
 
 A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. 두 결과를 교차 검증해 합치는 작업은 `part_code` 마스터 확정 후로 남아 있다.
 
@@ -284,6 +286,53 @@ python pipeline/jobs/build_label_path_index.py \
 
 `validate_category_id_integrity.py`가 이미 같은 트리를 걷지만 새 스크립트로 뒀다. 그 스크립트는 검색 가능 사고 후보 수를 확정하는 검증 게이트이고, 사례 참조를 **이미지** 파일명에서 유도해 이 인덱스가 요구하는 라벨 파일명 대조를 하지 않으며, `case_id_linkage.csv`는 사례 단위 집계라 파일 단위 경로가 없다. 트리를 두 번 걷는 비용은 일회성이고 `--shard-count`로 나눌 수 있다.
 
+### 11. 검색 기본 데이터 적재
+
+`repair_case`는 `is_final_searchable_case=True`이고 실제 이미지가 있으며 허용된
+`car_class`를 가진 사례만 적재한다. 따라서 현재 범위는 검색 가능 113,184건이며,
+이미지가 없는 사례와 `car_class` 결측·`UNKNOWN` 사례는 넣지 않는다. 원천 견적
+125,006건은 `aihub_estimate_raw`에 별도로 보존한다. AI-Hub annotation 테이블은
+DDL과 loader 구조만 준비하고 전수 적재하지 않는다.
+
+```bash
+python pipeline/jobs/load_search_data.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --readiness-csv "<검색 준비도 output-dir>/case_search_readiness.csv" \
+  --mapping-workbook "<표준화 매핑 워크북>.xlsx" \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --dsn "$DATABASE_URL" \
+  --limit 1000
+```
+
+표본 검증을 통과한 뒤 `--limit`을 제거해 전수 적재한다. `part_code`와
+`part_name_mapping`도 같은 실행에서 seed/upsert하며, `(source, external_ref)`와
+`source_image_ref`를 conflict key로 사용해 재실행해도 중복이 생기지 않는다.
+`source_image_ref`는 AI-Hub 원본 상대 경로로 보존하고, `storage_key`는
+`repair-cases/{caseId}/images/{caseImageId}/original.jpg` 규칙으로 생성한다.
+`--dataset-root`는 원본 상대 경로의 기준만 결정하며 S3 key 자체에는 포함되지 않는다.
+
+### 12. 전수 적재 전 표본 검증
+
+표본을 다시 upsert한 뒤 다음 검증기를 실행한다. `--before-*`에는 표본 적재
+직전의 현재 건수를 넣어 재실행 후 건수 불변도 확인한다.
+
+```bash
+python pipeline/jobs/verify_search_sample.py \
+  --dsn "$DATABASE_URL" \
+  --readiness-csv "<검색 준비도 output-dir>/case_search_readiness.csv" \
+  --sample-cases 1000 \
+  --expected-raw-cases 125006 \
+  --before-case-count 0 \
+  --before-image-count 0
+```
+
+검증 항목은 중복 `(source, external_ref)`, 표본 `case_id` 누락, 허용 차급 위반·결측,
+이미지 연결 오류, 전체 경로 기준 `source_image_ref` 중복, `repair-cases/...` key 규칙,
+Raw 원천 건수와 검색 적재 범위 차이, Raw–`repair_case` 연결, 재실행 후 건수 변화다.
+Raw와 검색 범위가 다르므로
+미연결 Raw 건수는 오류로 처리하지 않고 `125,006 - 113,184 = 11,822` 정책상 제외분과
+일치하는지 검증한다.
+
 ### 공통
 
 원천 데이터와 실행 산출물은 저장소 밖에 둔다. `--output-dir`은 저장소 바깥 경로를 지정한다.
@@ -320,6 +369,11 @@ python -m unittest discover -s pipeline/standardization -t pipeline -p "test_*.p
 ```
 
 **5)가 6)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
+
+이미 검색 사례를 적재한 DB에서 기존 `storage_key`를 새 `repair-cases/...` 규칙으로
+변경할 때는 `pipeline/sql/005_repair_case_image_storage_key.sql`을 적재 후 한 번
+실행한다. 이 migration은 로컬 이미지 파일을 이동하지 않고 DB key와 미판정 품질
+상태만 정리한다.
 
 3)은 원천 견적 JSON 원문을 담는 `aihub_estimate_raw`와 AI-Hub 라벨 원천 4종(`aihub_vehicle_case`, `aihub_vehicle_image`, `aihub_damage_annotation`, `aihub_annotation_repair_method`)을 만든다. 전부 `CREATE TABLE IF NOT EXISTS`라 재적용이 안전하다. `aihub_estimate_raw`는 `(source, external_ref)`를 PK로 두어 `ON CONFLICT`로 재실행이 멱등하며, `repair_case`를 FK로 참조하지 않아 Raw 적재가 검색 테이블 적재를 기다리지 않는다.
 
