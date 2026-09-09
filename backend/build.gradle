@@ -34,6 +34,20 @@ dependencies {
     // 액세스 키를 설정 파일에 두지 않는다.
     implementation platform('software.amazon.awssdk:bom:2.29.52')
     implementation 'software.amazon.awssdk:s3'
+
+    // ── 검증 결과 PDF (S15P21A307-398) ────────────────────────────────
+    // 이 저장소는 새 의존성을 넣지 않는 것을 관례로 지켜 왔다(GMS 호출도 RestClient 로 버텼다).
+    // PDF 는 그 관례의 예외다 — JDK 만으로는 PDF 를 만들 수 없다. 대신 최소한만 넣는다.
+    //
+    // Open HTML to PDF: HTML/CSS → PDF. 내부적으로 PDFBox 를 쓰므로 PDFBox 를 따로 넣지 않는다.
+    //   라이선스 LGPL. iText 7 을 쓰지 않은 것은 AGPL 이기 때문이다 — 팀 프로젝트에
+    //   AGPL 을 끌어들이면 안 된다. OpenPDF 는 저수준 생성용이라 HTML 변환에 맞지 않고,
+    //   PDFBox 단독은 기존 PDF 조작용이다.
+    implementation 'com.openhtmltopdf:openhtmltopdf-pdfbox:1.0.10'
+    // 서버가 HTML 을 만든다. LLM 에게 마크업을 맡기지 않는다(구조화 출력의 mime_type 이
+    //   application/json 만이라 HTML 은 스키마를 강제할 수 없고, PDF 는 사용자가 정비소에
+    //   들고 갈 문서라 레이아웃을 서버가 통제해야 한다).
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'
     annotationProcessor 'org.projectlombok:lombok'

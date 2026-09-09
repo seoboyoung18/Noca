@@ -26,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -107,17 +108,20 @@ class EstimateFileValidationServiceTest {
         assertThatThrownBy(() -> service.pdfDownload(ME, validationId))
                 .isInstanceOfSatisfying(BusinessException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.CONFLICT));
-        then(storage).should(never()).createPresignedDownloadUrl(any(), any());
+        then(storage).should(never()).createPresignedDownloadUrl(any(), any(), any());
 
         jdbc.update("update estimate_validation_report set status='COMPLETED', s3_key_pdf='private/report/result.pdf', completed_at=now() where validation_id=?", validationId);
         entityManager.clear();
         URI uri = URI.create("https://example.invalid/result.pdf?sig=test");
+        // 파일명을 함께 넘긴다(S15P21A307-401) — presigned 의 Content-Disposition 으로 나간다.
+        // 사용자 입력이 아니라 검증 번호와 날짜로 만든 값이다.
         given(storage.createPresignedDownloadUrl(
-                "private/report/result.pdf", Duration.ofMinutes(10))).willReturn(uri);
+                eq("private/report/result.pdf"), eq(Duration.ofMinutes(10)), any())).willReturn(uri);
 
         assertThat(service.pdfDownload(ME, validationId)).isEqualTo(uri);
         then(storage).should().createPresignedDownloadUrl(
-                eq("private/report/result.pdf"), eq(Duration.ofMinutes(10)));
+                eq("private/report/result.pdf"), eq(Duration.ofMinutes(10)),
+                argThat(name -> name != null && name.startsWith("견적검증_") && name.endsWith(".pdf")));
     }
 
     @Test

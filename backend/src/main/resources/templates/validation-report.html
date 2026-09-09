@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="'견적 검증 결과 #' + ${report.validationId()}">견적 검증 결과</title>
+    <!--
+      CSS 를 인라인 <style> 로 둔다. 외부 CSS 를 링크하면 PDF 렌더링이 네트워크를 타고,
+      서버가 외부를 못 부르는 환경에서 스타일 없는 문서가 조용히 나간다.
+
+      폰트는 한글을 앞에 둔다 — 폰트는 앞에서부터 찾으므로 영문 폰트를 먼저 두면
+      한글이 그 폰트에 없을 때만 뒤로 넘어간다.
+      @font-face 를 쓰지 않고 PdfRendererBuilder.useFont(...) 로 등록한다
+      (JAR 안에서 클래스패스 리소스를 URL 로 참조할 수 없기 때문이다).
+    -->
+    <style>
+        @page { size: A4; margin: 18mm 15mm 20mm 15mm; }
+        body { font-family: 'korean', serif; font-size: 10pt; color: #222; line-height: 1.5; }
+
+        h1 { font-size: 16pt; margin: 0 0 4mm 0; }
+        h2 { font-size: 11pt; margin: 7mm 0 2mm 0; border-bottom: 1px solid #999; padding-bottom: 1mm; }
+
+        .meta { font-size: 8.5pt; color: #666; margin-bottom: 5mm; }
+        .grade { font-size: 13pt; font-weight: bold; margin: 0 0 2mm 0; }
+        .summary { margin: 0 0 2mm 0; }
+        .explain { margin: 0; color: #333; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 2mm; }
+        th, td { border: 1px solid #bbb; padding: 1.6mm 1.8mm; vertical-align: top; }
+        th { background: #eee; font-size: 9pt; text-align: center; }
+        td { font-size: 9pt; }
+        td.num { text-align: right; }
+        td.mid { text-align: center; }
+        .review { background: #fff6e5; }
+
+        /* 항목이 200개까지 올 수 있다. 행이 페이지 경계에서 잘리지 않게 하고
+           헤더를 모든 페이지에 다시 그린다. */
+        table { -fs-table-paginate: paginate; }
+        thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
+
+        ol.questions { margin: 2mm 0 0 5mm; padding: 0; }
+        ol.questions li { margin-bottom: 1.5mm; }
+
+        .notice { margin-top: 8mm; padding: 3mm; border: 1px solid #999; background: #f7f7f7;
+                  font-size: 8.5pt; color: #444; }
+        .empty { color: #777; }
+    </style>
+</head>
+<body>
+
+<h1 th:text="'견적 검증 결과'">견적 검증 결과</h1>
+<p class="meta">
+    <span th:text="'검증 번호 ' + ${report.validationId()}">검증 번호</span>
+    ·
+    <span th:text="'생성 ' + ${generatedAt}">생성 시각</span>
+</p>
+
+<h2>판정</h2>
+<p class="grade" th:text="${report.gradeDisplayName()}">등급</p>
+<p class="summary" th:text="${report.summary()}">요약</p>
+<!--
+  LLM 이 쓴 문장은 여기 한 곳과 항목별 note 에만 들어간다.
+  th:text 를 쓴다 — th:utext 는 이스케이프하지 않으므로 문장에 태그가 섞이면
+  그대로 마크업으로 해석된다. LLM 출력은 신뢰할 수 없는 문자열이다.
+-->
+<p class="explain" th:if="${report.gradeExplanation() != null}"
+   th:text="${report.gradeExplanation()}">등급 설명</p>
+
+<h2>금액 비교</h2>
+<table>
+    <tbody>
+    <tr>
+        <th style="width: 35%;">정비소 견적 총액</th>
+        <td class="num" th:text="${#numbers.formatInteger(report.claimedTotal(), 0, 'COMMA')} + '원'">0원</td>
+    </tr>
+    <!--
+      AI 예상 견적이 없으면 0 으로 채우지 않고 없다고 적는다.
+      이 저장소가 difference()·within() 에서 null 을 0·false 로 바꾸지 않는 원칙과 같다.
+    -->
+    <tr th:if="${report.hasAiEstimate()}">
+        <th>AI 예상 견적 범위</th>
+        <td class="num">
+            <span th:text="${report.aiTotalMin() != null}
+                           ? ${#numbers.formatInteger(report.aiTotalMin(), 0, 'COMMA')} + '원' : '-'">-</span>
+            ~
+            <span th:text="${report.aiTotalMax() != null}
+                           ? ${#numbers.formatInteger(report.aiTotalMax(), 0, 'COMMA')} + '원' : '-'">-</span>
+            (중앙값
+            <span th:text="${#numbers.formatInteger(report.aiTotalMedian(), 0, 'COMMA')} + '원'">-</span>)
+        </td>
+    </tr>
+    <tr th:if="${report.hasAiEstimate() and report.differenceFromMedian() != null}">
+        <th>중앙값과의 차액</th>
+        <td class="num"
+            th:text="${#numbers.formatInteger(report.differenceFromMedian(), 0, 'COMMA')} + '원'">0원</td>
+    </tr>
+    <tr th:unless="${report.hasAiEstimate()}">
+        <th>AI 예상 견적</th>
+        <td class="empty">분석이 연결되지 않아 비교하지 않았습니다.</td>
+    </tr>
+    <tr>
+        <th>확인 권장 항목</th>
+        <td class="num"
+            th:text="${report.reviewItemCount()} + ' / ' + ${report.totalItemCount()} + '개'">0 / 0개</td>
+    </tr>
+    </tbody>
+</table>
+
+<h2>항목별 비교</h2>
+<table th:if="${!report.items().isEmpty()}">
+    <thead>
+    <tr>
+        <th style="width: 6%;">행</th>
+        <th style="width: 24%;">품명</th>
+        <th style="width: 10%;">작업</th>
+        <th style="width: 7%;">수량</th>
+        <th style="width: 14%;">소계</th>
+        <th style="width: 14%;">참조 75백분위</th>
+        <th style="width: 11%;">판정</th>
+        <th style="width: 14%;">사유</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="item : ${report.items()}"
+        th:classappend="${item.decision() == '확인 권장'} ? 'review' : ''">
+        <td class="mid" th:text="${item.lineNo()}">1</td>
+        <td th:text="${item.itemName()}">품명</td>
+        <td class="mid" th:text="${item.workType() != null} ? ${item.workType()} : '-'">-</td>
+        <td class="num" th:text="${item.quantity()}">1</td>
+        <td class="num" th:text="${#numbers.formatInteger(item.subtotal(), 0, 'COMMA')}">0</td>
+        <td class="num">
+            <span th:if="${item.referenceP75() != null}"
+                  th:text="${#numbers.formatInteger(item.referenceP75(), 0, 'COMMA')}">0</span>
+            <!-- 참조 통계가 없으면 0 이 아니라 없다고 적는다 -->
+            <span th:unless="${item.referenceP75() != null}" class="empty">자료 없음</span>
+        </td>
+        <td class="mid" th:text="${item.decision()}">범위 내</td>
+        <td>
+            <span th:if="${item.reason() != null}" th:text="${item.reason()}">사유</span>
+            <span th:if="${item.note() != null}" th:text="' ' + ${item.note()}">보충</span>
+        </td>
+    </tr>
+    </tbody>
+</table>
+<p th:if="${report.items().isEmpty()}" class="empty">비교할 항목이 없습니다.</p>
+
+<h2 th:if="${!report.questions().isEmpty()}">정비소에 확인할 사항</h2>
+<ol class="questions" th:if="${!report.questions().isEmpty()}">
+    <li th:each="question : ${report.questions()}" th:text="${question}">질문</li>
+</ol>
+
+<div class="notice" th:text="${report.disclaimer()}">고지</div>
+
+</body>
+</html>
