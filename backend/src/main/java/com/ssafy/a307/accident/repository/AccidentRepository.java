@@ -91,4 +91,17 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
             where v.memberId = :memberId
             """)
     Page<AccidentResponse> findPageByMemberId(@Param("memberId") Long memberId, Pageable pageable);
+
+    /**
+     * 프로필의 사고 접수 건수. {@link #findAllByMemberId} 와 같은 기준이라
+     * <b>폐차·매각된 차량의 사고도 센다</b> — 목록에는 보이는데 숫자에서 빠지면 안 된다.
+     * <p>
+     * {@code accident} 에는 {@code member_id} 가 없어 {@code vehicle} 을 거쳐 소유자를 찾는다.
+     */
+    @Query("""
+            select count(a) from Accident a
+            join a.vehicle v
+            where v.memberId = :memberId
+            """)
+    long countByMemberId(@Param("memberId") Long memberId);
 }

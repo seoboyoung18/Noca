@@ -7,11 +7,15 @@ import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 가입 화면 닉네임 초기값. 최종 닉네임은 사용자가 입력하므로 여기서 만드는 값은 제안일 뿐이다.
+ * 닉네임 정책 — 가입 화면 초기값 생성과, 가입·수정이 공유하는 길이 판정.
+ * <p>
+ * 초기값은 제안일 뿐이라 사용자가 지우고 다시 쓸 수 있지만, 제안한 값이 곧바로
+ * 검증에 걸리면 안 되므로 초기값도 판정 규칙을 만족해야 한다.
  */
-@DisplayName("닉네임 초기값 정책")
+@DisplayName("닉네임 정책")
 class NicknamePolicyTest {
 
     @Test
@@ -62,5 +66,40 @@ class NicknamePolicyTest {
                 .count();
 
         assertThat(distinct).isGreaterThan(1);
+    }
+
+    /**
+     * 한 글자 소셜 닉네임은 실제로 온다. 그대로 내려보내면 프론트가 채운 값을 그대로
+     * 제출했을 때 하한에 걸려, 사용자가 이유도 모른 채 가입 버튼에서 막힌다.
+     */
+    @Test
+    @DisplayName("소셜 닉네임이 2자 미만이면 자동 생성값으로 대체한다")
+    void generatesWhenSocialNicknameTooShort() {
+        assertThat(NicknamePolicy.initialFrom("영")).matches("사용자[0-9a-f]{4}");
+    }
+
+    @Test
+    @DisplayName("초기값은 언제나 저장 가능한 값이다")
+    void initialValueIsAlwaysValid() {
+        for (String social : new String[]{null, "", "  ", "영", "홍길동", "가나다라마바사아자차카타파하"}) {
+            assertThat(NicknamePolicy.isValid(NicknamePolicy.initialFrom(social)))
+                    .as("초기값 '%s'", social)
+                    .isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("normalize 는 공백을 지운 뒤 길이를 판정한다")
+    void normalizeStripsThenValidates() {
+        assertThat(NicknamePolicy.normalize("  서보영  ")).isEqualTo("서보영");
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "   ", "영", "  영  ", "가나다라마바사아자차카타파하"})
+    @DisplayName("normalize 는 규칙을 벗어난 값을 거부한다")
+    void normalizeRejectsOutOfRange(String invalid) {
+        assertThatThrownBy(() -> NicknamePolicy.normalize(invalid))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

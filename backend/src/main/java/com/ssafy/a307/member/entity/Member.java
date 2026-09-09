@@ -124,4 +124,18 @@ public class Member {
         this.email = null;
         this.profileImageKey = null;
     }
+
+    /**
+     * 프로필 이미지 키를 바꾼다. {@code null} 이면 이미지를 지운 것이고, 화면은 기본 이미지를 쓴다.
+     * <p>
+     * 키에 확장자가 없어({@code profile/{memberId}}) 회원당 값이 하나로 고정된다 —
+     * 다시 올려도 같은 키를 덮어쓰므로 여기 들어오는 값은 사실상 그 키이거나 {@code null} 뿐이다.
+     */
+    public void changeProfileImage(String profileImageKey) {
+        this.profileImageKey = profileImageKey;
+    }
+
+    public boolean hasProfileImage() {
+        return profileImageKey != null && !profileImageKey.isBlank();
+    }
 }

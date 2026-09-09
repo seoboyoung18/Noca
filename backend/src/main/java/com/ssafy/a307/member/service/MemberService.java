@@ -32,6 +32,7 @@ public class MemberService {
 
     private final MemberRepository memberRepository;
     private final TermsAgreementRepository termsAgreementRepository;
+    private final ForbiddenNicknamePolicy forbiddenNicknamePolicy;
 
     /** 소셜 로그인 시 회원을 찾는다. 탈퇴 회원은 익명화돼 있어 애초에 걸리지 않는다. */
     @Transactional(readOnly = true)
@@ -42,6 +43,54 @@ public class MemberService {
     @Transactional(readOnly = true)
     public Optional<Member> findById(Long memberId) {
         return memberRepository.findById(memberId);
+    }
+
+    /**
+     * 세션이 가리키는 회원을 꺼낸다. 없거나 탈퇴 상태면 401 로 끊는다.
+     * <p>
+     * 인가 규칙이 {@code ROLE_USER} 이상을 요구하므로 여기 도달하면 회원이 확정돼 있어야
+     * 정상이다. 그래도 확인하는 이유는 세션은 살아 있는데 회원 행이 사라진 상태
+     * (다른 기기에서 탈퇴 등)가 가능하기 때문이다.
+     */
+    @Transactional(readOnly = true)
+    public Member activeMember(Long memberId) {
+        return memberRepository.findById(memberId)
+                .filter(Member::isActive)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.UNAUTHORIZED, "다시 로그인해 주세요."));
+    }
+
+    /**
+     * 닉네임을 바꾼다. <b>중복 검사를 하지 않는다</b> — 소셜 전용이라 닉네임이 식별자가 아니고
+     * DDL 에도 유니크 제약이 없다. 값이 겹쳐도 로그인·조회에 영향이 없다.
+     */
+    @Transactional
+    public Member changeNickname(Long memberId, String nickname) {
+        Member member = activeMember(memberId);
+        member.changeNickname(normalizeNickname(nickname));
+        return member;
+    }
+
+    /**
+     * 닉네임을 다듬고 규칙 위반을 400 으로 바꾼다. 길이와 금칙어를 한자리에서 보므로
+     * 가입과 수정이 같은 판정을 받는다.
+     * <p>
+     * {@link NicknamePolicy} 는 웹 계층을 모르는 순수 정책이라 {@code IllegalArgumentException}
+     * 을 던진다. 그대로 두면 전역 핸들러의 catch-all 에 걸려 500 이 나간다.
+     */
+    private String normalizeNickname(String nickname) {
+        String normalized;
+        try {
+            normalized = NicknamePolicy.normalize(nickname);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, e.getMessage());
+        }
+
+        // 어떤 단어가 걸렸는지 알려주지 않는다 — 목록을 역추적해 우회법을 학습시킨다
+        if (forbiddenNicknamePolicy.isForbidden(normalized)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, "사용할 수 없는 닉네임입니다.");
+        }
+        return normalized;
     }
 
     /**
@@ -62,7 +111,7 @@ public class MemberService {
                     throw new BusinessException(ErrorCode.CONFLICT, "이미 가입된 계정입니다.");
                 });
 
-        Member member = insertMember(provider, providerUserId, nickname);
+        Member member = insertMember(provider, providerUserId, normalizeNickname(nickname));
 
         List<TermsAgreement> agreements = agreedTerms.stream()
                 .map(type -> TermsAgreement.of(member.getMemberId(), type, TermsPolicy.currentVersion(type)))
@@ -129,11 +178,20 @@ public class MemberService {
     /**
      * 탈퇴. 개인식별정보를 즉시 익명화해 같은 소셜 계정의 재가입 길을 열어 둔다.
      * 견적·검증 데이터는 {@code member_id} 로 남으므로 함께 지워지지 않는다.
+     *
+     * @return 지워진 프로필 이미지 키. 없었으면 {@code null} 이다.
+     *         <b>DB 컬럼을 비우는 것만으로는 S3 파일이 남는다</b> — 실제 객체 삭제는
+     *         트랜잭션 밖 best-effort 라 호출부가 이 값을 받아 처리한다
+     *         ({@code MemberProfileService#withdraw}).
      */
     @Transactional
-    public void withdraw(Long memberId, Instant now) {
-        memberRepository.findById(memberId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "존재하지 않는 회원입니다."))
-                .withdraw(now);
+    public String withdraw(Long memberId, Instant now) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "존재하지 않는 회원입니다."));
+
+        // withdraw() 가 컬럼을 비우므로 그 전에 들고 있어야 한다
+        String removedImageKey = member.getProfileImageKey();
+        member.withdraw(now);
+        return removedImageKey;
     }
 }

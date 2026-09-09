@@ -33,4 +33,17 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 
     /** 삭제용. 이미 삭제된 차량도 찾아야 재삭제가 멱등하게 204 가 된다. */
     Optional<Vehicle> findByVehicleIdAndMemberId(Long vehicleId, Long memberId);
+
+    /**
+     * 프로필의 등록 차량 수. 폐차·매각한 차량은 빼고 센다 —
+     * {@link #findAllActiveByMemberId} 가 보여 주는 목록과 숫자가 어긋나면 안 된다.
+     * <p>
+     * 목록을 받아 {@code size()} 를 세지 않는 이유는 {@code join fetch} 까지 딸려와
+     * 숫자 하나 때문에 전 행을 메모리에 올리게 되기 때문이다.
+     */
+    @Query("""
+            select count(v) from Vehicle v
+            where v.memberId = :memberId and v.deletedAt is null
+            """)
+    long countActiveByMemberId(@Param("memberId") Long memberId);
 }
