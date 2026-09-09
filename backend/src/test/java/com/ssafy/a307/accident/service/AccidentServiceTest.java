@@ -30,9 +30,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Date;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
@@ -275,6 +277,7 @@ class AccidentServiceTest {
             VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
             AccidentResponse accident = accidentService.create(
                     ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            backdateAccident(accident.accidentId(), LocalDate.of(2026, 8, 15));
 
             ActualRepairCostResponse response = accidentService.recordActualRepairCost(
                     ME,
@@ -306,6 +309,7 @@ class AccidentServiceTest {
             VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
             AccidentResponse accident = accidentService.create(
                     ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            backdateAccident(accident.accidentId(), LocalDate.of(2026, 8, 15));
             ActualRepairCostResponse first = accidentService.recordActualRepairCost(
                     ME, accident.accidentId(),
                     new ActualRepairCostRequest(900_000, LocalDate.of(2026, 8, 20), "첫 정비소"));
@@ -322,6 +326,55 @@ class AccidentServiceTest {
             assertThat(jdbcTemplate.queryForObject(
                     "select count(*) from accident where accident_id = ?",
                     Integer.class, accident.accidentId())).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("수리 완료일이 사고 접수일보다 이전이면 400이다")
+        void rejectsRepairCompletedBeforeReport() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse accident = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            backdateAccident(accident.accidentId(), LocalDate.of(2026, 8, 15));
+
+            assertThatThrownBy(() -> accidentService.recordActualRepairCost(
+                    ME, accident.accidentId(),
+                    new ActualRepairCostRequest(500_000, LocalDate.of(2026, 8, 14), "정비소")))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+
+            assertThat(jdbcTemplate.queryForObject(
+                    "select actual_repair_cost from accident where accident_id = ?",
+                    Integer.class, accident.accidentId())).isNull();
+        }
+
+        @Test
+        @DisplayName("접수 당일에 수리가 끝난 경우는 허용한다")
+        void allowsRepairCompletedOnReportDate() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse accident = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            backdateAccident(accident.accidentId(), LocalDate.of(2026, 8, 15));
+
+            ActualRepairCostResponse response = accidentService.recordActualRepairCost(
+                    ME, accident.accidentId(),
+                    new ActualRepairCostRequest(300_000, LocalDate.of(2026, 8, 15), "당일 정비소"));
+
+            assertThat(response.repairCompletedDate()).isEqualTo(LocalDate.of(2026, 8, 15));
+        }
+
+        @Test
+        @DisplayName("접수일 이후 완료일은 그대로 저장된다")
+        void allowsRepairCompletedAfterReportDate() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            AccidentResponse accident = accidentService.create(
+                    ME, new AccidentCreateRequest(vehicle.vehicleId()));
+            backdateAccident(accident.accidentId(), LocalDate.of(2026, 8, 15));
+
+            ActualRepairCostResponse response = accidentService.recordActualRepairCost(
+                    ME, accident.accidentId(),
+                    new ActualRepairCostRequest(700_000, LocalDate.of(2026, 8, 16), "이튿날 정비소"));
+
+            assertThat(response.repairCompletedDate()).isEqualTo(LocalDate.of(2026, 8, 16));
         }
 
         @Test
@@ -648,6 +701,24 @@ class AccidentServiceTest {
     private void flushAndClear() {
         entityManager.flush();
         entityManager.clear();
+    }
+
+    /**
+     * 접수 시각을 과거로 돌린다.
+     *
+     * <p>수리 완료일 하한 검증이 <b>사고 접수일</b>을 기준으로 하므로, 접수 직후에 만든 사고에
+     * 과거 날짜를 기록하려 하면 거절된다. 실제 서비스에서는 사고를 접수하고 며칠 뒤 수리가 끝나므로,
+     * 그 상황을 재현하려면 접수 시각을 뒤로 옮겨야 한다.
+     *
+     * <p>{@code created_at} 은 JPA 에서 {@code updatable = false} 라 JDBC 로 직접 바꾸고,
+     * 영속성 컨텍스트가 옛 값을 들고 있지 않도록 비운다.
+     */
+    private void backdateAccident(long accidentId, LocalDate reportedOn) {
+        jdbcTemplate.update(
+                "update accident set created_at = ? where accident_id = ?",
+                Timestamp.from(reportedOn.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant()),
+                accidentId);
+        flushAndClear();
     }
 
     private void insertMember(long memberId, String providerUserId) {
