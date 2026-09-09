@@ -20,6 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -86,6 +88,14 @@ public class AccidentService {
                 .toList();
     }
 
+    /**
+     * 접수 시각은 {@code TIMESTAMPTZ}({@link Instant})이고 수리 완료일은 날짜뿐이라, 둘을 비교하려면
+     * 기준 시간대가 있어야 한다. 서비스 사용자와 정비소가 국내에 있으므로 한국 시간을 기준으로 본다.
+     * UTC 로 비교하면 한국 시각 오전 9시 이전에 접수된 건의 접수일이 하루 앞으로 밀려,
+     * 접수 당일 수리 완료가 잘못 거절된다.
+     */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+
     /** 페이지 파라미터 기본값. 명세서에 값이 없어 잠정치이며 컨트롤러와 이 상수만 고치면 된다. */
     public static final int DEFAULT_PAGE_SIZE = 20;
 
@@ -116,11 +126,32 @@ public class AccidentService {
         Accident accident = accidentRepository.findByAccidentIdAndMemberId(accidentId, memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "사고를 찾을 수 없습니다."));
 
+        requireNotBeforeReport(accident, request.repairCompletedDate());
+
         accident.recordActualRepair(
                 request.actualRepairCost(),
                 request.repairCompletedDate(),
                 request.repairShopName().strip(),
                 Instant.now());
         return ActualRepairCostResponse.from(accident);
+    }
+
+    /**
+     * 수리 완료일이 사고 접수일보다 이전이면 거절한다.
+     *
+     * <p>DTO 애너테이션으로는 막을 수 없다 — {@code @PastOrPresent} 는 오늘을 기준으로 볼 뿐
+     * 이 사고가 언제 접수됐는지 모른다. 정본 DDL 에도 두 열을 비교하는 CHECK 가 없다
+     * ({@code ck_ac_cost} 는 금액만 본다). 그래서 접수 시각을 아는 이 지점에서 본다.
+     *
+     * <p><b>같은 날은 허용한다.</b> 접수 당일에 수리가 끝나는 일이 실제로 있다.
+     */
+    private void requireNotBeforeReport(Accident accident, LocalDate repairCompletedDate) {
+        LocalDate reportedOn = LocalDate.ofInstant(accident.getCreatedAt(), SERVICE_ZONE);
+        if (repairCompletedDate.isBefore(reportedOn)) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_REQUEST,
+                    "수리 완료일은 사고 접수일(%s)보다 이전일 수 없습니다. (입력 %s)"
+                            .formatted(reportedOn, repairCompletedDate));
+        }
     }
 }
