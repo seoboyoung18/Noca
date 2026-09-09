@@ -20,10 +20,13 @@ import java.time.Instant;
 /**
  * 견적서 문서를 <b>로컬 파일시스템</b>에 저장하는 어댑터. 개발·데모용이다.
  *
- * <p><b>왜 로컬인가</b> — {@code ck_ev_file} 이 "파일 입력이면 {@code s3_key_file} 이 NOT NULL"
- * 을 강제하므로 저장소를 건너뛸 수 없는데, S3 어댑터는 AWS SDK 의존성과
- * {@code S15P21A307-217}(버킷·IAM)이 선행이라 아직 만들 수 없다. 포트 뒤에 있으므로
- * S3 가 준비되면 <b>이 클래스를 교체하기만 하면 된다</b> — 부르는 쪽은 하나도 바뀌지 않는다.
+ * <p><b>왜 로컬인가</b> — 버킷·IAM 없이 파일 업로드 경로를 끝까지 돌려 보기 위해서다.
+ * {@code ck_ev_file} 이 "파일 입력이면 {@code s3_key_file} 이 NOT NULL" 을 강제하므로
+ * 저장소를 건너뛸 수 없다. 운영용 구현은 {@link S3DocumentStorage} 다.
+ *
+ * <p><b>S3 어댑터와 동시에 뜨지 않는다.</b> 둘 다 {@code app.document-storage.provider} 하나로
+ * 고르고 값이 각각 {@code local}·{@code s3} 이므로 배타가 구조로 보장된다. 둘이 함께 뜨면
+ * 소비자의 {@code Optional<DocumentStoragePort>} 주입이 빈 두 개를 만나 기동이 실패한다.
  *
  * <p><b>프로퍼티가 없으면 이 빈은 뜨지 않는다.</b> 기본값을 코드에 두지 않은 것은 의도다
  * ({@code AccidentImageProperties} 와 같은 원칙). 빈이 없으면 소비자가 받는
