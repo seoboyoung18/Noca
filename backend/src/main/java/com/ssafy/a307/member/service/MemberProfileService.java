@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+
 /**
  * 마이페이지 응답을 조립한다 — 회원 정보에 차량·사고 건수를 붙인다.
  * <p>
@@ -47,6 +49,20 @@ public class MemberProfileService {
     @Transactional
     public MemberProfileResponse deleteProfileImage(Long memberId) {
         return assemble(profileImageService.delete(memberId));
+    }
+
+    /**
+     * 탈퇴. 익명화는 트랜잭션 안에서, <b>S3 파일 삭제는 트랜잭션 밖 best-effort</b> 로 한다 —
+     * 명세가 정한 순서다.
+     * <p>
+     * <b>이 메서드에 {@code @Transactional} 을 붙이면 안 된다.</b> 붙이면 S3 삭제가
+     * 트랜잭션 안으로 들어와, 네트워크 호출이 DB 커넥션을 붙들고 있게 되고 삭제 실패가
+     * 탈퇴 롤백으로 번진다. 지금은 {@code memberService.withdraw} 가 자기 트랜잭션을
+     * 열고 닫은 뒤에야 파일을 지운다.
+     */
+    public void withdraw(Long memberId, Instant now) {
+        String removedImageKey = memberService.withdraw(memberId, now);
+        profileImageService.deleteObjectQuietly(removedImageKey);
     }
 
     private MemberProfileResponse assemble(Member member) {

@@ -110,6 +110,25 @@ public class ProfileImageService {
     }
 
     /**
+     * 탈퇴 뒤 남은 S3 객체를 지운다. <b>트랜잭션 밖에서, 실패해도 넘어간다</b> —
+     * 명세가 정한 best-effort 다.
+     * <p>
+     * 탈퇴는 이미 커밋된 상태라 여기서 예외를 던지면 끝난 탈퇴가 실패로 보인다.
+     * 저장소가 구성되지 않은 환경에서도 탈퇴 자체는 되어야 하므로 503 도 내지 않는다.
+     * 지우지 못한 객체는 로그로 남겨 나중에 손으로 정리할 수 있게 한다.
+     */
+    public void deleteObjectQuietly(String serviceKey) {
+        if (serviceKey == null || serviceKey.isBlank() || storagePort.isEmpty()) {
+            return;
+        }
+        try {
+            storagePort.get().deleteService(serviceKey);
+        } catch (RuntimeException e) {
+            log.warn("탈퇴 회원의 프로필 이미지 삭제 실패 — 수동 정리가 필요하다. key={}", serviceKey, e);
+        }
+    }
+
+    /**
      * 조회용 presigned GET URL. 이미지가 없거나 저장소가 없으면 {@code null} 이다 —
      * 프로필 조회가 저장소 유무로 실패하면 안 되기 때문에 여기서는 503 을 내지 않는다.
      */

@@ -9,7 +9,6 @@ import com.ssafy.a307.member.dto.ProfileImageCompleteRequest;
 import com.ssafy.a307.member.dto.ProfileImageUploadUrlRequest;
 import com.ssafy.a307.member.dto.ProfileImageUploadUrlResponse;
 import com.ssafy.a307.member.service.MemberProfileService;
-import com.ssafy.a307.member.service.MemberService;
 import com.ssafy.a307.member.service.ProfileImageService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -51,7 +50,6 @@ import java.time.Instant;
 public class MemberController {
 
     private final MemberProfileService memberProfileService;
-    private final MemberService memberService;
     private final ProfileImageService profileImageService;
 
     /**
@@ -88,9 +86,11 @@ public class MemberController {
     /**
      * 탈퇴. 회원 행은 남기고 개인식별정보만 지우는 소프트 삭제다 —
      * 견적·검증 데이터의 FK 가 끊기면 안 되기 때문이다({@code MemberWithdrawalTest} 참고).
+     * 프로필 이미지는 DB 컬럼을 비우는 것으로 끝나지 않아, S3 객체까지 지운다
+     * (트랜잭션 밖 best-effort).
      * <p>
-     * <b>소셜 unlink 와 S3 파일 삭제는 아직 하지 않는다.</b> 명세상 트랜잭션 밖
-     * best-effort 인데 두 인프라 모두 코드에 붙어 있지 않다. 별도 스토리로 남긴다.
+     * <b>소셜 unlink 는 아직 하지 않는다.</b> 카카오 unlink·구글 revoke 연동이
+     * 코드에 없다 — S15P21A307-102 로 남긴다.
      */
     @DeleteMapping("/me")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -98,7 +98,7 @@ public class MemberController {
                          HttpServletRequest request,
                          HttpServletResponse response) {
 
-        memberService.withdraw(principal.getMemberId(), Instant.now());
+        memberProfileService.withdraw(principal.getMemberId(), Instant.now());
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         logoutHandler.logout(request, response, authentication);

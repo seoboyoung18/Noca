@@ -169,11 +169,20 @@ public class MemberService {
     /**
      * 탈퇴. 개인식별정보를 즉시 익명화해 같은 소셜 계정의 재가입 길을 열어 둔다.
      * 견적·검증 데이터는 {@code member_id} 로 남으므로 함께 지워지지 않는다.
+     *
+     * @return 지워진 프로필 이미지 키. 없었으면 {@code null} 이다.
+     *         <b>DB 컬럼을 비우는 것만으로는 S3 파일이 남는다</b> — 실제 객체 삭제는
+     *         트랜잭션 밖 best-effort 라 호출부가 이 값을 받아 처리한다
+     *         ({@code MemberProfileService#withdraw}).
      */
     @Transactional
-    public void withdraw(Long memberId, Instant now) {
-        memberRepository.findById(memberId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "존재하지 않는 회원입니다."))
-                .withdraw(now);
+    public String withdraw(Long memberId, Instant now) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "존재하지 않는 회원입니다."));
+
+        // withdraw() 가 컬럼을 비우므로 그 전에 들고 있어야 한다
+        String removedImageKey = member.getProfileImageKey();
+        member.withdraw(now);
+        return removedImageKey;
     }
 }

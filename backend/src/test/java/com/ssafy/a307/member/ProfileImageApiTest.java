@@ -228,6 +228,47 @@ class ProfileImageApiTest {
         assertThat(storage.service).isEmpty();
     }
 
+    /**
+     * DB 컬럼을 비우는 것만으로는 S3 에 파일이 남는다. 탈퇴는 개인정보를 즉시 지우는
+     * 처리라, 파일까지 지워야 한다(S15P21A307-97).
+     */
+    @Test
+    @DisplayName("탈퇴하면 S3 의 프로필 이미지 파일까지 지운다")
+    void withdrawDeletesStoredImage() throws Exception {
+        MockHttpSession session = signedInSession();
+        long memberId = currentMemberId();
+        uploadProfileImage(session, memberId, jpegBytes());
+        assertThat(storage.service).containsKey("profile/" + memberId);
+
+        mockMvc.perform(delete("/api/members/me").session(session))
+                .andExpect(status().isNoContent());
+
+        assertThat(storage.service).doesNotContainKey("profile/" + memberId);
+        assertThat(memberRepository.findById(memberId)).get()
+                .extracting(m -> m.getProfileImageKey())
+                .isNull();
+    }
+
+    /**
+     * 파일 삭제는 트랜잭션 밖 best-effort 다. 저장소가 터져도 탈퇴는 이미 커밋됐으므로
+     * 실패로 되돌리면 안 된다 — 사용자 입장에서 탈퇴가 안 된 것처럼 보인다.
+     */
+    @Test
+    @DisplayName("S3 삭제가 실패해도 탈퇴는 완료된다")
+    void withdrawSucceedsWhenStorageFails() throws Exception {
+        MockHttpSession session = signedInSession();
+        long memberId = currentMemberId();
+        uploadProfileImage(session, memberId, jpegBytes());
+        storage.failDeletes = true;
+
+        mockMvc.perform(delete("/api/members/me").session(session))
+                .andExpect(status().isNoContent());
+
+        assertThat(memberRepository.findById(memberId)).get()
+                .extracting(m -> m.getStatus().name())
+                .isEqualTo("WITHDRAWN");
+    }
+
     @Test
     @DisplayName("이미지가 없으면 조회 응답의 URL 은 null 이다")
     void nullUrlWithoutImage() throws Exception {
@@ -317,10 +358,14 @@ class ProfileImageApiTest {
         final Map<String, byte[]> service = new HashMap<>();
         final Map<String, String> serviceContentTypes = new HashMap<>();
 
+        /** 삭제 실패를 흉내내기 위한 스위치. best-effort 경로를 보려면 필요하다. */
+        boolean failDeletes;
+
         void clear() {
             staging.clear();
             service.clear();
             serviceContentTypes.clear();
+            failDeletes = false;
         }
 
         void putStaging(String key, byte[] content) {
@@ -358,6 +403,9 @@ class ProfileImageApiTest {
 
         @Override
         public void deleteService(String serviceKey) {
+            if (failDeletes) {
+                throw new IllegalStateException("저장소 삭제 실패 (테스트)");
+            }
             service.remove(serviceKey);
             serviceContentTypes.remove(serviceKey);
         }
