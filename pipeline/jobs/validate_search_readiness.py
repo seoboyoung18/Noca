@@ -1,11 +1,11 @@
 """Search-readiness validation: polygon/bbox geometry + standard part_code linkage.
 
 Extends the fast key-scan join result (case_id_linkage.csv) with a second pass
-that actually parses each damage/damage_part label JSON to check:
+that actually parses each damage_part label JSON to check:
   - at least one damage annotation has valid geometry (bbox or segmentation)
   - at least one part_code can be resolved for that case, either from a
-    damage_part 'part' annotation or from a damage annotation's 'repair'
-    field ("<part>:<work>[,<work>]"), both normalized through
+    damage_part 'part' annotation or from its 'repair' field
+    ("<part>:<work>[,<work>]"), both normalized through
     standardization/catalog.py + normalizer.py (the project's own contract).
 
 Only cases that were already is_searchable_case_candidate=True in the prior
@@ -23,10 +23,11 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+# 검색 사례 readiness는 서비스 검색 모델과 동일한 damage_part 계열만 대상으로
+# 판정한다. DAMAGE 계열은 별도 YOLO 목적의 화각·포함 영역을 가지므로 검색
+# 코퍼스에 섞지 않는다.
 GROUPS = (
-    ("TRAIN", "DAMAGE", "1.Training/1.원천데이터/TS_damage/damage", "1.Training/2.라벨링데이터/TL_damage/damage"),
     ("TRAIN", "DAMAGE_PART", "1.Training/1.원천데이터/TS_damage_part/damage_part", "1.Training/2.라벨링데이터/TL_damage_part/damage_part"),
-    ("VALIDATION", "DAMAGE", "2.Validation/1.원천데이터/VS_damage/damage", "2.Validation/2.라벨링데이터/VL_damage/damage"),
     ("VALIDATION", "DAMAGE_PART", "2.Validation/1.원천데이터/VS_damage_part/damage_part", "2.Validation/2.라벨링데이터/VL_damage_part/damage_part"),
 )
 
@@ -88,7 +89,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--catalog-path", type=Path, default=Path(__file__).resolve().parents[1],
                         help="path to the standardization/ package parent (default: pipeline/)")
-    parser.add_argument("--only-group", default=None, help="e.g. TRAIN:DAMAGE — run a single group and dump a partial file instead of the final report")
+    parser.add_argument("--only-group", default=None, help="e.g. TRAIN:DAMAGE_PART — run a single group and dump a partial file instead of the final report")
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--merge-only", action="store_true", help="skip scanning; merge existing group_partial_*.json files with the linkage csv into the final report")
@@ -121,6 +122,8 @@ def main() -> None:
     case_geometry_ok: set[str] = set()
     case_part_ok: set[str] = set()
     case_part_source: dict[str, Counter] = defaultdict(Counter)
+    case_label_counts: Counter[str] = Counter()
+    case_orphan_counts: Counter[str] = Counter()
     parse_errors = 0
     processed = 0
     group_counts: dict[str, Counter] = defaultdict(Counter)
@@ -169,6 +172,10 @@ def main() -> None:
                 continue
 
             group_counts[group_name]["label_files_scanned"] += 1
+            case_label_counts[case_id] += 1
+            source_path = root / _source_rel / Path(file_name).name
+            if not source_path.is_file():
+                case_orphan_counts[case_id] += 1
             for ann in data.get("annotations") or []:
                 geom_ok = valid_bbox(ann.get("bbox"), width, height) or valid_segmentation(ann.get("segmentation"))
                 if geom_ok and ann.get("damage"):
@@ -249,8 +256,9 @@ def main() -> None:
                     fail_reasons["no_valid_part_code"] += 1
             writer.writerow({
                 "case_id": case_id, "has_estimate": row["has_estimate"],
-                "source_image_count": row["source_image_count"], "label_file_count": row["label_file_count"],
-                "orphan_label_count": row["orphan_label_count"],
+                "source_image_count": case_label_counts.get(case_id, 0),
+                "label_file_count": case_label_counts.get(case_id, 0),
+                "orphan_label_count": case_orphan_counts.get(case_id, 0),
                 "is_searchable_case_candidate": is_candidate,
                 "has_valid_damage_geometry": geom_ok, "has_valid_part_code": part_ok,
                 "part_code_source": "|".join(sorted(case_part_source[case_id])) if case_id in case_part_source else "",
@@ -274,6 +282,7 @@ def main() -> None:
         },
         "group_summary": {k: dict(v) for k, v in sorted(group_counts.items())},
         "rules": {
+            "image_source_scope": "DAMAGE_PART label groups only; DAMAGE groups are excluded because their YOLO framing differs",
             "has_valid_damage_geometry": "at least one damage annotation with non-null damage code and a valid bbox (positive w/h, inside image) or a valid polygon (area > 0)",
             "has_valid_part_code": "at least one annotation whose part label (damage_part 'part' field) or repair label ('<part>:<work>') resolves via standardization/catalog.py PARTS, paired with valid geometry",
             "is_final_searchable_case": "is_searchable_case_candidate AND has_valid_damage_geometry AND has_valid_part_code",

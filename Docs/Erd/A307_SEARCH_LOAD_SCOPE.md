@@ -11,13 +11,12 @@
 | 구분 | 건수 | 처리 |
 |---|---:|---|
 | 원천 견적 전체 | 125,006 | `aihub_estimate_raw`에 별도 전수 보존 |
-| readiness 최종 검색 가능 | 113,184 | `repair_case` 적재 후보 |
-| 데이터셋 파일이 없는 견적 | 7,240 | `repair_case`에 넣지 않음. Raw만 보존 |
-| 최종 검색 불가 (`125,006 - 113,184`) | 11,822 | `repair_case`에 넣지 않음. 판정 산출물로 보존 |
+| damage_part 기준 readiness 최종 검색 가능 | 55,363 | `repair_case` 적재 후보 |
+| 최종 검색 불가 (`125,006 - 55,363`) | 69,643 | `repair_case`에 넣지 않음. 판정 산출물로 보존 |
 
-위의 7,240건은 최종 검색 불가 11,822건에 포함될 수 있으므로 두 행을 합산하지
-않는다. readiness 단계의 중간 수치는 이미지·라벨 조인 후보 116,809건이며, 그중
-geometry/part-code 검증을 통과한 113,184건을 최종 검색 범위로 사용한다.
+readiness 단계의 중간 수치는 견적·사례 조인 후보 116,809건이며, 그중
+`damage_part` 계열에서 geometry/part-code 검증을 통과한 55,363건을 최종 검색
+범위로 사용한다. 이 기준의 이미지 라벨 파일은 98,617건이다.
 
 실제 적재 job은 후보 중 다음 조건을 추가로 확인한다.
 
@@ -28,6 +27,43 @@ geometry/part-code 검증을 통과한 113,184건을 최종 검색 범위로 사
 
 추가 조건에서 탈락한 사례는 `repair_case`에 부분 적재하지 않고
 `data_validation_error`에 `invalid_car_class`, `missing_image` 등의 유형으로 남긴다.
+
+## 검색 이미지 원천 범위
+
+검색 사례 이미지는 **`damage_part` 계열만** 사용한다.
+
+```text
+1.Training/2.라벨링데이터/TL_damage_part/damage_part
+2.Validation/2.라벨링데이터/VL_damage_part/damage_part
+```
+
+`damage`와 `damage_part`는 서로 다른 YOLO 목적에 맞춰 화각과 포함 영역이
+다르므로 같은 검색 코퍼스에 섞지 않는다. `damage` 계열은 이번
+`repair_case_image` 적재 범위에서 제외한다. readiness 검증과 검색 적재 loader도
+동일하게 `damage_part` 계열만 스캔해야 하며, 이 기준으로 생성한 manifest를 사용한다.
+
+readiness와 사례별 manifest는 원천 데이터에서 재생성 가능한 실행 산출물이므로
+`pipeline/manifests/`에 커밋하지 않고 저장소 밖에 보관한다. 생성 명령은 다음과 같다.
+
+```bash
+python pipeline/jobs/validate_search_readiness.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --linkage-csv "<category integrity output>/case_id_linkage.csv" \
+  --output-dir "<저장소 밖 readiness output>"
+
+python pipeline/jobs/build_case_split_manifests.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --readiness-csv "<저장소 밖 readiness output>/case_search_readiness.csv" \
+  --linkage-csv "<category integrity output>/case_id_linkage.csv" \
+  --output-dir "<저장소 밖 manifest output>" \
+  --dev-cases 1000 \
+  --demo-cases 20 \
+  --seed "a307-search-cases-v1"
+```
+
+2026-09-10 전수 readiness 산출물의 SHA-256은
+`9412D070E28A2252377D9C9B77718961D9766127848D59398E8FFE91B4233482`이며,
+재실행 결과가 다르면 원천 데이터·코드·실행 옵션을 먼저 비교한다.
 
 ## 이미지 key와 로컬 파일
 
