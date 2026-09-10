@@ -15,7 +15,7 @@ import java.util.List;
  * FE 인수인계 문서가 이미 그 키를 계약으로 적었으므로 바꾸지 않는다.
  */
 public record AccidentPageResponse(
-        List<AccidentResponse> accidents,
+        List<AccidentSummaryResponse> accidents,
         int page,
         int size,
         long totalElements,
@@ -23,7 +23,23 @@ public record AccidentPageResponse(
         boolean hasNext
 ) {
 
-    public static AccidentPageResponse from(Page<AccidentResponse> page) {
+    /**
+     * 목록 전용 값(썸네일·상태·예상 비용)을 채운 뒤 호출한다(Task 225). 보강이 <b>배치</b>라
+     * {@code Page.map} 으로 건마다 변환할 수 없다 — 그러면 건마다 쿼리가 나간다.
+     * 페이지 메타는 원본에서 그대로 가져온다.
+     */
+    public static AccidentPageResponse of(List<AccidentSummaryResponse> accidents, Page<?> page) {
+        return new AccidentPageResponse(
+                accidents,
+                page.getNumber(),
+                page.getSize(),
+                page.getTotalElements(),
+                page.getTotalPages(),
+                page.hasNext()
+        );
+    }
+
+    public static AccidentPageResponse from(Page<AccidentSummaryResponse> page) {
         return new AccidentPageResponse(
                 page.getContent(),
                 page.getNumber(),

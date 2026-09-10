@@ -1,8 +1,10 @@
 package com.ssafy.a307.accident.service;
 
 import com.ssafy.a307.accident.dto.AccidentCreateRequest;
+import com.ssafy.a307.accident.dto.AccidentHistoryStatus;
 import com.ssafy.a307.accident.dto.AccidentPageResponse;
 import com.ssafy.a307.accident.dto.AccidentResponse;
+import com.ssafy.a307.accident.dto.AccidentSummaryResponse;
 import com.ssafy.a307.accident.dto.AccidentVehicleSearchCondition;
 import com.ssafy.a307.accident.dto.ActualRepairCostRequest;
 import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
@@ -692,6 +694,161 @@ class AccidentServiceTest {
                 .isEqualTo(ErrorCode.NOT_FOUND);
     }
 
+    @Nested
+    @DisplayName("이력 목록의 상태·장수·예상 비용 (Task 225)")
+    class HistoryDetails {
+
+        @Test
+        @DisplayName("이미지가 없으면 RECEIVED 이고 장수 0, 썸네일과 예상 비용은 null 이다")
+        void receivedWhenNoImage() {
+            long accidentId = openAccident();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.accidentId()).isEqualTo(accidentId);
+            assertThat(summary.status()).isEqualTo(AccidentHistoryStatus.RECEIVED);
+            assertThat(summary.imageCount()).isZero();
+            assertThat(summary.thumbnailUrl()).isNull();
+            assertThat(summary.thumbnailExpiresAt()).isNull();
+            assertThat(summary.estimatedCostMin()).isNull();
+            assertThat(summary.estimatedCostMedian()).isNull();
+            assertThat(summary.estimatedCostMax()).isNull();
+        }
+
+        @Test
+        @DisplayName("이미지가 있으면 IMAGES_UPLOADED 이고 장수를 정확히 센다")
+        void imagesUploadedCountsEveryImage() {
+            long accidentId = openAccident();
+            insertImage(accidentId, "front.jpg");
+            insertImage(accidentId, "rear.jpg");
+            insertImage(accidentId, "left.jpg");
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.status()).isEqualTo(AccidentHistoryStatus.IMAGES_UPLOADED);
+            assertThat(summary.imageCount()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("완료 통보를 못 받은 이미지도 장수에 센다 — 화면의 N장은 사용자가 올린 수다")
+        void countsImagesWithoutAssets() {
+            long accidentId = openAccident();
+            insertImage(accidentId, "pending.jpg");
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.imageCount()).isEqualTo(1);
+            assertThat(summary.thumbnailUrl()).isNull();
+        }
+
+        @Test
+        @DisplayName("견적이 있으면 ESTIMATED 이고 총액 범위를 준다")
+        void estimatedExposesCostRange() {
+            long accidentId = openAccident();
+            insertImage(accidentId, "front.jpg");
+            insertEstimate(accidentId, 1, true, 800_000, 1_000_000, 1_300_000);
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.status()).isEqualTo(AccidentHistoryStatus.ESTIMATED);
+            assertThat(summary.estimatedCostMin()).isEqualTo(800_000);
+            assertThat(summary.estimatedCostMedian()).isEqualTo(1_000_000);
+            assertThat(summary.estimatedCostMax()).isEqualTo(1_300_000);
+        }
+
+        @Test
+        @DisplayName("산정 불가 견적은 무시한다 — 화면에 예상 0원으로 보이면 안 된다")
+        void ignoresNonEstimableEstimate() {
+            long accidentId = openAccident();
+            insertEstimate(accidentId, 1, false, null, null, null);
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.status()).isEqualTo(AccidentHistoryStatus.RECEIVED);
+            assertThat(summary.estimatedCostMedian()).isNull();
+        }
+
+        @Test
+        @DisplayName("견적이 여러 번 산정됐으면 최신 것을 쓴다")
+        void usesLatestEstimate() {
+            long accidentId = openAccident();
+            long oldJob = insertEstimate(accidentId, 1, true, 100, 200, 300);
+            backdateEstimate(oldJob, Instant.parse("2026-09-01T00:00:00Z"));
+            insertEstimate(accidentId, 1, true, 900_000, 1_100_000, 1_400_000);
+            flushAndClear();
+
+            assertThat(onlyAccident().estimatedCostMedian()).isEqualTo(1_100_000);
+        }
+
+        @Test
+        @DisplayName("남의 사고는 목록에 없고 그 견적도 새 나가지 않는다")
+        void otherMembersAccidentIsInvisible() {
+            long mine = openAccident();
+            insertEstimate(mine, 1, true, 1, 2, 3);
+
+            VehicleResponse otherVehicle =
+                    vehicleService.create(OTHER, new VehicleCreateRequest(avante, 2021));
+            long theirs = accidentService
+                    .create(OTHER, new AccidentCreateRequest(otherVehicle.vehicleId()))
+                    .accidentId();
+            insertEstimate(theirs, 1, true, 9_000_000, 9_000_000, 9_000_000);
+            flushAndClear();
+
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+
+            assertThat(paged.totalElements()).isEqualTo(1);
+            assertThat(paged.accidents()).singleElement()
+                    .satisfies(only -> {
+                        assertThat(only.accidentId()).isEqualTo(mine);
+                        assertThat(only.estimatedCostMedian()).isEqualTo(2);
+                    });
+        }
+
+        @Test
+        @DisplayName("페이지 크기와 무관하게 추가 쿼리가 3개다 — 건마다 조회하지 않는다")
+        void enrichmentDoesNotScaleWithPageSize() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            for (int i = 0; i < 5; i++) {
+                long accidentId = accidentService
+                        .create(ME, new AccidentCreateRequest(vehicle.vehicleId())).accidentId();
+                insertImage(accidentId, "front" + i + ".jpg");
+                insertEstimate(accidentId, 1, true, 100, 200, 300);
+            }
+            flushAndClear();
+
+            Statistics statistics =
+                    entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            statistics.setStatisticsEnabled(true);
+            statistics.clear();
+
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+
+            assertThat(paged.accidents()).hasSize(5);
+            // 목록 1 + 장수·썸네일·견적 3 = 4. 사고 건수(5)에 비례하지 않는 것이 요점이다.
+            // count 쿼리는 나가지 않는다 — 첫 페이지에 전체가 들어가면 Spring Data 가
+            // 생략한다(PageableExecutionUtils). 그래서 5가 아니라 4다.
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
+        }
+
+        private long openAccident() {
+            VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
+            long accidentId = accidentService
+                    .create(ME, new AccidentCreateRequest(vehicle.vehicleId())).accidentId();
+            flushAndClear();
+            return accidentId;
+        }
+
+        private AccidentSummaryResponse onlyAccident() {
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+            assertThat(paged.accidents()).hasSize(1);
+            return paged.accidents().getFirst();
+        }
+    }
+
     /** @CreatedDate 가 잡는 시각을 고정해 정렬 2차 키(accidentId)를 검증할 수 있게 한다. */
     private void setCreatedAt(long accidentId, Instant createdAt) {
         jdbcTemplate.update("update accident set created_at = ? where accident_id = ?",
@@ -768,5 +925,47 @@ class AccidentServiceTest {
         assertThat(condition.modelName()).isEqualTo("아반떼");
         assertThat(condition.carClass()).isEqualTo(CarClass.MID_SIZE);
         assertThat(condition.modelYear()).isEqualTo(2020);
+    }
+
+    /** 사고 이미지 한 장. asset 은 넣지 않는다 — 완료 통보 전 상태다. */
+    private long insertImage(long accidentId, String filename) {
+        jdbcTemplate.update(
+                "insert into accident_image (accident_id, original_filename) values (?, ?)",
+                accidentId, filename);
+        return jdbcTemplate.queryForObject(
+                "select max(image_id) from accident_image where accident_id = ?",
+                Long.class, accidentId);
+    }
+
+    private void insertAsset(long imageId, String variant, String s3Key) {
+        jdbcTemplate.update(
+                "insert into accident_image_asset (image_id, variant, s3_key, width, height, file_size)"
+                        + " values (?, ?, ?, 320, 240, 14802)",
+                imageId, variant, s3Key);
+    }
+
+    /**
+     * 분석 작업 + 견적 한 벌. {@code estimate} 는 {@code analysis_job} 을 거쳐 사고에 매달리므로
+     * 둘을 함께 만든다.
+     *
+     * @return 만든 job_id
+     */
+    private long insertEstimate(long accidentId, int version, boolean estimable,
+                                Integer min, Integer median, Integer max) {
+        jdbcTemplate.update(
+                "insert into analysis_job (accident_id, status) values (?, 'COMPLETED')", accidentId);
+        long jobId = jdbcTemplate.queryForObject(
+                "select max(job_id) from analysis_job where accident_id = ?", Long.class, accidentId);
+        jdbcTemplate.update(
+                "insert into estimate (job_id, version, is_estimable, total_min, total_median, total_max)"
+                        + " values (?, ?, ?, ?, ?, ?)",
+                jobId, version, estimable, min, median, max);
+        return jobId;
+    }
+
+    /** 최신 견적 판정이 created_at 을 먼저 보므로, 오래된 견적을 만들려면 시각을 뒤로 옮긴다. */
+    private void backdateEstimate(long jobId, Instant createdAt) {
+        jdbcTemplate.update("update estimate set created_at = ? where job_id = ?",
+                OffsetDateTime.ofInstant(createdAt, ZoneOffset.UTC), jobId);
     }
 }
