@@ -33,7 +33,9 @@ from standardization import DAMAGES, PARTS, normalize_repair_label  # noqa: E402
 CASE_RE = re.compile(r"^(?:as|sc)-\d+$", re.IGNORECASE)
 LABEL_RE = re.compile(r"_(?P<case>(?:as|sc)-\d+)\.json$", re.IGNORECASE)
 LABEL_DIRS = (
+    Path("1.Training/2.라벨링데이터/TL_damage/damage"),
     Path("1.Training/2.라벨링데이터/TL_damage_part/damage_part"),
+    Path("2.Validation/2.라벨링데이터/VL_damage/damage"),
     Path("2.Validation/2.라벨링데이터/VL_damage_part/damage_part"),
 )
 SOURCE_BY_PREFIX = {"as": "AIHUB_AS", "sc": "AIHUB_SC"}
@@ -99,8 +101,9 @@ def linkage_groups(path: Path) -> dict[str, str]:
 
 
 def dataset_split(groups: str) -> str:
-    has_train = "train/damage_part" in groups
-    has_validation = "validation/damage_part" in groups
+    # DAMAGE와 DAMAGE_PART 어느 쪽에만 있어도 원천 split에 포함된 사례다.
+    has_train = "train/damage" in groups
+    has_validation = "validation/damage" in groups
     if has_train and has_validation:
         return "MIXED"
     if has_train:
@@ -261,7 +264,7 @@ def main() -> None:
     missing_labels = sorted(readiness - label_index.keys())
     if missing_labels:
         raise SystemExit(
-            f"readiness 최종 사례에 damage_part 라벨이 없습니다: {len(missing_labels)}건"
+                f"readiness 최종 사례에 DAMAGE/DAMAGE_PART 라벨이 없습니다: {len(missing_labels)}건"
         )
     missing_images = [
         path
@@ -271,7 +274,7 @@ def main() -> None:
     ]
     if missing_images:
         raise SystemExit(
-            f"damage_part 라벨에 대응하는 원본 이미지가 없습니다: {len(missing_images)}건"
+                f"DAMAGE/DAMAGE_PART 라벨에 대응하는 원본 이미지가 없습니다: {len(missing_images)}건"
         )
     estimate_root = (args.estimate_root or (
         subset_root / "1.Training/1.원천데이터_230126_add/TS_99. 붙임_견적서"
@@ -329,7 +332,7 @@ def main() -> None:
         "demo_cases": len(demo),
         "eval_cases": len(eval_rows),
         "mixed_cases_excluded_from_eval": counts["MIXED"],
-        "image_source_scope": "damage_part_only",
+        "image_source_scope": "damage_and_damage_part_case_split__damage_query_default",
         "seed": args.seed,
     }, ensure_ascii=False, indent=2))
 
