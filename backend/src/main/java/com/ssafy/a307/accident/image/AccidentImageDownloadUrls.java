@@ -55,6 +55,27 @@ public class AccidentImageDownloadUrls {
         return List.copyOf(responses);
     }
 
+    /**
+     * 키 하나로 조회 URL 을 만든다. 사고 이력 목록의 대표 썸네일이 쓴다(Task 225) —
+     * 그쪽은 asset 엔티티가 아니라 배치 조회로 키만 들고 온다.
+     *
+     * <p>실패 정책은 {@link #exposedAssets} 와 같다. 어댑터가 없거나 서명이 실패하면
+     * {@link Optional#empty()} 이고, 목록 전체를 500 으로 뒤집지 않는다 — 그 건만 썸네일이 빈다.
+     */
+    public Optional<AccidentImageStoragePort.PresignedDownload> presign(String s3Key) {
+        if (s3Key == null || s3Key.isBlank() || storagePort.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(storagePort.get()
+                    .createPresignedDownloadUrl(s3Key, properties.downloadUrlValidity()));
+        } catch (RuntimeException e) {
+            // 키는 로그에만. 응답으로 나가면 안 되는 값이다.
+            log.warn("썸네일 조회 URL 발급 실패 key={}", s3Key, e);
+            return Optional.empty();
+        }
+    }
+
     private AccidentImageAssetResponse toResponse(AccidentImageAsset asset) {
         return storagePort
                 .map(storage -> withUrl(storage, asset))

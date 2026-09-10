@@ -1,6 +1,8 @@
 package com.ssafy.a307.accident.service;
 
 import com.ssafy.a307.accident.dto.AccidentCreateRequest;
+import com.ssafy.a307.accident.dto.AccidentHistoryStatus;
+import com.ssafy.a307.accident.dto.AccidentSummaryResponse;
 import com.ssafy.a307.accident.dto.AccidentPageResponse;
 import com.ssafy.a307.accident.dto.AccidentResponse;
 import com.ssafy.a307.accident.dto.DirectVehicleInput;
@@ -8,6 +10,8 @@ import com.ssafy.a307.accident.dto.ActualRepairCostRequest;
 import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
 import com.ssafy.a307.accident.entity.Accident;
 import com.ssafy.a307.accident.entity.VehicleInputType;
+import com.ssafy.a307.accident.image.AccidentImageDownloadUrls;
+import com.ssafy.a307.accident.image.AccidentImageStoragePort;
 import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
@@ -15,6 +19,7 @@ import com.ssafy.a307.vehicle.entity.Vehicle;
 import com.ssafy.a307.vehicle.repository.VehicleRepository;
 import com.ssafy.a307.vehicle.service.VehicleRegistrationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +27,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * 차량 도메인과 같은 방식이다 — memberId 를 첫 파라미터로 받고,
@@ -35,6 +43,7 @@ public class AccidentService {
     private final AccidentRepository accidentRepository;
     private final VehicleRepository vehicleRepository;
     private final VehicleRegistrationService vehicleRegistrationService;
+    private final AccidentImageDownloadUrls downloadUrls;
 
     /**
      * 같은 차량으로 사고를 여러 건 접수할 수 있다. 막을 이유가 없어 검사하지 않는다.
@@ -116,8 +125,83 @@ public class AccidentService {
     public AccidentPageResponse findMinePaged(Long memberId, Integer page, Integer size) {
         int safePage = page == null || page < 0 ? 0 : page;
         int safeSize = size == null || size < 1 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
-        return AccidentPageResponse.from(
-                accidentRepository.findPageByMemberId(memberId, PageRequest.of(safePage, safeSize)));
+        Page<AccidentSummaryResponse> found =
+                accidentRepository.findPageByMemberId(memberId, PageRequest.of(safePage, safeSize));
+        return AccidentPageResponse.of(enrich(found.getContent()), found);
+    }
+
+    /**
+     * 목록 전용 값(썸네일·상태·예상 비용)을 채운다(Task 225).
+     *
+     * <p><b>페이지 크기와 무관하게 추가 쿼리가 3개다.</b> 건마다 조회하면 20건 페이지에 60번이
+     * 더 나간다. 페이지를 먼저 자르고 그 id 들로만 한 번씩 모아 온다.
+     *
+     * <p>썸네일 URL 서명은 순수 계산이라 네트워크를 타지 않는다 — 20건이면 20번 서명하지만
+     * 왕복은 0이다. 오브젝트가 실제로 있는지는 확인하지 않는다. 확인하려면 건마다
+     * {@code HeadObject} 왕복이 생기고, 없는 키는 브라우저가 열 때 404 로 나 이미지 한 칸이
+     * 비는 것으로 끝난다.
+     */
+    private List<AccidentSummaryResponse> enrich(List<AccidentSummaryResponse> page) {
+        if (page.isEmpty()) {
+            return page;
+        }
+        List<Long> ids = page.stream().map(AccidentSummaryResponse::accidentId).toList();
+
+        Map<Long, Long> imageCounts = new HashMap<>();
+        accidentRepository.countImagesByAccidentIds(ids)
+                .forEach(v -> imageCounts.put(v.getAccidentId(), v.getImageCount()));
+
+        Map<Long, String> thumbnailKeys = new HashMap<>();
+        accidentRepository.findThumbnailKeysByAccidentIds(ids)
+                .forEach(v -> thumbnailKeys.put(v.getAccidentId(), v.getS3Key()));
+
+        Map<Long, AccidentRepository.AccidentEstimateView> estimates = new HashMap<>();
+        accidentRepository.findLatestEstimatesByAccidentIds(ids)
+                .forEach(v -> estimates.put(v.getAccidentId(), v));
+
+        return page.stream()
+                .map(summary -> withDetails(summary, imageCounts, thumbnailKeys, estimates))
+                .toList();
+    }
+
+    private AccidentSummaryResponse withDetails(
+            AccidentSummaryResponse summary,
+            Map<Long, Long> imageCounts,
+            Map<Long, String> thumbnailKeys,
+            Map<Long, AccidentRepository.AccidentEstimateView> estimates) {
+
+        Long accidentId = summary.accidentId();
+        int imageCount = imageCounts.getOrDefault(accidentId, 0L).intValue();
+        AccidentRepository.AccidentEstimateView estimate = estimates.get(accidentId);
+
+        Optional<AccidentImageStoragePort.PresignedDownload> thumbnail =
+                downloadUrls.presign(thumbnailKeys.get(accidentId));
+
+        return summary.withDetails(
+                statusOf(accidentId, imageCount, estimate != null),
+                imageCount,
+                thumbnail.map(d -> d.url().toString()).orElse(null),
+                thumbnail.map(AccidentImageStoragePort.PresignedDownload::expiresAt).orElse(null),
+                estimate == null ? null : estimate.getTotalMin(),
+                estimate == null ? null : estimate.getTotalMedian(),
+                estimate == null ? null : estimate.getTotalMax());
+    }
+
+    /**
+     * 상태 유도 규칙. {@link AccidentHistoryStatus} 가 저장 컬럼이 아니라 유도값이라 규칙을
+     * 여기 한 곳에만 둔다 — 기획이 상태 축을 확정하면 이 메서드만 바꾼다.
+     *
+     * <p>실제 수리비 기록 여부는 이미 읽어 온 페이지에 없어 별도로 보지 않는다. 대신
+     * {@code actual_repair_cost} 를 투영에 넣지 않은 이유가 있다 — 그 값은 금액이라 목록에
+     * 노출할지 기획 결정이 필요하고, 상태만 필요하면 존재 여부로 충분하다. 지금은
+     * 견적 유무까지만 판정하고 {@link AccidentHistoryStatus#REPAIR_RECORDED} 는
+     * 실제 수리비를 투영에 포함하는 후속에서 쓴다.
+     */
+    private AccidentHistoryStatus statusOf(Long accidentId, int imageCount, boolean hasEstimate) {
+        if (hasEstimate) {
+            return AccidentHistoryStatus.ESTIMATED;
+        }
+        return imageCount > 0 ? AccidentHistoryStatus.IMAGES_UPLOADED : AccidentHistoryStatus.RECEIVED;
     }
 
     @Transactional

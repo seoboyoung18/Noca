@@ -2,6 +2,7 @@ package com.ssafy.a307.accident.controller;
 
 import com.ssafy.a307.accident.dto.AccidentPageResponse;
 import com.ssafy.a307.accident.dto.AccidentResponse;
+import com.ssafy.a307.accident.dto.AccidentSummaryResponse;
 import com.ssafy.a307.accident.dto.ActualRepairCostResponse;
 import com.ssafy.a307.accident.entity.VehicleInputType;
 import com.ssafy.a307.accident.service.AccidentService;
@@ -58,6 +59,12 @@ class AccidentControllerTest {
     private CurrentMemberProvider currentMemberProvider;
 
     private final AccidentResponse accident = new AccidentResponse(
+            1L, 7L, VehicleInputType.REGISTERED, 14L, "현대", "아반떼",
+            VehicleType.SEDAN, CarClass.MID_SIZE, 2020,
+            Instant.parse("2026-09-04T12:00:00Z"));
+
+    /** 목록은 상세와 응답 타입이 다르다 — 썸네일·상태·예상 비용이 더 붙는다(Task 225). */
+    private final AccidentSummaryResponse accidentSummary = new AccidentSummaryResponse(
             1L, 7L, VehicleInputType.REGISTERED, 14L, "현대", "아반떼",
             VehicleType.SEDAN, CarClass.MID_SIZE, 2020,
             Instant.parse("2026-09-04T12:00:00Z"));
@@ -299,7 +306,7 @@ class AccidentControllerTest {
     @Test
     @DisplayName("GET /api/accidents/me — 200 과 accidents 배열을 준다")
     void findMine() throws Exception {
-        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accident), 0, 20, 1));
+        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accidentSummary), 0, 20, 1));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk())
@@ -313,7 +320,7 @@ class AccidentControllerTest {
     @Test
     @DisplayName("GET /api/accidents/me — /{accidentId} 매핑에 잡히지 않는다")
     void meIsNotCapturedByAccidentIdMapping() throws Exception {
-        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accident), 0, 20, 1));
+        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accidentSummary), 0, 20, 1));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk());
@@ -336,7 +343,7 @@ class AccidentControllerTest {
     @Test
     @DisplayName("GET /api/accidents/me — 페이지 메타를 함께 준다")
     void findMineReturnsPageMeta() throws Exception {
-        given(accidentService.findMinePaged(ME, 1, 20)).willReturn(page(List.of(accident), 1, 20, 21));
+        given(accidentService.findMinePaged(ME, 1, 20)).willReturn(page(List.of(accidentSummary), 1, 20, 21));
 
         mockMvc.perform(get("/api/accidents/me").param("page", "1").param("size", "20"))
                 .andExpect(status().isOk())
@@ -370,7 +377,7 @@ class AccidentControllerTest {
     }
 
     private static AccidentPageResponse page(
-            List<AccidentResponse> content, int page, int size, long total) {
+            List<AccidentSummaryResponse> content, int page, int size, long total) {
         return AccidentPageResponse.from(
                 new PageImpl<>(content, PageRequest.of(page, size), total));
     }
