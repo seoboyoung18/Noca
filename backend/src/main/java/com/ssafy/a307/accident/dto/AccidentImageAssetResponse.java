@@ -20,9 +20,11 @@ import java.time.Instant;
  * ({@code S3AccidentImageStorage#createPresignedDownloadUrl})이 각각 막아 방어선이 둘이다.
  *
  * <p>API 명세서 27행은 "화면에 내보내는 이미지는 {@code variant='BLURRED'} 만" 이라고 정해
- * 두었다. 그 {@code BLURRED} 는 아직 만들어지지 않으므로({@code S15P21A307-226~228}),
- * 그때까지는 EXIF 를 제거한 {@code RESIZED}·{@code THUMBNAIL} 만 내보낸다 —
- * {@code AccidentImagePreprocessor} 가 전처리본에서 EXIF 를 통째로 지운다.
+ * 두었다. <b>그 {@code BLURRED} 는 만들지 않기로 확정됐다</b> — {@code S15P21A307-226~228} 이
+ * 2026-09-10 에 MVP 범위 밖으로 정리됐다. 다만 명세서가 막으려던 것은 원본이 EXIF 를 달고
+ * 화면으로 나가는 것이고, 그건 블러 없이 이미 충족된다 — {@code AccidentImagePreprocessor} 가
+ * 전처리본에서 EXIF 를 통째로 지우고, 위 두 방어선이 원본을 응답에서 뺀다. 그래서 여기에는
+ * {@code RESIZED}·{@code THUMBNAIL} 만 온다.
  *
  * @param variant   {@code RESIZED} 또는 {@code THUMBNAIL}
  * @param url       조회용 presigned GET URL. <b>저장소가 구성되지 않았거나 서명에 실패하면
