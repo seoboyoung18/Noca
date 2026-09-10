@@ -71,8 +71,13 @@ AI-Hub 검색 사례 이미지는 `RepairCaseImageKeys.key()`와 같은 규칙�
 `repair-cases/{caseId}/images/{caseImageId}/{variant}.{ext}`를 사용한다.
 여기서 `caseId`는 `repair_case.case_id`, `caseImageId`는
 `repair_case_image.case_image_id`이며, 현재 전수 적재에서는 실제 원본인
-`original.jpg`만 만든다. `thumbnail`, `resized`, `blurred`는 해당 파생 파일을
-생성할 때 같은 규칙으로 추가한다.
+`original.jpg`만 만든다. `thumbnail`, `resized`는 해당 파생 파일을 생성할 때 같은
+규칙으로 추가한다.
+
+`blurred`는 만들지 않는다. `S15P21A307-226`~`-228`이 2026-09-10에 MVP 범위 밖으로
+정리됐고, AI-Hub 데이터셋 이미지는 이미 비식별된 상태로 제공되어 가릴 대상이 없다.
+S3 실측에서도 `original.jpg` 2,216개에 `blurred.jpg`는 0개다. 같은 이유로
+`repair_case_image.blur_key`는 컬럼만 있고 적재 코드가 채우지 않으며, 읽는 코드도 없다.
 
 `source_image_ref`에는 AI-Hub 원본을 추적할 수 있는 데이터셋 상대 경로를 보존하고,
 `storage_key`에는 S3에서 사용할 논리 key를 저장한다. 원본 파일명이나 데이터셋
