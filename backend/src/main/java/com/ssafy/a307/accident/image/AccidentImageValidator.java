@@ -51,8 +51,8 @@ public class AccidentImageValidator {
         ImageFormat format = ImageFormat.ofExtension(extension(originalFilename))
                 .orElseThrow(() -> new AccidentImageValidationException(
                         Reason.UNSUPPORTED_EXTENSION,
-                        ImageFormat.supportedLabel() + " 파일만 업로드할 수 있습니다."));
-        if (!format.contentType().equals(normalizeContentType(contentType))) {
+                        ImageFormat.uploadableLabel() + " 파일만 업로드할 수 있습니다."));
+        if (!format.acceptsContentType(normalizeContentType(contentType))) {
             throw new AccidentImageValidationException(
                     Reason.UNSUPPORTED_CONTENT_TYPE,
                     "파일 Content-Type 과 확장자가 일치하지 않습니다. (확장자 기준 %s)"
@@ -72,7 +72,7 @@ public class AccidentImageValidator {
         ImageFormat format = ImageFormat.ofExtension(extension(originalFilename))
                 .orElseThrow(() -> new AccidentImageValidationException(
                         Reason.UNSUPPORTED_EXTENSION,
-                        ImageFormat.supportedLabel() + " 파일만 업로드할 수 있습니다."));
+                        ImageFormat.uploadableLabel() + " 파일만 업로드할 수 있습니다."));
         if (content == null || content.length == 0 || actualSize < 1) {
             throw new AccidentImageValidationException(
                     Reason.MISSING_FILE, "저장소에 업로드된 이미지가 없습니다.");

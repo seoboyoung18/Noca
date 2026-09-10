@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.awt.image.BufferedImage;
@@ -27,7 +28,7 @@ class AccidentImageValidatorTest {
     private static final int MAX_SIZE = 20 * 1024 * 1024;
 
     private final AccidentImageProperties properties =
-            new AccidentImageProperties(MAX_COUNT, MAX_SIZE, 1600, 320, 10);
+            new AccidentImageProperties(MAX_COUNT, MAX_SIZE, 1600, 320, 10, 10);
     private final AccidentImageValidator validator =
             new AccidentImageValidator(properties, new ImageIoImageDecoder());
 
@@ -125,6 +126,46 @@ class AccidentImageValidatorTest {
             assertThat(e).hasMessageContaining("JPG");
             // 확장자·Content-Type 자체는 인정된다 — 목록에서 지운 것이 아니다
             assertThat(ImageFormat.ofExtension("heic")).contains(ImageFormat.HEIC);
+        }
+
+        @ParameterizedTest(name = "{0} 은 서버 변환 미지원으로 거절한다")
+        @CsvSource({
+                "iphone.heic, image/heic",
+                "iphone.heif, image/heif",
+                "iphone.HEIC, image/heic",
+                "galaxy.heic, image/heif",
+                "galaxy.heif, image/heic"})
+        @DisplayName("HEIC·HEIF 는 확장자·Content-Type 조합과 무관하게 같은 사유로 거절된다")
+        void heicAndHeifAreRejectedConsistently(String filename, String contentType) {
+            AccidentImageValidationException e = catchThrowableOfType(
+                    AccidentImageValidationException.class,
+                    () -> validator.validateDeclared(filename, contentType, 1024));
+
+            // 사유가 UNSUPPORTED_EXTENSION 으로 갈리면 안내 문구가 엇갈린다 —
+            // "지원하지 않는 확장자" 가 아니라 "JPG 로 변환해 주세요" 여야 한다.
+            assertThat(e.reason()).isEqualTo(Reason.SERVER_CONVERSION_UNSUPPORTED);
+            assertThat(e).hasMessageContaining("JPG");
+        }
+
+        @Test
+        @DisplayName("heif 확장자도 HEIC 형식으로 인식한다 — 같은 컨테이너다")
+        void heifMapsToHeicFormat() {
+            assertThat(ImageFormat.ofExtension("heif")).contains(ImageFormat.HEIC);
+            assertThat(ImageFormat.HEIC.acceptsContentType("image/heif")).isTrue();
+            assertThat(ImageFormat.HEIC.acceptsContentType("image/heic")).isTrue();
+        }
+
+        @Test
+        @DisplayName("오류 문구는 실제로 올릴 수 있는 형식만 말한다 — HEIC 을 적지 않는다")
+        void uploadableLabelDoesNotPromiseHeic() {
+            AccidentImageValidationException e = catchThrowableOfType(
+                    AccidentImageValidationException.class,
+                    () -> validator.validateDeclared("a.bmp", "image/bmp", 1024));
+
+            assertThat(e).hasMessageContaining("JPG").hasMessageContaining("PNG");
+            assertThat(e.getMessage())
+                    .as("알아보기만 하고 거절하는 형식을 지원한다고 적으면 거짓말이다")
+                    .doesNotContain("HEIC");
         }
 
         @Test
@@ -229,6 +270,20 @@ class AccidentImageValidatorTest {
         void signatureMismatch() {
             byte[] png = ImageSignaturesTest.pngBytes();
             assertThat(reasonOf(() -> validator.validateStored("a.jpg", png.length, png, null)))
+                    .isEqualTo(Reason.SIGNATURE_MISMATCH);
+        }
+
+        @Test
+        @DisplayName("확장자를 .jpg 로 바꾼 HEIC 은 매직바이트에서 걸린다")
+        void heicRenamedToJpgIsCaughtBySignature() {
+            byte[] heic = ImageSignaturesTest.heicBytes("heic");
+
+            // 1단은 통과한다 — 확장자·Content-Type 만 보면 JPEG 이다.
+            assertThat(validator.validateDeclared("disguised.jpg", "image/jpeg", heic.length))
+                    .isEqualTo(ImageFormat.JPEG);
+            // 3단이 실제 바이트를 보고 잡는다. 서버는 원본을 받지 않으므로 이 단계가 없으면 못 잡는다.
+            assertThat(reasonOf(() -> validator.validateStored(
+                    "disguised.jpg", heic.length, heic, (long) heic.length)))
                     .isEqualTo(Reason.SIGNATURE_MISMATCH);
         }
 

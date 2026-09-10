@@ -50,6 +50,26 @@ public interface AccidentImageStoragePort {
      */
     PresignedUpload createPresignedUploadUrl(UploadUrlRequest request);
 
+    /**
+     * 조회용 presigned GET URL. <b>파생본({@code RESIZED}·{@code THUMBNAIL})만 허용한다.</b>
+     *
+     * <p><b>{@code ORIGINAL} 은 거절해야 한다.</b> 원본은 staging 버킷에 EXIF(GPS·기기 정보)를
+     * 그대로 달고 있고 7일 뒤 사라진다. 그것을 브라우저에 내보내면
+     * {@code S15P21A307-388} 이 응답에서 원본 키를 감춘 것이 무의미해진다. 서비스가 실수로
+     * 원본 키를 넘겨도 여기서 막히도록 <b>어댑터가 두 번째 방어선</b>이 된다.
+     *
+     * <p><b>URL 을 DB 에 저장하지 않는다.</b> 서명은 만료가 있으므로 저장하면 곧 죽은 값이 된다.
+     * 응답을 만들 때마다 새로 발급한다 — presign 은 로컬 서명 계산이라 네트워크 호출이 없다.
+     *
+     * <p><b>오브젝트 존재 여부를 확인하지 않는다.</b> 확인하려면 asset 마다 {@code HeadObject} 를
+     * 불러야 해서 20장이면 네트워크 왕복이 40번이다. 없는 키에 서명해도 서명 자체는 유효하고,
+     * 브라우저가 그 URL 을 열 때 S3 가 404 를 준다 — 화면은 깨진 이미지 하나로 끝난다.
+     *
+     * @param validity 서명 유효시간. 짧게 준다 — URL 이 새 나가도 노출 창이 좁다
+     * @throws IllegalArgumentException {@code ORIGINAL} 키이거나 키 형식이 아닐 때
+     */
+    PresignedDownload createPresignedDownloadUrl(String storageKey, Duration validity);
+
     /** 오브젝트 메타만 읽는다. 3단 재검증에서 실제 크기를 확인할 때 쓴다. */
     StoredObject head(String storageKey);
 
@@ -98,6 +118,14 @@ public interface AccidentImageStoragePort {
             Objects.requireNonNull(url, "url");
             Objects.requireNonNull(expiresAt, "expiresAt");
             requiredHeaders = requiredHeaders == null ? Map.of() : Map.copyOf(requiredHeaders);
+        }
+    }
+
+    /** 조회용 서명 URL 과 만료 시각. 화면이 만료 전에 다시 받아 올 수 있도록 둘 다 준다. */
+    record PresignedDownload(URI url, Instant expiresAt) {
+        public PresignedDownload {
+            Objects.requireNonNull(url, "url");
+            Objects.requireNonNull(expiresAt, "expiresAt");
         }
     }
 

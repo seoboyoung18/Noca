@@ -21,10 +21,13 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -164,6 +167,35 @@ public class S3AccidentImageStorage implements AccidentImageStoragePort {
             }
         });
         return Map.copyOf(headers);
+    }
+
+    /**
+     * 화면이 이미지를 띄울 조회용 presigned GET URL. 서비스 버킷의 파생본만 대상이다.
+     *
+     * <p><b>{@code ORIGINAL} 은 여기서 거절한다.</b> 서비스가 실수로 원본 키를 넘겨도
+     * staging 버킷의 EXIF 달린 원본이 브라우저로 나가지 않게 하는 두 번째 방어선이다.
+     * 호출자가 이미 파생본만 고르지만, 그 한 줄이 바뀌면 조용히 원본이 새 나간다.
+     *
+     * <p><b>네트워크 호출이 없다.</b> presign 은 로컬 서명 계산이라 오브젝트가 없어도 성공한다 —
+     * 존재 확인을 하려면 asset 마다 {@code HeadObject} 왕복이 생긴다(포트 Javadoc 참조).
+     */
+    @Override
+    public PresignedDownload createPresignedDownloadUrl(String storageKey, Duration validity) {
+        if (validity == null || validity.isZero() || validity.isNegative()) {
+            throw new IllegalArgumentException("validity must be positive");
+        }
+        if (isOriginal(storageKey)) {
+            throw new IllegalArgumentException("ORIGINAL 은 조회 URL 을 발급하지 않는다");
+        }
+        PresignedGetObjectRequest presigned = presigner.presignGetObject(GetObjectPresignRequest.builder()
+                .signatureDuration(validity)
+                .getObjectRequest(GetObjectRequest.builder()
+                        .bucket(serviceBucket)
+                        .key(storageKey)
+                        .build())
+                .build());
+
+        return new PresignedDownload(toUri(presigned.url()), presigned.expiration());
     }
 
     // ------------------------------------------------------------------ 읽기

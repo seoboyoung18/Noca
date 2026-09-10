@@ -35,9 +35,14 @@ import java.util.Optional;
  * {@code accident_image} 행은 발급됐지만 아직 완료 통보를 받지 못한 파일을 뜻한다
  * (업로드 상태 판정 D2-A — {@code upload_status} 컬럼을 두지 않은 이유다).
  * <p>
- * <b>각도 태그를 저장하지 않는다.</b> 정본 DDL 의 {@code accident_image} 에 {@code angle_tag} 가
- * 없다 — {@code repair_case_image.angle_tag}(학습 사례 이미지)에만 있다. 컬럼 추가는 스키마 변경이라
- * 사용자 확인 대기 항목으로 남겼다(answer25 D1).
+ * <b>촬영 각도는 {@code angle_code} 에 저장한다 — 정정.</b> 원래 이 Javadoc 은 "각도 태그를
+ * 저장하지 않는다(answer25 D1)" 고 적었고 실제로 컬럼이 없어서, 발급 요청에 담겨 온
+ * {@code angleCode} 가 응답으로 되돌아가기만 하고 사라졌다. 화면을 새로 고치면 각도 라벨이
+ * 없어지는 문제라 {@code S15P21A307-137} 에서 컬럼을 추가했다
+ * ({@code Docs/Erd/migrations/2026-09-10-accident-image-angle-code.sql}).
+ * <p>
+ * {@code repair_case_image.angle_tag}(학습 사례 이미지)와 <b>이름을 일부러 다르게 뒀다.</b>
+ * 값 집합도 쓰임새도 다르고, API 필드명이 {@code angleCode} 라 그쪽에 맞췄다.
  */
 @Entity
 @Table(name = "accident_image")
@@ -61,6 +66,19 @@ public class AccidentImage {
     @Column(name = "original_filename", nullable = false, length = 255, updatable = false)
     private String originalFilename;
 
+    /**
+     * 촬영 각도. {@code GET /api/guides/shooting} 의 {@code shots[].angleCode} 가 정본이고
+     * {@code ShootingAngleCodes} 가 발급 시점에 검증한다.
+     * <p>
+     * <b>nullable 이다.</b> 컬럼이 생기기 전에 올라간 이미지는 각도를 알 방법이 없고, 촬영
+     * 가이드를 건너뛴 업로드도 각도가 없는 것이 정상이다. 추측해서 채우지 않는다.
+     * <p>
+     * <b>{@code updatable = false} 다.</b> 각도 수정 API 는 요구사항에 없다. 바꾸려면 지우고
+     * 다시 올리는 것이 현재 계약이므로, 실수로 UPDATE 가 나가지 않게 매핑으로 막는다.
+     */
+    @Column(name = "angle_code", length = 20, updatable = false)
+    private String angleCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "quality_status", nullable = false, length = 20)
     private ImageQualityStatus qualityStatus;
@@ -80,15 +98,36 @@ public class AccidentImage {
     @OrderBy("assetId asc")
     private List<AccidentImageAsset> assets = new ArrayList<>();
 
-    private AccidentImage(Accident accident, String originalFilename) {
+    private AccidentImage(Accident accident, String originalFilename, String angleCode) {
         this.accident = accident;
         this.originalFilename = originalFilename;
+        this.angleCode = angleCode;
         this.qualityStatus = ImageQualityStatus.PASS;
     }
 
-    /** 업로드 URL 발급 시점에 예약되는 행. 품질은 판정 전이므로 정본 DEFAULT 와 같은 PASS 다. */
+    /**
+     * 업로드 URL 발급 시점에 예약되는 행. 품질은 판정 전이므로 정본 DEFAULT 와 같은 PASS 다.
+     * <p>
+     * <b>각도를 여기서 함께 넣는다.</b> {@code angleCode} 는 발급 요청에만 담겨 오고 완료 통보
+     * 요청에는 없다. 완료 시점에 저장하려면 같은 값을 한 번 더 받아야 하고, 그러면 두 값이
+     * 어긋나는 상태가 생긴다. 예약 INSERT 하나에 같이 들어가므로 <b>행과 각도가 따로 저장되어
+     * 반쪽만 남는 경우가 없다.</b>
+     *
+     * @param angleCode 촬영 가이드의 각도 코드. 없으면 {@code null} — 빈 문자열은 null 로 접는다
+     */
+    public static AccidentImage reserve(Accident accident, String originalFilename, String angleCode) {
+        return new AccidentImage(accident, originalFilename, normalizeAngleCode(angleCode));
+    }
+
+    /** 각도를 모르는 업로드. 빈 문자열과 {@code null} 을 한 가지 상태로 모은다. */
     public static AccidentImage reserve(Accident accident, String originalFilename) {
-        return new AccidentImage(accident, originalFilename);
+        return reserve(accident, originalFilename, null);
+    }
+
+    private static String normalizeAngleCode(String angleCode) {
+        if (angleCode == null) return null;
+        String stripped = angleCode.strip();
+        return stripped.isEmpty() ? null : stripped;
     }
 
     public List<AccidentImageAsset> getAssets() {

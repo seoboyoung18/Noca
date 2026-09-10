@@ -63,7 +63,15 @@ public record AccidentImageProperties(
          * presigned 업로드 URL 유효시간(분). app.estimate-validation.presigned-url-minutes 와
          * 같은 형태·같은 범위를 쓴다. 하루(1440분)를 넘기면 URL 유출 시 노출 창이 너무 길어진다.
          */
-        @Min(1) @Max(1440) int presignedUrlMinutes
+        @Min(1) @Max(1440) int presignedUrlMinutes,
+
+        /*
+         * 조회용 presigned GET URL 유효시간(분). 업로드 URL 과 분리한 이유는 성격이 다르기 때문이다 —
+         * 업로드는 사용자가 파일을 고르고 올리는 한 번의 동작이고, 조회는 화면이 열려 있는 동안
+         * 계속 쓰인다. 짧게 두면 화면을 오래 열어 둔 사용자의 이미지가 깨지고, 길게 두면 URL 이
+         * 새 나갔을 때 노출 창이 길어진다. 지금은 업로드와 같은 10분이지만 따로 조정할 수 있어야 한다.
+         */
+        @Min(1) @Max(1440) int downloadUrlMinutes
 ) {
 
     @AssertTrue(message = "thumbnail-max-edge-px must be smaller than resized-max-edge-px")
@@ -73,5 +81,10 @@ public record AccidentImageProperties(
 
     public Duration presignedUrlValidity() {
         return Duration.ofMinutes(presignedUrlMinutes);
+    }
+
+    /** 조회용 GET URL 유효시간. {@link #presignedUrlValidity()} 와 별개 값이다. */
+    public Duration downloadUrlValidity() {
+        return Duration.ofMinutes(downloadUrlMinutes);
     }
 }

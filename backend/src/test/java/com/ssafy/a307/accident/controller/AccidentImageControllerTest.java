@@ -11,6 +11,7 @@ import com.ssafy.a307.accident.dto.ImageUploadUrlResponse;
 import com.ssafy.a307.accident.dto.IssuedUploadUrl;
 import com.ssafy.a307.accident.entity.ImageQualityStatus;
 import com.ssafy.a307.accident.entity.ImageVariant;
+import com.ssafy.a307.accident.image.AccidentImageValidationException;
 import com.ssafy.a307.accident.service.AccidentImageService;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
@@ -18,6 +19,8 @@ import com.ssafy.a307.common.security.CurrentMemberProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -147,17 +150,42 @@ class AccidentImageControllerTest {
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
+    @ParameterizedTest(name = "{0} 은 error.code 로 그대로 나간다")
+    @CsvSource({
+            "TOO_MANY_IMAGES, 사고 1건에는 이미지를 최대 20장까지 등록할 수 있습니다.",
+            "SERVER_CONVERSION_UNSUPPORTED, HEIC 형식은 서버 변환을 지원하지 않습니다.",
+            "UNKNOWN_ANGLE_CODE, 촬영 가이드에 없는 각도 코드입니다.",
+            "FILE_TOO_LARGE, 이미지는 장당 20MB 이하여야 합니다.",
+            "UNSUPPORTED_EXTENSION, JPG, PNG 파일만 업로드할 수 있습니다."})
+    @DisplayName("POST .../images/upload-urls — 검증 사유가 error.code 로 구분돼 나간다")
+    void issueSurfacesValidationReason(String reason, String message) throws Exception {
+        willThrow(new AccidentImageValidationException(
+                AccidentImageValidationException.Reason.valueOf(reason), message))
+                .given(accidentImageService).issueUploadUrls(eq(ME), eq(ACCIDENT_ID), any());
+
+        mockMvc.perform(post("/api/accidents/{accidentId}/images/upload-urls", ACCIDENT_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "files": [ { "originalFilename": "a.jpg",
+                                               "contentType": "image/jpeg", "size": 1024 } ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                // FE 가 한글 메시지를 문자열 비교하지 않아도 되도록 사유를 코드로 준다.
+                .andExpect(jsonPath("$.error.code").value(reason))
+                .andExpect(jsonPath("$.error.message").value(message));
+    }
+
     @Test
     @DisplayName("POST .../images — 200 과 이미지별 결과를 준다. 부분 실패도 200 이다")
     void complete() throws Exception {
         given(accidentImageService.complete(eq(ME), eq(ACCIDENT_ID), any()))
                 .willReturn(ImageUploadCompleteResponse.of(List.of(
                         new AccidentImageResultResponse(
-                                11L, "front.jpg", ImageProcessingStatus.COMPLETED,
+                                11L, "front.jpg", "FRONT", ImageProcessingStatus.COMPLETED,
                                 ImageQualityStatus.PASS, null, null, null,
                                 List.of(new AccidentImageAssetResponse(
-                                        ImageVariant.ORIGINAL, "accidents/7/images/11/original.jpg",
-                                        400, 300, 2048))),
+                                        ImageVariant.RESIZED, "https://s3.example/resized?sig=x",
+                                        Instant.parse("2026-09-07T13:10:00Z"), 400, 300, 2048))),
                         AccidentImageResultResponse.failed(
                                 12L, "rear.jpg", "SIZE_MISMATCH", "신고한 크기와 실제 업로드 크기가 다릅니다."))));
 
@@ -172,7 +200,10 @@ class AccidentImageControllerTest {
                 .andExpect(jsonPath("$.data.failed").value(1))
                 .andExpect(jsonPath("$.data.results[0].status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.results[0].qualityStatus").value("PASS"))
-                .andExpect(jsonPath("$.data.results[0].assets[0].variant").value("ORIGINAL"))
+                .andExpect(jsonPath("$.data.results[0].angleCode").value("FRONT"))
+                .andExpect(jsonPath("$.data.results[0].assets[0].variant").value("RESIZED"))
+                .andExpect(jsonPath("$.data.results[0].assets[0].url")
+                        .value("https://s3.example/resized?sig=x"))
                 .andExpect(jsonPath("$.data.results[1].status").value("FAILED"))
                 .andExpect(jsonPath("$.data.results[1].failureCode").value("SIZE_MISMATCH"));
     }
@@ -212,11 +243,14 @@ class AccidentImageControllerTest {
         given(accidentImageService.list(ME, ACCIDENT_ID))
                 .willReturn(AccidentImageListResponse.of(List.of(
                         new AccidentImageResponse(
-                                11L, "front.jpg", ImageUploadState.COMPLETED,
+                                11L, "front.jpg", "FRONT", ImageUploadState.COMPLETED,
                                 ImageQualityStatus.WARN, "해상도 부족 — 짧은 변 300px (기준 720px)",
-                                Instant.parse("2026-09-07T13:00:00Z"), List.of()),
+                                Instant.parse("2026-09-07T13:00:00Z"),
+                                List.of(new AccidentImageAssetResponse(
+                                        ImageVariant.THUMBNAIL, "https://s3.example/thumb?sig=y",
+                                        Instant.parse("2026-09-07T13:10:00Z"), 320, 240, 4096))),
                         new AccidentImageResponse(
-                                12L, "rear.jpg", ImageUploadState.PENDING,
+                                12L, "rear.jpg", null, ImageUploadState.PENDING,
                                 ImageQualityStatus.PASS, null,
                                 Instant.parse("2026-09-07T13:01:00Z"), List.of())), 20, 18));
 

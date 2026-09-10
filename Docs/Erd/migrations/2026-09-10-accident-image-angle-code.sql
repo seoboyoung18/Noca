@@ -1,0 +1,35 @@
+-- S15P21A307-137 · 사고 이미지 촬영 각도 영구 저장
+--
+-- 왜 필요한가
+--   angleCode 는 업로드 URL 발급 요청에 담겨 오지만 지금까지 저장되지 않고 응답으로만 되돌아갔다
+--   (기존 accident_image 에 컬럼이 없었다). 그래서 화면을 새로 고치면 4장 슬롯 그리드의 각도
+--   라벨이 사라졌다. 정본 DDL(Docs/Erd/A307_ddl_final.sql)과 테스트 스키마
+--   (backend/src/test/resources/schema-h2.sql)에는 이미 컬럼을 넣었고, 이 파일은 **이미 떠 있는
+--   DB** 를 같은 상태로 맞추기 위한 것이다.
+--
+-- 왜 angle_tag 가 아니라 angle_code 인가
+--   repair_case_image.angle_tag 는 학습 사례 이미지의 각도 태그로 성격도 값 집합도 다르다.
+--   API 필드명도 angleCode 이므로 이름을 맞춘다. 두 컬럼이 섞이지 않게 이름을 다르게 둔다.
+--
+-- 왜 NULL 을 허용하는가
+--   (1) 이 변경 이전에 올라간 이미지는 각도를 알 방법이 없다 — 추측해서 채우지 않는다
+--   (2) 촬영 가이드를 건너뛰고 올리는 경로가 있어 각도가 없는 업로드가 정상이다
+--   기본값을 두지 않는 것도 같은 이유다. 'FRONT' 같은 값을 기본으로 넣으면 사실이 아닌 각도가
+--   분석 파이프라인으로 흘러간다.
+--
+-- 값 집합
+--   GET /api/guides/shooting 의 shots[].angleCode 가 정본이다 (backend/src/main/resources/shooting-guide.json).
+--   현재 9종: FRONT · REAR · LEFT · RIGHT · FRONT_LEFT · FRONT_RIGHT · REAR_LEFT · REAR_RIGHT · DAMAGE_CLOSE
+--   CHECK 제약을 걸지 않는다 — 촬영 가이드가 바뀔 때마다 DDL 을 고쳐야 하고, 값 검증은 이미
+--   ShootingAngleCodes 가 발급 시점에 한다(잘못된 값은 400 UNKNOWN_ANGLE_CODE).
+--   길이는 repair_case_image.angle_tag 와 같은 VARCHAR(20) 이다 (현재 최장값 DAMAGE_CLOSE = 12자).
+--
+-- 적용
+--   psql "$DATABASE_URL" -f Docs/Erd/migrations/2026-09-10-accident-image-angle-code.sql
+--
+-- 되돌리기
+--   ALTER TABLE accident_image DROP COLUMN angle_code;
+--   (컬럼만 지우면 된다. 다른 테이블이 참조하지 않는다.)
+
+ALTER TABLE accident_image
+    ADD COLUMN IF NOT EXISTS angle_code VARCHAR(20);

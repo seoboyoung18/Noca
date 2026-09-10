@@ -18,6 +18,7 @@ import java.util.List;
 public record AccidentImageResultResponse(
         Long imageId,
         String originalFilename,
+        String angleCode,
         ImageProcessingStatus status,
         ImageQualityStatus qualityStatus,
         String qualityReason,
@@ -27,22 +28,29 @@ public record AccidentImageResultResponse(
 ) {
 
     public static AccidentImageResultResponse completed(
-            AccidentImage image, ImageProcessingStatus status) {
+            AccidentImage image, ImageProcessingStatus status,
+            List<AccidentImageAssetResponse> assets) {
         return new AccidentImageResultResponse(
                 image.getImageId(),
                 image.getOriginalFilename(),
+                image.getAngleCode(),
                 status,
                 image.getQualityStatus(),
                 image.getQualityReason(),
                 null,
                 null,
-                AccidentImageAssetResponse.exposed(image));
+                assets);
     }
 
+    /**
+     * 실패한 한 장. <b>{@code angleCode} 를 채우지 않는다</b> — 실패 경로는 오케스트레이터가
+     * 파일명만 들고 부르고, 각도를 읽으려고 엔티티를 다시 조회할 이유가 없다. 화면은 실패 항목에
+     * 각도 배지를 그리지 않는다.
+     */
     public static AccidentImageResultResponse failed(
             Long imageId, String originalFilename, String failureCode, String failureMessage) {
         return new AccidentImageResultResponse(
-                imageId, originalFilename, ImageProcessingStatus.FAILED,
+                imageId, originalFilename, null, ImageProcessingStatus.FAILED,
                 null, null, failureCode, failureMessage, List.of());
     }
 }

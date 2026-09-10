@@ -14,6 +14,7 @@ import com.ssafy.a307.accident.dto.IssuedUploadUrl;
 import com.ssafy.a307.accident.entity.Accident;
 import com.ssafy.a307.accident.entity.AccidentImage;
 import com.ssafy.a307.accident.entity.ImageVariant;
+import com.ssafy.a307.accident.image.AccidentImageDownloadUrls;
 import com.ssafy.a307.accident.image.AccidentImageKeys;
 import com.ssafy.a307.accident.image.AccidentImageStoragePort;
 import com.ssafy.a307.accident.image.AccidentImageValidationException;
@@ -55,6 +56,7 @@ public class AccidentImageService {
     private final ShootingAngleCodes angleCodes;
     private final AccidentImageProperties properties;
     private final AccidentImageIngestService ingestService;
+    private final AccidentImageDownloadUrls downloadUrls;
     private final Optional<AccidentImageStoragePort> storagePort;
 
     /**
@@ -72,16 +74,16 @@ public class AccidentImageService {
         AccidentImageStoragePort storage = storage();
         long alreadyRegistered = imageRepository.countByAccidentId(accidentId);
 
+        // AccidentImageValidationException 을 여기서 BusinessException 으로 바꾸지 않는다.
+        // 바꾸면 사유(TOO_MANY_IMAGES · SERVER_CONVERSION_UNSUPPORTED · UNKNOWN_ANGLE_CODE …)가
+        // INVALID_REQUEST 하나로 뭉개져 FE 가 한글 메시지를 문자열 비교해야 한다.
+        // GlobalExceptionHandler 가 사유 이름을 error.code 로 그대로 내보낸다.
         List<ImageFormat> formats = new ArrayList<>(request.count());
-        try {
-            validator.validateCount(alreadyRegistered, request.count());
-            for (ImageUploadUrlItem item : request.files()) {
-                angleCodes.validate(item.angleCode());
-                formats.add(validator.validateDeclared(
-                        item.originalFilename(), item.contentType(), item.size()));
-            }
-        } catch (AccidentImageValidationException e) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST, e.getMessage());
+        validator.validateCount(alreadyRegistered, request.count());
+        for (ImageUploadUrlItem item : request.files()) {
+            angleCodes.validate(item.angleCode());
+            formats.add(validator.validateDeclared(
+                    item.originalFilename(), item.contentType(), item.size()));
         }
 
         List<IssuedUploadUrl> issued = new ArrayList<>(request.count());
@@ -90,8 +92,9 @@ public class AccidentImageService {
             ImageFormat format = formats.get(i);
 
             // 키에 imageId 가 들어가므로 행을 먼저 만들어 ID 를 받는다.
+            // 각도는 이 요청에만 담겨 온다. 완료 통보에는 없으므로 예약 INSERT 에서 함께 저장한다.
             AccidentImage image = imageRepository.saveAndFlush(
-                    AccidentImage.reserve(accident, item.originalFilename()));
+                    AccidentImage.reserve(accident, item.originalFilename(), item.angleCode()));
             String key = AccidentImageKeys.key(
                     accidentId, image.getImageId(), ImageVariant.ORIGINAL, format.canonicalExtension());
 
@@ -108,7 +111,7 @@ public class AccidentImageService {
             issued.add(new IssuedUploadUrl(
                     image.getImageId(),
                     image.getOriginalFilename(),
-                    item.angleCode(),
+                    image.getAngleCode(),
                     key,
                     upload.url().toString(),
                     "PUT",
@@ -169,12 +172,22 @@ public class AccidentImageService {
         return ImageUploadCompleteResponse.of(results);
     }
 
-    /** 상태 조회(Task 143). 아직 완료 통보를 받지 못한 파일이 무엇인지 알려준다. */
+    /**
+     * 목록·상태 조회(Task 143 · {@code S15P21A307-137}). 아직 완료 통보를 받지 못한 파일이
+     * 무엇인지 알려주고, 완료된 이미지에는 <b>화면이 바로 띄울 수 있는 조회용 URL</b>을 붙인다.
+     *
+     * <p><b>저장소 어댑터가 없어도 200 이다.</b> 이 메서드는 {@code storage()} 를 부르지 않는다 —
+     * 버킷을 설정하지 않은 로컬·데모에서도 업로드 진행률과 파일 목록은 보여야 한다.
+     * URL 만 {@code null} 로 빠진다.
+     *
+     * <p><b>N+1 이 없다.</b> {@code findAllOwned} 가 {@code left join fetch} 로 asset 을 함께
+     * 읽고, 조회 URL 발급은 네트워크 호출이 아니라 로컬 서명 계산이다.
+     */
     @Transactional(readOnly = true)
     public AccidentImageListResponse list(Long memberId, Long accidentId) {
         ownedAccident(memberId, accidentId);
         List<AccidentImageResponse> images = imageRepository.findAllOwned(accidentId, memberId).stream()
-                .map(AccidentImageResponse::from)
+                .map(image -> AccidentImageResponse.from(image, downloadUrls.exposedAssets(image)))
                 .toList();
         return AccidentImageListResponse.of(
                 images, properties.maxCountPerAccident(), validator.remainingSlots(images.size()));

@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -166,6 +167,81 @@ class S3AccidentImageStorageTest {
     }
 
     // ------------------------------------------------------------------ 버킷 선택
+
+    @Nested
+    @DisplayName("조회 presigned URL")
+    class Download {
+
+        @Test
+        @DisplayName("파생본은 service 버킷을 향하는 GET URL 이 나온다")
+        void derivedTargetsServiceBucket() {
+            AccidentImageStoragePort.PresignedDownload download =
+                    storage.createPresignedDownloadUrl(THUMBNAIL_KEY, Duration.ofMinutes(10));
+
+            assertThat(download.url().toString())
+                    .contains(SERVICE)
+                    .contains(REGION.id())
+                    .contains(THUMBNAIL_KEY)
+                    .doesNotContain(STAGING);
+        }
+
+        @Test
+        @DisplayName("업로드용이 아니라 조회용 서명이다 — GET 으로 서명된다")
+        void signsForGet() {
+            String url = storage.createPresignedDownloadUrl(THUMBNAIL_KEY, Duration.ofMinutes(10))
+                    .url().toString();
+
+            // SigV4 쿼리 서명에는 자격증명 범위와 서명이 들어간다. 서명 자체는 로컬 계산이다.
+            assertThat(url).contains("X-Amz-Algorithm").contains("X-Amz-Signature");
+        }
+
+        @Test
+        @DisplayName("ORIGINAL 키는 거절한다 — 서비스가 실수해도 원본이 새 나가지 않는다")
+        void refusesOriginal() {
+            assertThatThrownBy(() ->
+                    storage.createPresignedDownloadUrl(ORIGINAL_KEY, Duration.ofMinutes(10)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ORIGINAL");
+        }
+
+        @Test
+        @DisplayName("만료 시각이 요청한 유효시간과 맞는다")
+        void expiryMatchesValidity() {
+            Instant before = Instant.now();
+
+            AccidentImageStoragePort.PresignedDownload download =
+                    storage.createPresignedDownloadUrl(THUMBNAIL_KEY, Duration.ofMinutes(5));
+
+            assertThat(download.expiresAt())
+                    .isBetween(before.plus(Duration.ofMinutes(4)), Instant.now().plus(Duration.ofMinutes(6)));
+        }
+
+        @Test
+        @DisplayName("유효시간이 0 이하면 거절한다")
+        void rejectsNonPositiveValidity() {
+            assertThatThrownBy(() -> storage.createPresignedDownloadUrl(THUMBNAIL_KEY, Duration.ZERO))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() ->
+                    storage.createPresignedDownloadUrl(THUMBNAIL_KEY, Duration.ofMinutes(-1)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("variant 를 읽을 수 없는 키는 거절한다")
+        void malformedKeyIsRejected() {
+            assertThatThrownBy(() ->
+                    storage.createPresignedDownloadUrl("no-variant-suffix", Duration.ofMinutes(10)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("서명은 네트워크를 타지 않는다 — S3Client 를 부르지 않는다")
+        void doesNotCallS3() {
+            storage.createPresignedDownloadUrl(THUMBNAIL_KEY, Duration.ofMinutes(10));
+
+            verifyNoInteractions(s3);
+        }
+    }
 
     @Nested
     @DisplayName("버킷 선택 — ORIGINAL 은 staging, 파생본은 service")

@@ -15,6 +15,7 @@ import java.util.List;
 public record AccidentImageResponse(
         Long imageId,
         String originalFilename,
+        String angleCode,
         ImageUploadState uploadState,
         ImageQualityStatus qualityStatus,
         String qualityReason,
@@ -22,14 +23,16 @@ public record AccidentImageResponse(
         List<AccidentImageAssetResponse> assets
 ) {
 
-    public static AccidentImageResponse from(AccidentImage image) {
+    public static AccidentImageResponse from(
+            AccidentImage image, List<AccidentImageAssetResponse> assets) {
         return new AccidentImageResponse(
                 image.getImageId(),
                 image.getOriginalFilename(),
+                image.getAngleCode(),
                 image.isUploadCompleted() ? ImageUploadState.COMPLETED : ImageUploadState.PENDING,
                 image.getQualityStatus(),
                 image.getQualityReason(),
                 image.getCreatedAt(),
-                AccidentImageAssetResponse.exposed(image));
+                assets);
     }
 }
