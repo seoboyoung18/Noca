@@ -6,6 +6,7 @@ import com.ssafy.a307.auth.handler.RestAccessDeniedHandler;
 import com.ssafy.a307.auth.service.CustomOAuth2UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -31,6 +32,10 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
+// CorsProperties 를 여기서 등록한다. @ConfigurationPropertiesScan 은 전체 컨텍스트에서만 돌아
+// @WebMvcTest + @Import(SecurityConfig.class) 슬라이스에서는 빈이 없어 컨텍스트가 죽는다.
+// 이 설정을 가져다 쓰는 쪽이 필요한 프로퍼티까지 함께 얻도록 자립시킨다.
+@EnableConfigurationProperties(CorsProperties.class)
 public class SecurityConfig {
 
     /** 로그아웃. {@code PUBLIC_PATHS} 에 없어도 LogoutFilter 가 인가 필터보다 앞이라 도달한다. */
@@ -83,6 +88,7 @@ public class SecurityConfig {
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final OAuth2FailureHandler oAuth2FailureHandler;
     private final RestAccessDeniedHandler restAccessDeniedHandler;
+    private final CorsProperties corsProperties;
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -135,10 +141,21 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * 허용 오리진은 {@link CorsProperties} 에서 온다. 여기에 값을 박으면 배포하는 순간
+     * 전 화면이 막힌다 — FE 오리진이 바뀌는데 서버는 로컬 주소만 허용하기 때문이다.
+     * <p>
+     * {@code setAllowCredentials(true)} 는 유지한다. 세션 ID 를 쿠키로 주고받으므로 이걸 끄면
+     * 브라우저가 쿠키를 안 싣고, 모든 보호 API 가 401 이 된다. 그래서 {@code "*"} 를 쓸 수 없고,
+     * {@code CorsProperties} 가 기동 시점에 그것을 막는다.
+     * <p>
+     * {@code allowedHeaders} 는 {@code "*"} 그대로다. 자격증명과 함께 쓸 수 없는 것은
+     * <b>오리진</b>의 {@code "*"} 이고, 헤더 쪽은 Spring 이 요청 헤더를 그대로 되비춰 준다.
+     */
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration c = new CorsConfiguration();
-        c.setAllowedOrigins(List.of("http://localhost:5173"));
+        c.setAllowedOrigins(corsProperties.allowedOrigins());
         c.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         c.setAllowedHeaders(List.of("*"));
         c.setAllowCredentials(true);
