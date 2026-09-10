@@ -23,10 +23,11 @@ ALLOWED_CLASSES = {"CityCar", "Compact", "Mid-size", "Full-size"}
 CASE_RE = re.compile(r"^(?:as|sc)-\d+$")
 LABEL_RE = re.compile(r"_(?P<case>(?:as|sc)-\d+)\.json$", re.IGNORECASE)
 SOURCE_BY_PREFIX = {"as": "AIHUB_AS", "sc": "AIHUB_SC"}
-LABEL_DIRS = (
-    Path("1.Training/2.라벨링데이터/TL_damage/damage"),
+# 검색 사례 이미지는 서비스 검색 모델의 입력 분포를 맞추기 위해
+# damage_part 계열만 사용한다. damage 계열은 별도 YOLO 목적의 데이터라
+# 화각·포함 영역이 달라 같은 검색 코퍼스에 섞지 않는다.
+SEARCH_LABEL_DIRS = (
     Path("1.Training/2.라벨링데이터/TL_damage_part/damage_part"),
-    Path("2.Validation/2.라벨링데이터/VL_damage/damage"),
     Path("2.Validation/2.라벨링데이터/VL_damage_part/damage_part"),
 )
 
@@ -107,9 +108,19 @@ def load_readiness(path: Path, source: str) -> set[str]:
     return selected
 
 
+def load_case_manifest(path: Path) -> set[str]:
+    selected: set[str] = set()
+    with path.open(encoding="utf-8-sig", newline="") as fp:
+        for row in csv.DictReader(fp):
+            case_id = str(row.get("case_id") or "").strip()
+            if CASE_RE.fullmatch(case_id):
+                selected.add(case_id)
+    return selected
+
+
 def build_label_index(subset_root: Path, selected: set[str]) -> dict[str, list[Path]]:
     index: dict[str, list[Path]] = defaultdict(list)
-    for relative_dir in LABEL_DIRS:
+    for relative_dir in SEARCH_LABEL_DIRS:
         label_dir = subset_root / relative_dir
         if not label_dir.is_dir():
             continue
@@ -190,7 +201,7 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
     loaded = 0
     for label_path in sorted(label_paths):
         # readiness 검증이 라벨·이미지 조인을 끝냈고, 원천 파일명은 라벨 stem과
-        # 동일하다. 전수 적재에서 45만여 JSON을 다시 파싱하지 않는다.
+        # 동일하다. 전수 적재에서 선별된 라벨 JSON을 다시 파싱하지 않는다.
         image_path = image_path_for_label(label_path) / (label_path.stem + ".jpg")
         if not image_path.is_file():
             raise FileNotFoundError(f"라벨에 대응하는 이미지가 없습니다: {image_path}")
@@ -239,6 +250,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--subset-root", type=Path, required=True)
     parser.add_argument("--readiness-csv", type=Path, required=True)
+    parser.add_argument("--case-manifest", type=Path, default=None,
+                        help="DEV/DEMO/EVAL 등 사례 단위 subset manifest")
     mapping = parser.add_mutually_exclusive_group(required=True)
     mapping.add_argument("--mapping-workbook", type=Path)
     mapping.add_argument("--mapping-seed-sql", type=Path,
@@ -258,13 +271,16 @@ def main() -> None:
     subset_root = args.subset_root.resolve()
     dataset_root = (args.dataset_root or subset_root.parent).resolve()
     selected = load_readiness(args.readiness_csv.resolve(), args.source)
+    if args.case_manifest:
+        selected &= load_case_manifest(args.case_manifest.resolve())
     if args.limit is not None:
         selected = set(sorted(selected)[:args.limit])
     label_index = build_label_index(subset_root, selected)
     estimate_dir = subset_root / ESTIMATE_REL
     mapping_rows = load_mapping(args.mapping_workbook.resolve()) if args.mapping_workbook else []
     summary = {
-        "policy": "final_searchable_with_image_and_valid_car_class",
+        "policy": "final_searchable_with_damage_part_image_and_valid_car_class",
+        "image_source_scope": "damage_part_only",
         "readiness_selected": len(selected),
         "mapping_rows": len(mapping_rows) if args.mapping_workbook else "seed_sql",
         "raw_estimate_scope": "separate_aihub_estimate_raw_all_125006",
@@ -299,8 +315,8 @@ def main() -> None:
             if reason or car_class not in ALLOWED_CLASSES:
                 errors.append(("invalid_car_class", case_id, {"reason": reason or car_class}))
                 continue
-            # 메모리에는 경로만 보관한다. 전수 적재에서는 견적 JSON 객체를
-            # 113,184건 모두 쌓지 않고 DB 배치 직전에 읽는다.
+              # 메모리에는 경로만 보관한다. 전수 적재에서는 견적 JSON 객체를
+              # 모두 쌓지 않고 DB 배치 직전에 읽는다.
             json.loads(estimate_path.read_text(encoding="utf-8-sig"))
             valid.append((case_id, estimate_path, car_class, labels))
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:

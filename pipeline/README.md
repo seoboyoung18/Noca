@@ -288,9 +288,9 @@ python pipeline/jobs/build_label_path_index.py \
 
 ### 11. 검색 기본 데이터 적재
 
-`repair_case`는 `is_final_searchable_case=True`이고 실제 이미지가 있으며 허용된
-`car_class`를 가진 사례만 적재한다. 따라서 현재 범위는 검색 가능 113,184건이며,
-이미지가 없는 사례와 `car_class` 결측·`UNKNOWN` 사례는 넣지 않는다. 원천 견적
+`repair_case`는 `is_final_searchable_case=True`이고 `damage_part` 계열의 실제 이미지가 있으며 허용된
+`car_class`를 가진 사례만 적재한다. 따라서 현재 범위는 검색 가능 55,363건이며,
+`damage` 계열 이미지, 이미지가 없는 사례와 `car_class` 결측·`UNKNOWN` 사례는 넣지 않는다. 원천 견적
 125,006건은 `aihub_estimate_raw`에 별도로 보존한다. AI-Hub annotation 테이블은
 DDL과 loader 구조만 준비하고 전수 적재하지 않는다.
 
@@ -310,6 +310,66 @@ python pipeline/jobs/load_search_data.py \
 `source_image_ref`는 AI-Hub 원본 상대 경로로 보존하고, `storage_key`는
 `repair-cases/{caseId}/images/{caseImageId}/original.jpg` 규칙으로 생성한다.
 `--dataset-root`는 원본 상대 경로의 기준만 결정하며 S3 key 자체에는 포함되지 않는다.
+검색 이미지 원천은 `TL_damage_part`/`VL_damage_part`의 `damage_part` 디렉터리로
+고정한다. `TL_damage`/`VL_damage`의 `damage` 이미지는 화각과 포함 영역이 달라
+검색 코퍼스에 섞지 않는다.
+
+개발·시연·평가용 subset을 적재할 때는 전체 readiness와 사례 manifest를 함께 넘긴다.
+manifest도 `case_id` 단위라 한 사례의 이미지는 모두 같은 subset에 남는다.
+readiness와 사례 manifest는 재생성 가능한 실행 산출물이므로 저장소 밖에 둔다.
+아래 `<manifest output>`은 `build_case_split_manifests.py`의 `--output-dir` 값이다.
+
+```bash
+python pipeline/jobs/load_search_data.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --readiness-csv "<manifest output>/case_search_readiness.csv" \
+  --case-manifest "<manifest output>/search_dev_cases.csv" \
+  --mapping-seed-sql "Docs/Erd/A307_part_name_mapping_seed.sql" \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --dsn "$DATABASE_URL"
+```
+
+`search_demo_cases.csv`와 `search_eval_cases.csv`도 같은 방식으로 지정한다.
+`search_mixed_cases.csv`는 TRAIN·VALIDATION 양쪽에 걸친 사례의 감사용 목록이며,
+정량 평가 subset에는 사용하지 않는다.
+
+시연·검색 검증에서 AI-Hub 이미지를 사용자 입력처럼 넣고 싶을 때는
+`search_demo_cases.csv`를 DB에 적재하지 않는다. 다음 query manifest를 사용해
+원본 JPG를 읽어 사고 이미지 업로드 경로(`accidents/...`)로 전달한다. query 사례는
+DEV 검색 DB의 사례와 다른 `case_id`여야 자기 자신이 검색되는 것을 막을 수 있다.
+
+```bash
+python pipeline/jobs/build_case_query_manifest.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --case-manifest "<manifest output>/search_demo_cases.csv" \
+  --dataset-root "<AI-Hub 데이터셋 기준 경로>" \
+  --output "<저장소 밖 query output>/search_demo_query_images.csv"
+```
+
+manifest의 `source_image_ref`를 `<AI-Hub 데이터셋 기준 경로>`와 결합해 파일을
+읽는다. 이 파일은 `repair_case`·`repair_case_image`에 넣지 않고 사용자 업로드
+입력으로만 사용한다.
+
+### 사례 단위 subset manifest 생성
+
+개발·시연·평가용 사례 목록은 이미지가 아니라 `case_id` 단위로 만든다. 한 사례가
+TRAIN과 VALIDATION 양쪽에 있으면 `MIXED`로 표시하고 EVAL에서 제외한다.
+
+```bash
+python pipeline/jobs/build_case_split_manifests.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --readiness-csv "<readiness output>/case_search_readiness.csv" \
+  --linkage-csv "<category integrity output>/case_id_linkage.csv" \
+  --output-dir "<저장소 밖 manifest output>" \
+  --dev-cases 1000 \
+  --demo-cases 20 \
+  --seed "a307-search-cases-v1"
+```
+
+출력되는 `search_case_manifest.csv`에는 사례별 원본 split, DEV/DEMO/EVAL 목적,
+차급·차종·부품 코드·손상 유형·이미지 수를 기록한다. `search_dev_cases.csv`,
+`search_demo_cases.csv`, `search_eval_cases.csv`는 적재 시 `--case-manifest`에
+지정하는 subset 목록이다. 원본 이미지와 JSON은 저장소 밖에 둔다.
 
 ### 12. 전수 적재 전 표본 검증
 
@@ -330,7 +390,7 @@ python pipeline/jobs/verify_search_sample.py \
 이미지 연결 오류, 전체 경로 기준 `source_image_ref` 중복, `repair-cases/...` key 규칙,
 Raw 원천 건수와 검색 적재 범위 차이, Raw–`repair_case` 연결, 재실행 후 건수 변화다.
 Raw와 검색 범위가 다르므로
-미연결 Raw 건수는 오류로 처리하지 않고 `125,006 - 113,184 = 11,822` 정책상 제외분과
+미연결 Raw 건수는 오류로 처리하지 않고 `125,006 - 55,363 = 69,643` 정책상 제외분과
 일치하는지 검증한다.
 
 ### 공통
