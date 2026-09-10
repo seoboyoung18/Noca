@@ -3,9 +3,8 @@
 원본 YOLO 출력과 공통 추론 결과를 직접 검색 테이블로 사용하지 않고,
 ROI 단위의 검색 계약으로 투영한다. 비용·작업 의미는 다루지 않는다.
 
-1차 후보 필터는 part_code·damage_type을 강한 조건으로, car_class를 약한 조건으로
-쓴다. 심각도는 검색 축에서 제외한다 — 원본 level이 한 값에 몰려 있고 파생 규칙이
-확정되지 않았다(S15P21A307-197).
+damage_type은 ROI 직접 라벨이라 강한 필터다. part_code는 비어 있을 수 있으며,
+견적 기반 사례 부품 후보는 별도 조인·점수 경로에서 다룬다.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from .roi import (
 )
 
 
-SEARCH_SCHEMA_VERSION = "1.1.0"
+SEARCH_SCHEMA_VERSION = "1.2.0"
 
 # PARTIAL_PART는 후보로 남긴다. 부품이 잘렸어도 부품 코드·손상 유형은 정확하다.
 # 신뢰하지 않는 것은 면적 비율 기반 값뿐이다.
@@ -52,12 +51,11 @@ def _roi_bbox(box: tuple[int, int, int, int]) -> dict[str, Any]:
     }
 
 
-def _exclusion_reason(quality_status: str, part_code: str | None,
-                      damage_type: str | None) -> str | None:
+def _exclusion_reason(quality_status: str, damage_type: str | None) -> str | None:
     if quality_status not in SEARCHABLE_QUALITY:
         return quality_status
-    if not part_code or not damage_type:
-        return "missing_search_feature"
+    if not damage_type:
+        return "missing_damage_type"
     return None
 
 
@@ -69,8 +67,7 @@ def _as_bbox(value: Any) -> tuple[float, float, float, float]:
 
 
 def _quality_reasons(roi_status: str, part_is_clipped: bool | None,
-                     roi_is_clipped: bool, part_code: str | None,
-                     damage_type: str | None) -> list[str]:
+                     roi_is_clipped: bool, damage_type: str | None) -> list[str]:
     """왜 이 품질 등급인지 사유를 남긴다(설계 6절 quality_reasons).
 
     등급은 하나지만 사유는 여럿일 수 있으므로 목록이다.
@@ -86,8 +83,8 @@ def _quality_reasons(roi_status: str, part_is_clipped: bool | None,
         reasons.append("PART_TOUCHES_IMAGE_EDGE")
     if roi_is_clipped:
         reasons.append("ROI_CLIPPED")
-    if not part_code or not damage_type:
-        reasons.append("MISSING_SEARCH_FEATURE")
+    if not damage_type:
+        reasons.append("MISSING_DAMAGE_TYPE")
     return reasons
 
 
@@ -163,10 +160,10 @@ def build_search_metadata(
         part_is_clipped = (None if part_box is None
                            else part_clipped(_as_bbox(part_box), (width, height)))
         quality_status = feature_quality(roi_status, part_is_clipped)
-        searchable = quality_status in SEARCHABLE_QUALITY and bool(part_code and damage_type)
-        exclusion_reason = _exclusion_reason(quality_status, part_code, damage_type)
+        searchable = quality_status in SEARCHABLE_QUALITY and bool(damage_type)
+        exclusion_reason = _exclusion_reason(quality_status, damage_type)
         quality_reasons = _quality_reasons(
-            roi_status, part_is_clipped, clipped, part_code, damage_type)
+            roi_status, part_is_clipped, clipped, damage_type)
 
         records.append({
             "schema_version": SEARCH_SCHEMA_VERSION,

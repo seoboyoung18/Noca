@@ -238,6 +238,8 @@ CREATE TABLE repair_case (
 CREATE TABLE repair_case_item (
     case_item_id  BIGSERIAL   PRIMARY KEY,
     case_id       BIGINT      NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
+    -- 원천 견적 배열 순번. 재실행 시 같은 항목을 upsert하는 멱등 키다.
+    source_item_key VARCHAR(100) NOT NULL,
     -- ANCILLARY 행은 부품이 아니라 부대 비용이라 표준 부품 코드가 없다.
     -- 검색 대상 행 종류(WORK/PART_PRICE/REFERENCE_PRICE)는 ck_rci_part_code로 NOT NULL을 유지한다.
     part_code     VARCHAR(50) REFERENCES part_code(part_code) ON DELETE RESTRICT,
@@ -268,6 +270,7 @@ CREATE TABLE repair_case_item (
     post_adjustment_part_cost  INTEGER,
     post_adjustment_labor_cost INTEGER,
     item_total    INTEGER,
+    CONSTRAINT uk_rci_source_item UNIQUE (case_id, source_item_key),
     CONSTRAINT ck_rci_line_type CHECK (line_type IN ('WORK','PART_PRICE','REFERENCE_PRICE','ANCILLARY')),
     CONSTRAINT ck_rci_assessment CHECK (
         assessment_status IS NULL OR assessment_status IN ('APPROVED','NOT_APPROVED')
@@ -323,16 +326,23 @@ CREATE TABLE data_validation_error (
 );
 
 CREATE TABLE repair_case_image (
-    case_image_id    BIGSERIAL    PRIMARY KEY,
-    case_id          BIGINT       NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
-    source_image_ref VARCHAR(255) NOT NULL,
-    storage_key      VARCHAR(500) NOT NULL,
-    blur_key         VARCHAR(500),
-    angle_tag        VARCHAR(20),
-    quality_status   VARCHAR(20),
-    is_searchable    BOOLEAN      NOT NULL DEFAULT TRUE,
-    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT uk_rci_src UNIQUE (source_image_ref)
+    case_image_id        BIGSERIAL    PRIMARY KEY,
+    case_id              BIGINT       NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
+    source_image_ref     VARCHAR(255) NOT NULL,
+    storage_key          VARCHAR(500) NOT NULL,
+    blur_key             VARCHAR(500),
+    angle_tag            VARCHAR(20),
+    -- DAMAGE는 주 검색 ROI 원본, DAMAGE_PART는 차량·부품 맥락 보조 이미지다.
+    image_type           VARCHAR(20)  NOT NULL,
+    -- AI-Hub의 물리 split. 서비스 DEV/DEMO/EVAL subset과 다른 축이다.
+    source_dataset_split VARCHAR(20),
+    quality_status       VARCHAR(20),
+    is_searchable        BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rci_src            UNIQUE (source_image_ref),
+    CONSTRAINT ck_rcimg_type         CHECK (image_type IN ('DAMAGE', 'DAMAGE_PART')),
+    CONSTRAINT ck_rcimg_source_split CHECK (source_dataset_split IS NULL
+                                            OR source_dataset_split IN ('TRAIN', 'VALIDATION'))
 );
 
 -- ─── 9. 임베딩 (고속 증가) ───────────────────────────────────
@@ -340,7 +350,9 @@ CREATE TABLE repair_case_roi_embedding (
     roi_embedding_id BIGSERIAL    PRIMARY KEY,
     case_image_id    BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id)          ON DELETE CASCADE,
     model_version_id BIGINT       NOT NULL REFERENCES embedding_model_version(model_version_id) ON DELETE RESTRICT,
-    part_code        VARCHAR(50)  NOT NULL REFERENCES part_code(part_code)                      ON DELETE RESTRICT,
+    -- NULL은 부품 부재가 아니라 이 damage ROI에 직접 연결된 부품 근거가 없다는 뜻이다.
+    -- 사례 견적의 part_code나 다른 damage_part 이미지의 part를 여기에 복사하지 않는다.
+    part_code        VARCHAR(50)  REFERENCES part_code(part_code)                               ON DELETE RESTRICT,
     damage_type      VARCHAR(20)  NOT NULL,
     roi_index        SMALLINT     NOT NULL,
     damage_polygon   JSONB        NOT NULL,
@@ -350,6 +362,17 @@ CREATE TABLE repair_case_roi_embedding (
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT uk_roi      UNIQUE (case_image_id, model_version_id, roi_index),
     CONSTRAINT ck_roi_type CHECK (damage_type IN ('Scratched','Separated','Crushed','Breakage'))
+);
+
+-- damage_part 이미지에 직접 라벨된 부품 영역. damage ROI와 자동 연결하지 않는다.
+CREATE TABLE repair_case_image_part_annotation (
+    case_image_part_annotation_id BIGSERIAL    PRIMARY KEY,
+    case_image_id                 BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id) ON DELETE CASCADE,
+    part_code                     VARCHAR(50)  NOT NULL REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    source_annotation_ref         VARCHAR(255) NOT NULL,
+    part_polygon                  JSONB,
+    created_at                    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rcipa_source UNIQUE (case_image_id, source_annotation_ref)
 );
 
 CREATE TABLE repair_cost_stat (
@@ -564,10 +587,14 @@ CREATE INDEX ix_rcimg_case        ON repair_case_image (case_id);
 -- ── 임베딩 ──
 CREATE INDEX ix_roi_filter        ON repair_case_roi_embedding (part_code, damage_type)
     WHERE is_searchable;
+-- damage_type은 ROI 직접 라벨이므로 부품 미확정 ROI도 먼저 좁힐 수 있다.
+CREATE INDEX ix_roi_damage_filter ON repair_case_roi_embedding (damage_type, model_version_id)
+    WHERE is_searchable;
 -- 주의: 대량 적재 전에 만들면 INSERT 가 느려집니다 (실측 11.4만건 65초).
 --       초기 backfill 은 인덱스 없이 적재한 뒤 이 문을 실행하세요.
 CREATE INDEX ix_roi_hnsw          ON repair_case_roi_embedding
     USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX ix_rcipa_image       ON repair_case_image_part_annotation (case_image_id);
 
 -- ── 견적서 검증 ──
 CREATE INDEX ix_ev_member         ON estimate_validation (member_id, created_at DESC);
