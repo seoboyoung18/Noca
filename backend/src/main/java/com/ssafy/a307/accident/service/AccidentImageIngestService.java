@@ -5,6 +5,7 @@ import com.ssafy.a307.accident.dto.ImageProcessingStatus;
 import com.ssafy.a307.accident.entity.AccidentImage;
 import com.ssafy.a307.accident.entity.AccidentImageAsset;
 import com.ssafy.a307.accident.entity.ImageVariant;
+import com.ssafy.a307.accident.image.AccidentImageDownloadUrls;
 import com.ssafy.a307.accident.image.AccidentImagePreprocessor;
 import com.ssafy.a307.accident.image.AccidentImageKeys;
 import com.ssafy.a307.accident.image.AccidentImageStoragePort;
@@ -48,6 +49,7 @@ public class AccidentImageIngestService {
     private final AccidentImageValidator validator;
     private final AccidentImagePreprocessor preprocessor;
     private final ImageQualityAssessor qualityAssessor;
+    private final AccidentImageDownloadUrls downloadUrls;
 
     /**
      * 어댑터가 없다. {@code EstimateFileValidationService} 와 같은 방식으로 {@code Optional} 로 받고,
@@ -67,7 +69,8 @@ public class AccidentImageIngestService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "이미지를 찾을 수 없습니다."));
 
         if (image.isUploadCompleted()) {
-            return AccidentImageResultResponse.completed(image, ImageProcessingStatus.ALREADY_COMPLETED);
+            return AccidentImageResultResponse.completed(
+                    image, ImageProcessingStatus.ALREADY_COMPLETED, downloadUrls.exposedAssets(image));
         }
 
         AccidentImageStoragePort storage = storage();
@@ -121,7 +124,8 @@ public class AccidentImageIngestService {
             image.markQuality(assessment.status(), assessment.reason());
 
             imageRepository.saveAndFlush(image);
-            return AccidentImageResultResponse.completed(image, ImageProcessingStatus.COMPLETED);
+            return AccidentImageResultResponse.completed(
+                    image, ImageProcessingStatus.COMPLETED, downloadUrls.exposedAssets(image));
 
         } catch (AccidentImageValidationException e) {
             cleanup(storage, derivedKeys, originalKey);
@@ -140,7 +144,7 @@ public class AccidentImageIngestService {
         return ImageFormat.ofExtension(extension)
                 .orElseThrow(() -> failed(
                         AccidentImageValidationException.Reason.UNSUPPORTED_EXTENSION.name(),
-                        ImageFormat.supportedLabel() + " 파일만 업로드할 수 있습니다."));
+                        ImageFormat.uploadableLabel() + " 파일만 업로드할 수 있습니다."));
     }
 
     private AccidentImageStoragePort.StoredObject head(

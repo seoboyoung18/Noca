@@ -38,7 +38,8 @@ class AccidentImagePropertiesTest {
             PREFIX + "max-file-size-bytes",
             PREFIX + "resized-max-edge-px",
             PREFIX + "thumbnail-max-edge-px",
-            PREFIX + "presigned-url-minutes");
+            PREFIX + "presigned-url-minutes",
+            PREFIX + "download-url-minutes");
 
     @EnableConfigurationProperties(AccidentImageProperties.class)
     static class TestConfig {
@@ -48,7 +49,7 @@ class AccidentImagePropertiesTest {
             new ApplicationContextRunner().withUserConfiguration(TestConfig.class);
 
     @Test
-    @DisplayName("배포되는 application.properties 의 다섯 값이 그대로 바인딩된다")
+    @DisplayName("배포되는 application.properties 의 여섯 값이 그대로 바인딩된다")
     void shippedDefaultsBind() throws IOException {
         Properties shipped = load(resolve("src/main/resources/application.properties"));
 
@@ -66,6 +67,8 @@ class AccidentImagePropertiesTest {
                     .isEqualTo(Integer.parseInt(shipped.getProperty(PREFIX + "thumbnail-max-edge-px")));
             assertThat(properties.presignedUrlMinutes())
                     .isEqualTo(Integer.parseInt(shipped.getProperty(PREFIX + "presigned-url-minutes")));
+            assertThat(properties.downloadUrlMinutes())
+                    .isEqualTo(Integer.parseInt(shipped.getProperty(PREFIX + "download-url-minutes")));
         });
     }
 
@@ -95,6 +98,34 @@ class AccidentImagePropertiesTest {
         runner.withPropertyValues(valid()).run(context ->
                 assertThat(context.getBean(AccidentImageProperties.class).presignedUrlValidity())
                         .isEqualTo(Duration.ofMinutes(10)));
+    }
+
+    @Test
+    @DisplayName("조회 URL 유효시간은 업로드용과 별개로 조정된다")
+    void downloadValidityIsIndependent() {
+        runner.withPropertyValues(override(PREFIX + "download-url-minutes", "3")).run(context -> {
+            AccidentImageProperties properties = context.getBean(AccidentImageProperties.class);
+            assertThat(properties.downloadUrlValidity()).isEqualTo(Duration.ofMinutes(3));
+            assertThat(properties.presignedUrlValidity())
+                    .as("업로드용은 그대로여야 한다 — 두 값이 붙어 있으면 하나만 줄일 수 없다")
+                    .isEqualTo(Duration.ofMinutes(10));
+        });
+    }
+
+    @Test
+    @DisplayName("조회 URL 유효시간이 하루를 넘으면 기동이 실패한다")
+    void downloadTooLongFailsStartup() {
+        runner.withPropertyValues(override(PREFIX + "download-url-minutes", "1441"))
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    @DisplayName("조회 URL 유효시간이 빠지면 기동이 실패한다 — 코드에 기본값을 두지 않았다")
+    void missingDownloadMinutesFailsStartup() {
+        List<String> values = new java.util.ArrayList<>(List.of(valid()));
+        values.removeIf(entry -> entry.startsWith(PREFIX + "download-url-minutes="));
+        runner.withPropertyValues(values.toArray(String[]::new))
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
@@ -141,7 +172,8 @@ class AccidentImagePropertiesTest {
                 PREFIX + "max-file-size-bytes=20971520",
                 PREFIX + "resized-max-edge-px=1600",
                 PREFIX + "thumbnail-max-edge-px=320",
-                PREFIX + "presigned-url-minutes=10"};
+                PREFIX + "presigned-url-minutes=10",
+                PREFIX + "download-url-minutes=10"};
     }
 
     private static String[] override(String key, String value) {

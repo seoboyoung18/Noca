@@ -2,6 +2,7 @@ package com.ssafy.a307.accident.service;
 
 import com.ssafy.a307.accident.config.AccidentImageProperties;
 import com.ssafy.a307.accident.dto.AccidentImageListResponse;
+import com.ssafy.a307.accident.dto.AccidentImageResponse;
 import com.ssafy.a307.accident.dto.AccidentImageResultResponse;
 import com.ssafy.a307.accident.dto.ImageProcessingStatus;
 import com.ssafy.a307.accident.dto.ImageUploadCompleteItem;
@@ -16,6 +17,7 @@ import com.ssafy.a307.accident.entity.ImageQualityStatus;
 import com.ssafy.a307.accident.entity.ImageVariant;
 import com.ssafy.a307.accident.image.AccidentImageKeys;
 import com.ssafy.a307.accident.image.AccidentImageStoragePort;
+import com.ssafy.a307.accident.image.AccidentImageValidationException;
 import com.ssafy.a307.accident.image.AccidentImageValidationException.Reason;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
@@ -30,6 +32,8 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.net.URI;
@@ -85,12 +89,16 @@ class AccidentImageServiceTest {
         final Map<String, String> contentTypes = new LinkedHashMap<>();
         final List<UploadUrlRequest> issued = new ArrayList<>();
         final List<String> deleted = new ArrayList<>();
+        final List<String> downloadSigned = new ArrayList<>();
+        boolean failDownloadSigning;
 
         void reset() {
             objects.clear();
             contentTypes.clear();
             issued.clear();
             deleted.clear();
+            downloadSigned.clear();
+            failDownloadSigning = false;
         }
 
         void put(String key, byte[] content, String contentType) {
@@ -123,6 +131,22 @@ class AccidentImageServiceTest {
             return content.clone();
         }
 
+        /**
+         * 조회용 서명. 실제 어댑터와 같은 규칙을 지킨다 — <b>{@code ORIGINAL} 은 거절</b>한다.
+         * 더블이 더 관대하면 원본이 새 나가는 회귀를 테스트가 못 잡는다.
+         */
+        @Override
+        public PresignedDownload createPresignedDownloadUrl(String storageKey, Duration validity) {
+            if (failDownloadSigning) throw new IllegalStateException("presign failure (test)");
+            if (storageKey.contains("/" + ImageVariant.ORIGINAL.objectName() + ".")) {
+                throw new IllegalArgumentException("ORIGINAL 은 조회 URL 을 발급하지 않는다");
+            }
+            downloadSigned.add(storageKey);
+            return new PresignedDownload(
+                    URI.create("https://storage.test/" + storageKey + "?download=1"),
+                    Instant.now().plus(validity));
+        }
+
         @Override
         public StoredObject store(StoreImage request) {
             put(request.storageKey(), request.content(), request.contentType());
@@ -146,6 +170,9 @@ class AccidentImageServiceTest {
     private InMemoryImageStorage storage;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
 
     @BeforeEach
     void setUp() {
@@ -260,10 +287,12 @@ class AccidentImageServiceTest {
             service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID, request(files(max - 1)));
             assertThat(rows()).isEqualTo(max - 1);
 
-            BusinessException e = catchThrowableOfType(BusinessException.class,
+            AccidentImageValidationException e = catchThrowableOfType(
+                    AccidentImageValidationException.class,
                     () -> service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID, request(files(2))));
 
-            assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+            // 사유를 BusinessException 으로 뭉개지 않는다 — FE 가 error.code 로 구분한다.
+            assertThat(e.reason()).isEqualTo(Reason.TOO_MANY_IMAGES);
             assertThat(e).hasMessageContaining(String.valueOf(max));
             assertThat(rows()).isEqualTo(max - 1);
         }
@@ -280,24 +309,28 @@ class AccidentImageServiceTest {
         @Test
         @DisplayName("HEIC 은 서버 변환이 없어 400 과 클라이언트 변환 안내를 준다")
         void heic() {
-            BusinessException e = catchThrowableOfType(BusinessException.class,
+            AccidentImageValidationException e = catchThrowableOfType(
+                    AccidentImageValidationException.class,
                     () -> service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
                             request(file("iphone.heic", "image/heic", 1024, null))));
 
-            assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+            assertThat(e.reason()).isEqualTo(Reason.SERVER_CONVERSION_UNSUPPORTED);
             assertThat(e).hasMessageContaining("JPG");
             assertThat(rows()).isZero();
+            assertThat(storage.issued).as("S3 URL 이 발급되기 전에 걸려야 한다").isEmpty();
         }
 
         @Test
         @DisplayName("촬영 가이드에 없는 각도 코드는 400 이다")
         void unknownAngleCode() {
-            BusinessException e = catchThrowableOfType(BusinessException.class,
+            AccidentImageValidationException e = catchThrowableOfType(
+                    AccidentImageValidationException.class,
                     () -> service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
                             request(file("front.jpg", "image/jpeg", 1024, "TOP_DOWN"))));
 
-            assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+            assertThat(e.reason()).isEqualTo(Reason.UNKNOWN_ANGLE_CODE);
             assertThat(e).hasMessageContaining("TOP_DOWN");
+            assertThat(rows()).as("각도가 틀리면 행도 남지 않는다").isZero();
         }
 
         @Test
@@ -306,7 +339,7 @@ class AccidentImageServiceTest {
             assertThatThrownBy(() -> service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
                     request(file("ok.jpg", "image/jpeg", 1024, null),
                             file("bad.gif", "image/gif", 1024, null))))
-                    .isInstanceOf(BusinessException.class);
+                    .isInstanceOf(AccidentImageValidationException.class);
 
             assertThat(rows()).isZero();
             assertThat(storage.issued).isEmpty();
@@ -341,8 +374,19 @@ class AccidentImageServiceTest {
             assertThat(result.assets()).extracting("variant")
                     .containsExactlyInAnyOrder(ImageVariant.RESIZED, ImageVariant.THUMBNAIL)
                     .doesNotContain(ImageVariant.ORIGINAL);
-            assertThat(result.assets()).extracting("s3Key")
-                    .doesNotContain(issued.s3Key());
+            // 키는 더 이상 나가지 않는다. 대신 브라우저가 바로 쓸 수 있는 조회 URL 이 온다.
+            assertThat(result.assets()).allSatisfy(asset -> {
+                assertThat(asset.url()).as("조회 URL 이 없으면 화면이 이미지를 띄울 수 없다").isNotBlank();
+                assertThat(asset.expiresAt()).isNotNull();
+            });
+            assertThat(result.assets()).extracting("url")
+                    .as("원본 키가 URL 로 새 나가면 안 된다")
+                    .noneMatch(url -> String.valueOf(url).contains("/original."));
+            assertThat(storage.downloadSigned)
+                    .as("서명 대상은 파생본뿐이다")
+                    .containsExactlyInAnyOrder(
+                            AccidentImageKeys.key(ACCIDENT_ID, issued.imageId(), ImageVariant.RESIZED, "jpg"),
+                            AccidentImageKeys.key(ACCIDENT_ID, issued.imageId(), ImageVariant.THUMBNAIL, "jpg"));
 
             // 저장은 그대로 3행이다 — 분석 파이프라인이 원본을 읽어야 한다.
             assertThat(variants(issued.imageId()))
@@ -671,6 +715,241 @@ class AccidentImageServiceTest {
         }
     }
 
+    // ------------------------------------------------------- 조회 URL (S15P21A307-137)
+
+    @Nested
+    @DisplayName("조회용 presigned GET URL")
+    class DownloadUrls {
+
+        @Test
+        @DisplayName("이미지가 없으면 빈 배열이다 — 404 가 아니다")
+        void emptyList() {
+            AccidentImageListResponse list = service.list(MEMBER_ID, ACCIDENT_ID);
+
+            assertThat(list.total()).isZero();
+            assertThat(list.images()).isEmpty();
+            assertThat(list.remainingSlots()).isEqualTo(properties.maxCountPerAccident());
+        }
+
+        @Test
+        @DisplayName("완료된 이미지에 RESIZED·THUMBNAIL 의 조회 URL 과 만료 시각을 준다")
+        void issuesUrlsForDerivedVariants() {
+            Instant before = Instant.now();
+            IssuedUploadUrl issued = issueOne("front.jpg", "image/jpeg");
+            upload(issued, 400, 300);
+            service.complete(MEMBER_ID, ACCIDENT_ID, completeRequest(issued.imageId()));
+
+            AccidentImageResponse image = service.list(MEMBER_ID, ACCIDENT_ID).images().get(0);
+
+            assertThat(image.assets()).extracting("variant")
+                    .containsExactly(ImageVariant.RESIZED, ImageVariant.THUMBNAIL);
+            assertThat(image.assets()).allSatisfy(asset -> {
+                assertThat(asset.url()).isNotBlank();
+                assertThat(asset.expiresAt())
+                        .as("만료 시각이 없으면 화면이 언제 다시 받아야 하는지 모른다")
+                        .isNotNull()
+                        .isAfter(before);
+                assertThat(asset.width()).isNotNull();
+                assertThat(asset.height()).isNotNull();
+                assertThat(asset.fileSize()).isNotNull();
+            });
+        }
+
+        @Test
+        @DisplayName("ORIGINAL 은 URL 을 발급하지 않는다 — 서명 대상에서도 빠진다")
+        void neverSignsOriginal() {
+            IssuedUploadUrl issued = issueOne("front.jpg", "image/jpeg");
+            upload(issued, 400, 300);
+            service.complete(MEMBER_ID, ACCIDENT_ID, completeRequest(issued.imageId()));
+            storage.downloadSigned.clear();
+
+            AccidentImageResponse image = service.list(MEMBER_ID, ACCIDENT_ID).images().get(0);
+
+            assertThat(image.assets()).extracting("variant").doesNotContain(ImageVariant.ORIGINAL);
+            assertThat(storage.downloadSigned)
+                    .as("원본 키에 서명을 시도하는 것 자체가 회귀다")
+                    .noneMatch(key -> key.contains("/original."));
+            // 저장은 그대로 3행이다 — 분석 파이프라인이 원본을 읽어야 한다.
+            assertThat(variants(issued.imageId()))
+                    .containsExactlyInAnyOrder("ORIGINAL", "RESIZED", "THUMBNAIL");
+        }
+
+        @Test
+        @DisplayName("아직 완료되지 않은 이미지는 asset 이 없어 URL 도 없다")
+        void pendingHasNoUrl() {
+            issueOne("front.jpg", "image/jpeg");
+
+            AccidentImageResponse image = service.list(MEMBER_ID, ACCIDENT_ID).images().get(0);
+
+            assertThat(image.uploadState()).isEqualTo(ImageUploadState.PENDING);
+            assertThat(image.assets()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("S3 오브젝트가 없어도 목록은 200 이다 — URL 은 열었을 때 404 가 난다")
+        void missingObjectStillListsMetadata() {
+            IssuedUploadUrl issued = issueOne("front.jpg", "image/jpeg");
+            upload(issued, 400, 300);
+            service.complete(MEMBER_ID, ACCIDENT_ID, completeRequest(issued.imageId()));
+            // 누군가 버킷에서 오브젝트만 지운 상황. DB 행은 남아 있다.
+            storage.objects.clear();
+
+            AccidentImageResponse image = service.list(MEMBER_ID, ACCIDENT_ID).images().get(0);
+
+            // presign 은 로컬 서명 계산이라 오브젝트 존재를 확인하지 않는다.
+            // 확인하려면 asset 마다 HeadObject 왕복이 생긴다 — 목록이 그 비용을 지지 않는다.
+            assertThat(image.assets()).hasSize(2);
+            assertThat(image.assets()).allSatisfy(asset -> assertThat(asset.url()).isNotBlank());
+        }
+
+        @Test
+        @DisplayName("서명이 실패하면 그 asset 만 url 이 비고 목록은 살아남는다")
+        void signingFailureDegradesPerAsset() {
+            IssuedUploadUrl issued = issueOne("front.jpg", "image/jpeg");
+            upload(issued, 400, 300);
+            service.complete(MEMBER_ID, ACCIDENT_ID, completeRequest(issued.imageId()));
+            storage.failDownloadSigning = true;
+
+            AccidentImageListResponse list = service.list(MEMBER_ID, ACCIDENT_ID);
+
+            assertThat(list.total()).as("전체 요청을 500 으로 뒤집지 않는다").isEqualTo(1);
+            AccidentImageResponse image = list.images().get(0);
+            assertThat(image.assets()).hasSize(2);
+            assertThat(image.assets()).allSatisfy(asset -> {
+                assertThat(asset.url()).isNull();
+                assertThat(asset.expiresAt()).isNull();
+                assertThat(asset.width()).as("메타는 살아 있어야 한다").isNotNull();
+            });
+        }
+
+        @Test
+        @DisplayName("남의 사고 이미지는 조회할 수 없다 — 404 이고 서명도 일어나지 않는다")
+        void otherMembersAccidentIsHidden() {
+            IssuedUploadUrl issued = issueOne("front.jpg", "image/jpeg");
+            upload(issued, 400, 300);
+            service.complete(MEMBER_ID, ACCIDENT_ID, completeRequest(issued.imageId()));
+            storage.downloadSigned.clear();
+
+            assertThat(errorOf(() -> service.list(OTHER_MEMBER_ID, ACCIDENT_ID)))
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+            assertThat(storage.downloadSigned).isEmpty();
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 사고는 404 다")
+        void missingAccident() {
+            assertThat(errorOf(() -> service.list(MEMBER_ID, MISSING_ACCIDENT_ID)))
+                    .isEqualTo(ErrorCode.NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("이미지 3장을 조회해도 쿼리가 이미지 수만큼 늘지 않는다 — asset 을 fetch join 한다")
+        void noNPlusOneQuery() {
+            for (int i = 0; i < 3; i++) {
+                IssuedUploadUrl issued = issueOne("photo" + i + ".jpg", "image/jpeg");
+                upload(issued, 400, 300);
+                service.complete(MEMBER_ID, ACCIDENT_ID, completeRequest(issued.imageId()));
+            }
+            Statistics statistics = statistics();
+            statistics.clear();
+
+            AccidentImageListResponse list = service.list(MEMBER_ID, ACCIDENT_ID);
+
+            assertThat(list.images()).hasSize(3);
+            assertThat(list.images()).allSatisfy(image -> assertThat(image.assets()).hasSize(2));
+            // 사고 소유자 확인 1 + 이미지·asset fetch join 1. 이미지마다 asset 을 따로 읽으면 늘어난다.
+            assertThat(statistics.getPrepareStatementCount())
+                    .as("N+1 이 생기면 이미지 수만큼 쿼리가 늘어난다")
+                    .isLessThanOrEqualTo(2);
+        }
+    }
+
+    // ------------------------------------------------------- angleCode (S15P21A307-137)
+
+    @Nested
+    @DisplayName("촬영 각도 저장")
+    class AngleCodePersistence {
+
+        @Test
+        @DisplayName("발급 요청의 각도를 저장하고 발급·조회 응답에 그대로 준다")
+        void persistsAndReturns() {
+            IssuedUploadUrl issued = service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
+                    request(file("front.jpg", "image/jpeg", 1024, "FRONT"))).files().get(0);
+
+            assertThat(issued.angleCode()).isEqualTo("FRONT");
+            assertThat(angleCodeOf(issued.imageId()))
+                    .as("DB 에 남아야 새로고침해도 각도가 살아 있다")
+                    .isEqualTo("FRONT");
+            assertThat(service.list(MEMBER_ID, ACCIDENT_ID).images().get(0).angleCode())
+                    .isEqualTo("FRONT");
+        }
+
+        @Test
+        @DisplayName("완료 통보 응답에도 저장된 각도가 실린다")
+        void survivesCompletion() {
+            IssuedUploadUrl issued = service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
+                    request(file("rear.jpg", "image/jpeg", 1024, "REAR_LEFT"))).files().get(0);
+            upload(issued, 400, 300);
+
+            ImageUploadCompleteResponse response =
+                    service.complete(MEMBER_ID, ACCIDENT_ID, completeRequest(issued.imageId()));
+
+            assertThat(response.results().get(0).angleCode()).isEqualTo("REAR_LEFT");
+            assertThat(angleCodeOf(issued.imageId())).isEqualTo("REAR_LEFT");
+        }
+
+        @Test
+        @DisplayName("각도를 보내지 않으면 null 이다 — 추측해서 채우지 않는다")
+        void absentAngleStaysNull() {
+            IssuedUploadUrl issued = issueOne("front.jpg", "image/jpeg");
+
+            assertThat(issued.angleCode()).isNull();
+            assertThat(angleCodeOf(issued.imageId())).isNull();
+            assertThat(service.list(MEMBER_ID, ACCIDENT_ID).images().get(0).angleCode()).isNull();
+        }
+
+        @Test
+        @DisplayName("컬럼이 생기기 전에 올라간 행처럼 angle_code 가 NULL 이어도 조회가 된다")
+        void legacyNullRowIsReadable() {
+            IssuedUploadUrl issued = service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
+                    request(file("front.jpg", "image/jpeg", 1024, "FRONT"))).files().get(0);
+            jdbcTemplate.update(
+                    "update accident_image set angle_code = null where image_id = ?", issued.imageId());
+
+            AccidentImageResponse image = service.list(MEMBER_ID, ACCIDENT_ID).images().get(0);
+
+            assertThat(image.angleCode()).isNull();
+            assertThat(image.imageId()).isEqualTo(issued.imageId());
+        }
+
+        @Test
+        @DisplayName("빈 문자열은 null 로 접는다 — 없음을 두 가지 상태로 두지 않는다")
+        void blankFoldsToNull() {
+            IssuedUploadUrl issued = service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
+                    request(file("front.jpg", "image/jpeg", 1024, "  "))).files().get(0);
+
+            assertThat(angleCodeOf(issued.imageId())).isNull();
+        }
+
+        @Test
+        @DisplayName("잘못된 각도는 행도 각도도 남기지 않는다 — 반쪽 저장이 없다")
+        void invalidAngleLeavesNothing() {
+            assertThatThrownBy(() -> service.issueUploadUrls(MEMBER_ID, ACCIDENT_ID,
+                    request(file("ok.jpg", "image/jpeg", 1024, "FRONT"),
+                            file("bad.jpg", "image/jpeg", 1024, "TOP_DOWN"))))
+                    .isInstanceOf(AccidentImageValidationException.class);
+
+            // 첫 파일이 유효해도 두 번째에서 걸리면 트랜잭션이 통째로 롤백된다.
+            assertThat(rows()).isZero();
+            assertThat(storage.issued).isEmpty();
+        }
+
+        private String angleCodeOf(Long imageId) {
+            return jdbcTemplate.queryForObject(
+                    "select angle_code from accident_image where image_id = ?", String.class, imageId);
+        }
+    }
+
     // ------------------------------------------------------------------ 도구
 
     private IssuedUploadUrl issueOne(String filename, String contentType) {
@@ -716,6 +995,13 @@ class AccidentImageServiceTest {
         return jdbcTemplate.queryForList("""
                 select variant from accident_image_asset where image_id = ? order by variant
                 """, String.class, imageId);
+    }
+
+    /** Hibernate 통계. N+1 을 "느낌" 이 아니라 쿼리 수로 본다. */
+    private Statistics statistics() {
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        return statistics;
     }
 
     private static ErrorCode errorOf(Runnable call) {

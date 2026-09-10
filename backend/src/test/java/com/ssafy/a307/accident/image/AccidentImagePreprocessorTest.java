@@ -27,7 +27,7 @@ class AccidentImagePreprocessorTest {
     private static final int THUMBNAIL_MAX = 50;
 
     private final AccidentImageProperties properties =
-            new AccidentImageProperties(20, 20_971_520, RESIZED_MAX, THUMBNAIL_MAX, 10);
+            new AccidentImageProperties(20, 20_971_520, RESIZED_MAX, THUMBNAIL_MAX, 10, 10);
     private final AccidentImagePreprocessor preprocessor =
             new AccidentImagePreprocessor(new ImageIoImageDecoder(), properties);
 

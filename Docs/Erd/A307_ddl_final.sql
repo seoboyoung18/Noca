@@ -135,6 +135,7 @@ CREATE TABLE accident_image (
     image_id          BIGSERIAL   PRIMARY KEY,
     accident_id       BIGINT      NOT NULL REFERENCES accident(accident_id) ON DELETE CASCADE,
     original_filename VARCHAR(255) NOT NULL,
+    angle_code        VARCHAR(20),
     quality_status    VARCHAR(20) NOT NULL DEFAULT 'PASS',
     quality_reason    VARCHAR(100),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
