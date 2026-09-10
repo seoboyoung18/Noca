@@ -1,8 +1,32 @@
-# 검색 기본 데이터 적재 범위
+# damage 중심 검색 데이터 적재 범위
 
-기준일: 2026-09-09
+기준일: 2026-09-11 · 코드 대조: `develop` `4a0836d`
+
+아래 건수·S3 실측은 기존 실행 기록이다. 이번 문서 갱신에서 DB·S3를 재조회하지 않았다. 구현 상태·확인된 오류는 [파이프라인 진행 현황](../Pipeline/STATUS.md)을 본다.
 
 ## 결정
+
+주 검색 벡터는 `damage` 이미지에서 만든 손상 ROI다. `damage_part`는 같은 사고의
+차량·부품 맥락을 확인하는 보조 이미지로 함께 적재한다. 검색 필터와 스키마의 상세
+계약은 [damage 중심 유사 사례 검색 스키마](A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
+
+`damage_type`은 ROI에 직접 라벨된 값이므로 하드 필터로 쓴다. 부품명은 견적
+수리항목에서 얻는 사례 부품 후보이므로, 기본 검색에서는 후보 축소 또는 재정렬
+신호로 쓴다. 사례 부품을 해당 ROI의 확정 부품으로 저장하지 않는다.
+
+```text
+damage_type 하드 필터
+→ 사례 견적 part_code 후보 조건(선택)
+→ damage ROI 벡터 유사도 검색
+→ 사례 부품 후보 근거와 함께 결과 표시
+```
+
+## 이전 damage_part 정책
+
+아래 55,363건·98,617이미지 및 readiness 설명은 2026-09-10의 **기존
+damage_part 전용 정책 기록**이다. 새 damage 코퍼스의 후보 수, 이미지 수,
+TRAIN/VALIDATION/MIXED 판정은 두 이미지 유형을 합쳐 사례 단위로 다시 계산한다.
+기존 수치를 새 적재 범위나 완료 건수로 사용하지 않는다.
 
 `repair_case`는 `case_search_readiness.csv`의 `is_final_searchable_case=True`인
 사례만 대상으로 한다. 이 판정은 이미지·라벨·견적 조인, 유효 damage geometry,
@@ -28,19 +52,32 @@ readiness 단계의 중간 수치는 견적·사례 조인 후보 116,809건이�
 추가 조건에서 탈락한 사례는 `repair_case`에 부분 적재하지 않고
 `data_validation_error`에 `invalid_car_class`, `missing_image` 등의 유형으로 남긴다.
 
+55,363건은 readiness 후보 수이며 실제 적재 성공 수를 보장하지 않는다. 추가 검증을 통과한 건수와 제외 사유는 `load_search_data.py`의 실행 summary 및 오류 테이블로 확인한다.
+
 ## 검색 이미지 원천 범위
 
-검색 사례 이미지는 **`damage_part` 계열만** 사용한다.
+두 이미지 유형을 함께 적재한다.
 
 ```text
-1.Training/2.라벨링데이터/TL_damage_part/damage_part
-2.Validation/2.라벨링데이터/VL_damage_part/damage_part
+1.Training/2.라벨링데이터/TL_damage/damage             → DAMAGE
+1.Training/2.라벨링데이터/TL_damage_part/damage_part   → DAMAGE_PART
+2.Validation/2.라벨링데이터/VL_damage/damage            → DAMAGE
+2.Validation/2.라벨링데이터/VL_damage_part/damage_part → DAMAGE_PART
 ```
 
-`damage`와 `damage_part`는 서로 다른 YOLO 목적에 맞춰 화각과 포함 영역이
-다르므로 같은 검색 코퍼스에 섞지 않는다. `damage` 계열은 이번
-`repair_case_image` 적재 범위에서 제외한다. readiness 검증과 검색 적재 loader도
-동일하게 `damage_part` 계열만 스캔해야 하며, 이 기준으로 생성한 manifest를 사용한다.
+`damage`는 ROI 임베딩의 주 원천이며 `damage_part`는 주 벡터 검색에서 제외한다.
+두 유형은 같은 `repair_case`에 연결하되 `repair_case_image.image_type`으로 반드시
+구분한다. `damage_part`의 직접 부품 영역은 보조 이미지 근거로만 보존하며 다른
+`damage` 이미지의 ROI에 part code를 자동 연결하지 않는다.
+
+readiness·loader·split manifest는 두 유형을 함께 읽되 다음 상태를 별도로 남긴다.
+
+- `has_damage_geometry`: DAMAGE에서 유효 damage polygon과 damage type이 있는가
+- `has_estimate_part_candidate`: 견적 수리항목이 표준 part code로 매핑되는가
+- `has_damage_part_context`: DAMAGE_PART의 보조 이미지 또는 직접 part annotation이 있는가
+
+`has_damage_geometry=True`이면 부품 후보가 없어도 ROI 적재 후보가 될 수 있다.
+부품 후보 결측은 검색 제외 사유가 아니라 결과에서 표시할 근거 부족 상태다.
 
 readiness와 사례별 manifest는 원천 데이터에서 재생성 가능한 실행 산출물이므로
 `pipeline/manifests/`에 커밋하지 않고 저장소 밖에 보관한다. 생성 명령은 다음과 같다.
@@ -90,12 +127,21 @@ S3 실측에서도 `original.jpg` 2,216개에 `blurred.jpg`는 0개다. 같은 �
 
 ## 품질 상태의 의미
 
-이번 적재의 `is_searchable=TRUE`는 readiness 검증을 통과했다는 뜻이며, 이미지
-품질 판정 결과를 의미하지 않는다. 별도 이미지 품질 판정 job이 아직 없으므로
-`quality_status`는 미판정(`NULL`)으로 저장한다.
+`repair_case_image.is_searchable=TRUE`는 이미지가 적재·참조 가능한 상태라는
+뜻이다. `repair_case_roi_embedding.is_searchable=TRUE`는 geometry와 embedding이
+유효해 벡터 검색에 사용할 수 있다는 뜻이다. 둘 다 `part_code`가 있다는 뜻은 아니다.
+별도 이미지 품질 판정 job이 아직 없으므로 `quality_status`는 미판정(`NULL`)으로
+저장한다.
 
 `car_class`는 모든 동일 사례 라벨에서 읽은 값이 허용된 네 종류 중 하나이고 서로
 일치할 때만 통과한다. 대표 라벨 하나만 읽어 사례 전체를 판정하지 않는다.
+
+## 현재 구현상 주의점
+
+- readiness의 `--merge-only`는 사례별 라벨·orphan 건수를 복원하지 않아 CSV의 해당 건수 열이 0으로 출력된다. geometry 집합은 병합되지만 건수 검증은 전체 실행 결과와 대조해야 한다.
+- `build_search_sample_sql.py`는 라벨 전체를 탐색하는 일회성 표본 도구다. 정식 loader와 공통 견적 비용 해석을 사용하지만 검색 코퍼스 재현에 대체 사용하지 않는다.
+- `verify_search_sample.py`의 Raw 미연결 예상값은 실제 `repair_case` 건수에서 계산한다. 69,643건이라는 정책 수치를 독립적으로 강제하지 않으며 전체 readiness 누락·초과를 검증하는 도구도 아니다. 전수 검증에는 readiness 키 집합과 실제 적재 키 집합의 별도 대조가 필요하다.
+- ROI 메타데이터는 `pipeline_version_id`를 요구하지만 현재 임베딩 DDL은 `model_version_id`를 참조한다. 손상 코드도 메타데이터는 대문자 표준 코드, DDL은 `Scratched` 등 원천 표기를 허용한다. 임베딩 적재 어댑터·버전 연결 또는 migration이 필요하다.
 
 ## 실행 재현 정보
 

@@ -2,13 +2,20 @@
 
 유사 수리 사례 검색용 데이터 파이프라인. YOLO 출력과 AI-Hub 차량파손 데이터셋을 표준 코드로 정규화하고, 검색 대상 사례를 검증·적재한다.
 
+## 현재 진행 상황
+
+2026-09-10 `develop` (`4a0836d`) 기준으로 원천 보존·검색 후보 검증·사례/이미지 적재와 ROI 공용 모듈이 구현돼 있다. 임베딩 배치·Top-K 검색·검색 평가·수리비 통계 생성은 후속 작업이다.
+
+구현 상태, 기존 실행 건수, 확인된 오류와 테스트 결과는 [파이프라인 진행 현황](../Docs/Pipeline/STATUS.md)을 본다. DB·S3의 현재 건수는 이번 점검에서 재조회하지 않았다.
+
 ## 구조
 
 ```
 pipeline/
 ├── standardization/   표준 코드 정의와 정규화 모듈 (런타임 공용)
 ├── jobs/              배치 스크립트
-├── sql/               스키마 DDL·migration (후속 이슈에서 추가)
+├── validation/        견적 행 분류·비용 검증 규칙
+├── sql/               스테이징 DDL·기존 DB migration
 └── requirements.txt
 ```
 
@@ -41,13 +48,18 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 ### 검색 메타데이터
 
 `build_search_metadata`는 정규화된 추론 결과를 ROI 단위 검색 레코드로 바꾼다. 손상 검출
-하나가 레코드 하나다. 품질이 낮거나 검색 필드가 비어도 레코드는 남기고
-`search.is_searchable`만 false로 둔다 — 제외된 검출도 원본과 대조할 수 있어야 한다.
+하나가 레코드 하나다. 품질이 낮아도 레코드는 남기고 `search.is_searchable`만 false로 둔다
+— 제외된 검출도 원본과 대조할 수 있어야 한다.
 
-1차 후보 필터는 `part_code`·`damage_type`을 강한 조건으로, `car_class`를 약한 조건으로
-쓴다(설계 `ERD/A307_SEARCH_SCHEMA_MVP.md` 5절). 심각도와 수리 방식은 검색 축에 넣지
-않는다 — 수리 방식은 같은 문서 2절 전제 5번대로 결과 통계와 평가 지표로만 쓴다. 비용·작업
-의미를 검색 메타데이터에 섞지 않으며, 임베딩 벡터도 별도 테이블에 저장한다.
+2026-09-11 정책에서 `damage_type`은 ROI의 직접 라벨이므로 강한 필터다. 견적서에서 얻은
+`part_code`는 사례 부품 후보이며 ROI 부품 정답이 아니다. 따라서 주 경로는
+`damage_type` 필터 → 선택적 사례 부품 후보 조건 → ROI 벡터 검색이다. 부품 후보를
+하드 필터로 노출할 때도 "해당 ROI의 부품"이 아니라 "해당 사고에 그 부품 견적이 있음"으로
+표시한다. 상세 계약은 [damage 중심 유사 사례 검색 스키마](../Docs/Erd/A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
+
+현재 `search_metadata.py`는 `part_code`가 없으면 `is_searchable=false`로 판정하므로
+새 정책과 맞지 않는다. DAMAGE ROI의 부품 미확정을 허용하도록 loader·메타데이터 어댑터를
+바꾸기 전에는 이 모듈의 출력으로 새 코퍼스를 적재하지 않는다.
 
 `pipeline_version_id`는 필수 인자다. 검색은 같은 값을 가진 레코드끼리만 비교한다(설계 2절
 전제 3번). 기본값을 두지 않은 이유는, 버전 없는 레코드가 한 번 적재되면 무엇으로 만든
@@ -70,7 +82,7 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 
 ## jobs
 
-두 갈래로 나뉜다. 각 갈래 안에서는 앞 단계 산출물을 뒤 단계가 입력으로 받으므로 순서대로 실행한다.
+A~D로 나뉜다. 산출물을 전달하는 단계는 순서대로 실행한다. Raw 보존과 라벨 경로 인덱스 생성은 서로 독립적이다. 견적 행 검증 CLI는 현재 적재 배치와 분리돼 있다.
 
 **A. 검색 대상 확정** — 이미지·라벨 기준
 
@@ -104,7 +116,7 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 | 11 | `load_search_data.py` | 표본 또는 최종 검색 가능 범위를 `part_code`·`part_name_mapping`·`repair_case`·`repair_case_image`에 upsert |
 | 12 | `verify_search_sample.py` | 1,000건 표본의 연결·중복·차급·이미지·원천 건수·재실행 멱등성 검증 |
 
-A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. 두 결과를 교차 검증해 합치는 작업은 `part_code` 마스터 확정 후로 남아 있다.
+A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. DB 마스터 seed에는 핵심 32종과 견적 전용 24종, 총 56종이 있고 확정 매핑 seed는 15,308행이다. 모호한 매핑 검수, 사진 손상과 견적 항목의 교차 연결 및 매핑 버전 관리는 남아 있다.
 
 ### 1. category_id 무결성 검증
 
@@ -127,17 +139,19 @@ python pipeline/jobs/validate_search_readiness.py \
   --output-dir "<결과를 쓸 경로>"
 ```
 
-산출물: `search_readiness_summary.json`, `search_readiness_report.md`, `case_search_readiness.csv`, `group_partial_*.json`
+전체 실행 산출물: `search_readiness_summary.json`, `case_search_readiness.csv`. `--only-group` 실행은 `group_partial_*.json`을 만든다. 현재 코드는 `search_readiness_report.md`를 생성하지 않는다.
 
-라벨 JSON 45만여 개를 전수 파싱하므로 오래 걸린다. 그룹·샤드 단위로 나눠 돌린 뒤 병합할 수 있다.
+현재는 `TRAIN:DAMAGE_PART`와 `VALIDATION:DAMAGE_PART` 라벨만 파싱한다. 그룹·샤드 단위로 나눠 돌린 뒤 병합할 수 있다.
 
 ```bash
 # 그룹 하나만, 20개 샤드 중 0번
-python pipeline/jobs/validate_search_readiness.py ... --only-group TRAIN:DAMAGE --shard-index 0 --shard-count 20
+python pipeline/jobs/validate_search_readiness.py ... --only-group TRAIN:DAMAGE_PART --shard-index 0 --shard-count 20
 
 # 샤드 산출물을 병합해 최종 리포트 생성 (스캔 생략)
 python pipeline/jobs/validate_search_readiness.py ... --merge-only
 ```
+
+현재 샤드 산출물에는 사례별 라벨·orphan 건수가 빠져 있어 `--merge-only` 결과의 해당 건수 열이 0으로 출력된다. geometry/part-code 집합은 병합되지만 건수 검증은 전체 실행 결과와 대조해야 한다.
 
 `--catalog-path`는 생략하면 `pipeline/`으로 잡힌다. 저장소 밖에서 실행할 때만 지정한다.
 
@@ -171,7 +185,7 @@ python pipeline/jobs/map_estimate_labels.py \
 | `REVIEW_CONFLICT` | 둘 이상의 부품 계열이 겹쳐 사람 확인 필요 |
 | `OUT_OF_SCOPE_PART` | 실제 부품이나 현재 코드 범위 밖 |
 
-확장 코드는 현재 이 스크립트가 자체 정의한다. `standardization/catalog.py`의 32종과는 별도 어휘이며, `part_code` 마스터로 단일화하는 작업이 남아 있다.
+확장 매핑 규칙은 현재 이 스크립트가 정의하며 DB 마스터 seed에는 확장 24종이 반영돼 있다. 사진 정규화용 `standardization/catalog.py`의 32종과 DB 56종은 용도가 다르다. 코드 집합 일치 검증과 `mapping_rule_version` 관리는 후속 작업이다.
 
 ### 5. 견적 이상치 플래그
 
@@ -223,7 +237,9 @@ python pipeline/jobs/build_search_sample_sql.py \
 
 산출물: `A307_SEARCH_SAMPLE_<N>_LOAD.sql`
 
-`as-` 표본은 `총계`와 각 항목의 부품비·공임을 적재한다. 작업 유형이 없는 `신품가` 행은 공임 작업에 합치지 않고 `line_type=PART_PRICE`인 별도 행으로 보존한다. 신품가는 청구 부품비와 다를 수 있어 `reference_part_price`에만 보관하며 `item_total`에는 더하지 않는다. 실제 작업 행은 한글 원문 작업명과 6종 표준 코드(`EXCHANGE`, `REMOVE_INSTALL`, `SHEET_METAL`, `COATING`, `OVERHAUL`, `REPAIR`)를 함께 적재한다.
+`as-` 표본은 `총계`와 각 항목의 부품비·공임을 적재한다. 작업 유형이 없는 `신품가` 행은 공임 작업에 합치지 않고 `line_type=REFERENCE_PRICE`인 별도 행으로 보존한다. 신품가는 청구 부품비와 다를 수 있어 `reference_part_price`에만 보관하며 `item_total`에는 더하지 않는다. 작업 어휘는 `standardization.ESTIMATE_WORKS`를 사용한다. `WORK`·`PART_PRICE`·`REFERENCE_PRICE`·`ANCILLARY` 4종을 구분하며 불인정 상태와 도장 재료비는 별도 컬럼으로 보존한다.
+
+위 정산 제외는 계약이다. 현재 생성기의 `estimate_item_costs()`는 참고가 행에 원천 비용 성분이 있으면 `item_total`을 만들 수 있어 계약을 완전히 강제하지 않는다. 또한 항목 INSERT의 재실행 중복 방지가 없고, 라벨 전체 탐색으로 `damage` 이미지가 섞일 수 있다. 일회성 비용 표본 도구로 취급하며 검색 코퍼스 적재에는 11번 loader를 사용한다.
 
 `sc-`는 `--source sc`로 별도 생성한다. 손해사정 전 부품비·공임을 공통 비용값으로 두고, 손해사정 후 값은 별도 열에 보존한다. 청구액·지급액도 사례 헤더에 저장하되, `as-총계`와는 검증 전까지 한 수리비 분포로 합치지 않는다. ROI 임베딩은 두 표본 모두 적재하지 않는다.
 
@@ -231,7 +247,7 @@ python pipeline/jobs/build_search_sample_sql.py \
 
 `--sample-cases`로 건수를 조절한다. 표본 검증을 끝낸 뒤 늘린다.
 
-기존 로컬 DB에는 먼저 `pipeline/sql/002_repair_case_item_contract.sql`을 적용한다. 이 migration은 `AIHUB_SC` 출처, 부품가격 별도 행, 표준 작업 코드, 손해사정 전·후 비용 열과 배치 오류 로그 테이블을 추가한다.
+기존 로컬 DB에는 `pipeline/sql/002_repair_case_item_contract.sql` 다음 `004_repair_case_item_line_type.sql`을 적용한다. 현재 생성기는 004의 행 종류 4종·손해사정 상태·도장 재료비 컬럼을 사용한다. 신규 DB는 최신 기준 DDL에 반영돼 있다.
 
 ### 8. 원천 라벨 스테이징 적재
 
@@ -240,6 +256,11 @@ python pipeline/jobs/load_aihub_damage_dataset.py \
   --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
   --dsn "$DATABASE_URL"
 ```
+
+`load_search_data.py`에는 `search_dev_cases.csv`만 전달한다. `search_demo_cases.csv`,
+`search_eval_cases.csv`, 통합 `search_case_manifest.csv`, `search_mixed_cases.csv`는
+검색 DB 적재 대상이 아니다. manifest에 `purpose` 열이 있으면 적재기는 `DEV` 이외의
+값을 감지해 실패한다. DEMO/EVAL은 `build_case_query_manifest.py`의 입력으로 사용한다.
 
 `aihub_vehicle_case` / `aihub_vehicle_image` / `aihub_damage_annotation` / `aihub_annotation_repair_method`에 원천 라벨을 그대로 넣는다. 검색 테이블(`repair_case` 계열)과는 별개 계층이다.
 
@@ -288,11 +309,43 @@ python pipeline/jobs/build_label_path_index.py \
 
 ### 11. 검색 기본 데이터 적재
 
-`repair_case`는 `is_final_searchable_case=True`이고 `damage_part` 계열의 실제 이미지가 있으며 허용된
-`car_class`를 가진 사례만 적재한다. 따라서 현재 범위는 검색 가능 55,363건이며,
-`damage` 계열 이미지, 이미지가 없는 사례와 `car_class` 결측·`UNKNOWN` 사례는 넣지 않는다. 원천 견적
-125,006건은 `aihub_estimate_raw`에 별도로 보존한다. AI-Hub annotation 테이블은
-DDL과 loader 구조만 준비하고 전수 적재하지 않는다.
+현재 `load_search_data.py`는 `damage_part` 전용 구현이다. 기존 55,363건 readiness는
+이전 정책 기록이며, 새 damage 중심 코퍼스의 적재 범위가 아니다. 새 정책은 DAMAGE와
+DAMAGE_PART를 함께 적재하고, DAMAGE의 유효 geometry·damage type만으로 ROI 적재를
+허용한다. 견적 부품 매핑 결측은 ROI 적재 제외가 아니라 사례 부품 후보 결측으로 남긴다.
+
+`load_search_data.py`는 견적 수리항목 → `part_name_mapping` →
+`repair_case_item.part_code`를 함께 적재한다. 원천 배열 순번을 `source_item_key`로
+사용해 재실행 시 같은 항목을 upsert한다. 부품 코드 결측·작업 유형 오류는 항목을 임의로
+채우지 않고 `data_validation_error`에 남긴다.
+
+따라서 아래 명령은 **기존 damage_part 전용 loader의 실행 예**다. 새 코퍼스에는
+`validate_search_readiness.py`, `load_search_data.py`, 사례 split manifest, query manifest,
+ROI metadata adapter를 함께 변경한 뒤 사용한다. 설계와 migration은
+[damage 중심 유사 사례 검색 스키마](../Docs/Erd/A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
+
+구현 후에는 readiness에 견적 경로와 매핑 워크북을 함께 넘겨 사례 부품 후보 상태를
+만들고, 006 migration 적용 뒤 정식 loader를 실행한다.
+
+```bash
+python pipeline/jobs/validate_search_readiness.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --linkage-csv "<category integrity output>/case_id_linkage.csv" \
+  --estimate-root "<견적 JSON 경로>" \
+  --mapping-workbook "<표준화 매핑 워크북>.xlsx" \
+  --output-dir "<저장소 밖 readiness output>"
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f pipeline/sql/006_damage_search_corpus.sql
+
+python pipeline/jobs/load_search_data.py \
+  --subset-root "<01.데이터_견적서보유 경로>" \
+  --readiness-csv "<저장소 밖 readiness output>/case_search_readiness.csv" \
+  --mapping-workbook "<표준화 매핑 워크북>.xlsx" \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --dsn "$DATABASE_URL" \
+  --limit 1000
+```
 
 ```bash
 python pipeline/jobs/load_search_data.py \
@@ -390,8 +443,11 @@ python pipeline/jobs/verify_search_sample.py \
 이미지 연결 오류, 전체 경로 기준 `source_image_ref` 중복, `repair-cases/...` key 규칙,
 Raw 원천 건수와 검색 적재 범위 차이, Raw–`repair_case` 연결, 재실행 후 건수 변화다.
 Raw와 검색 범위가 다르므로
-미연결 Raw 건수는 오류로 처리하지 않고 `125,006 - 55,363 = 69,643` 정책상 제외분과
-일치하는지 검증한다.
+미연결 Raw 건수 자체는 오류로 처리하지 않는다. 현재 검증기의 예상값은 실제 `repair_case` 건수에서 계산하며, `125,006 - 55,363 = 69,643`이라는 정책상 제외분을 독립적으로 강제하지 않는다. 전수 완료 판정에는 readiness 전체 키 집합과 실제 적재 키 집합을 별도로 대조해야 한다.
+
+### 13. 견적 행 검증
+
+`validate_estimate_rules.py`는 `validation/estimate_rules.py`로 행 종류·작업 코드·비용을 검사하고 행 JSONL·오류 JSONL·summary를 만든다. 현재 develop에 있지만 DB 적재 배치와 연결되지 않았다. 입력 명령, 매핑 JSON 형식 오류, 비용 검증 상태 및 최신 작업 코드 계약과의 차이는 [비용 DB 인계](../Docs/Erd/A307_COST_DB_HANDOVER.md)를 본다.
 
 ### 공통
 
@@ -405,7 +461,7 @@ Python 3.10 이상.
 pip install -r pipeline/requirements.txt
 ```
 
-의존성은 `psycopg`(적재), `pandas`·`openpyxl`(표준화 워크북·검증 CSV 읽기) 셋이다. 나머지는 모두 표준 라이브러리다.
+`requirements.txt`에는 `psycopg`(적재), `pandas`·`openpyxl`(워크북·CSV 읽기)이 선언돼 있다. ROI 모듈이 사용하는 Pillow는 현재 누락돼 있다. `standardization` 최상위 import도 ROI를 불러오므로 Pillow가 없으면 정규화·견적 검증 import가 실패한다. 의존성 파일 수정 전에는 `pip install Pillow`가 추가로 필요하다.
 
 ## 테스트
 
@@ -413,7 +469,11 @@ pip install -r pipeline/requirements.txt
 
 ```bash
 python -m unittest discover -s pipeline/standardization -t pipeline -p "test_*.py"
+python -m unittest discover -s pipeline/validation -t pipeline -p "test_*.py"
+python -m unittest discover -s pipeline/jobs -p "test_*.py"
 ```
+
+2026-09-10 Python 3.12/Pillow 12.3.0 환경에서 80개 중 79개 통과, 1개 실패했다. 사례 분할 테스트 입력의 ID 중복 문제와 테스트 외 재현 오류는 [진행 현황](../Docs/Pipeline/STATUS.md)을 본다.
 
 ## 로컬 DB
 
@@ -424,11 +484,12 @@ python -m unittest discover -s pipeline/standardization -t pipeline -p "test_*.p
 2) pipeline/sql/002_repair_case_item_contract.sql    기존 DB만. 신규는 1)에 이미 반영됨
 3) pipeline/sql/003_aihub_staging.sql                원천 스테이징 계층
 4) pipeline/sql/004_repair_case_item_line_type.sql   기존 DB만. 신규는 1)에 이미 반영됨
-5) Docs/Erd/A307_part_code_seed.sql                  part_code 56종
-6) Docs/Erd/A307_part_name_mapping_seed.sql          part_name_mapping 15,308행
+5) pipeline/sql/006_damage_search_corpus.sql         기존 DB만. 신규는 1)에 이미 반영됨
+6) Docs/Erd/A307_part_code_seed.sql                  part_code 56종
+7) Docs/Erd/A307_part_name_mapping_seed.sql          part_name_mapping 15,308행
 ```
 
-**5)가 6)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
+**6)이 7)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
 
 이미 검색 사례를 적재한 DB에서 기존 `storage_key`를 새 `repair-cases/...` 규칙으로
 변경할 때는 `pipeline/sql/005_repair_case_image_storage_key.sql`을 적재 후 한 번
@@ -439,4 +500,6 @@ python -m unittest discover -s pipeline/standardization -t pipeline -p "test_*.p
 
 4)는 2)가 둔 `line_type` 2종(WORK / PART_PRICE)을 4종으로 올리고 손해사정 상태·도장 재료비 컬럼을 추가한다. 2) 다음에 적용한다. 신규 DB는 1)에 이미 반영돼 있다.
 
-기준 ERD를 직접 고치지 않고 `pipeline/sql/` 아래 번호순 migration으로 적용한다. `Docs/Erd/A307_ddl_final.sql`은 백엔드와 공유하는 파일이므로 바꾸면 백엔드 담당자에게 알린다.
+기준 ERD는 신규 DB의 정본으로 함께 갱신하고, 검색·적재 DB의 기존 환경에는
+`pipeline/sql/` migration을 번호순으로 적용한다. `Docs/Erd/A307_ddl_final.sql`은
+백엔드와 공유하는 파일이므로 변경 사항을 백엔드 담당자에게 전달한다.
