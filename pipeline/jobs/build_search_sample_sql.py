@@ -38,6 +38,15 @@ from typing import Any
 
 import pandas as pd
 
+PIPELINE_ROOT = Path(__file__).resolve().parents[1]
+if str(PIPELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PIPELINE_ROOT))
+
+from standardization.estimate_items import (
+    estimate_item_costs as _shared_estimate_item_costs,
+    money as _shared_money,
+)
+
 
 ESTIMATE_REL = Path("1.Training") / "1.원천데이터_230126_add" / "TS_99. 붙임_견적서"
 
@@ -148,6 +157,11 @@ def estimate_item_costs(
         "post_labor_cost": post_labor_cost,
         "item_total": item_total(pre_part_cost, pre_labor_cost),
     }
+
+
+# 정식 loader와 표본 SQL 생성기의 비용 해석은 반드시 같아야 한다.
+money = _shared_money
+estimate_item_costs = _shared_estimate_item_costs
 
 
 def json_sql(value: Any) -> str:
@@ -329,17 +343,21 @@ def main() -> None:
 
         for label_path, image_path, document in valid_labels:
             source_image_ref = image_path.relative_to(dataset_root).as_posix()
+            image_type = "DAMAGE_PART" if "damage_part" in label_path.parts else "DAMAGE"
+            source_dataset_split = "TRAIN" if "1.Training" in label_path.parts else "VALIDATION"
             image_var = f"image_{ordinal}_"
             storage_key = repair_case_image_key(
                 f"case_{ordinal}_case_id", f"{image_var}case_image_id"
             )
             case_sql.extend(
                 [
-                    "INSERT INTO repair_case_image (case_id, source_image_ref, storage_key, quality_status, is_searchable)",
-                    f"VALUES (:case_{ordinal}_case_id, {sql_e(source_image_ref)}, {sql_e(source_image_ref)}, NULL, TRUE)",
+                    "INSERT INTO repair_case_image (case_id, source_image_ref, storage_key, image_type, source_dataset_split, quality_status, is_searchable)",
+                    f"VALUES (:case_{ordinal}_case_id, {sql_e(source_image_ref)}, {sql_e(source_image_ref)}, {sql_e(image_type)}, {sql_e(source_dataset_split)}, NULL, TRUE)",
                     "ON CONFLICT (source_image_ref) DO UPDATE SET",
                     "    case_id = EXCLUDED.case_id,",
                     "    storage_key = EXCLUDED.storage_key,",
+                    "    image_type = EXCLUDED.image_type,",
+                    "    source_dataset_split = EXCLUDED.source_dataset_split,",
                     "    quality_status = EXCLUDED.quality_status,",
                     "    is_searchable = EXCLUDED.is_searchable",
                     f"RETURNING case_image_id \\gset {image_var}",
@@ -350,7 +368,7 @@ def main() -> None:
             )
             loaded_images += 1
 
-        for item in estimate.get("수리내역") or []:
+        for item_ordinal, item in enumerate(estimate.get("수리내역") or [], start=1):
             raw_name = str(item.get("작업항목 및 부품명") or "").strip()
             part_code = mapping.get(raw_name)
             work_type = str(item.get("작업") or "").strip()
@@ -420,8 +438,9 @@ def main() -> None:
 
             case_sql.extend(
                 [
-                    "INSERT INTO repair_case_item (case_id, part_code, raw_item_name, line_type, work_type, work_code, assessment_status, hq, reference_part_price, part_cost, paint_material_cost, labor_cost, pre_adjustment_part_cost, pre_adjustment_labor_cost, post_adjustment_part_cost, post_adjustment_labor_cost, item_total)",
-                    f"VALUES (:case_{ordinal}_case_id, {sql_e(part_code)}, {sql_e(raw_name)}, {sql_e(line_type)}, {sql_e(stored_work_type)}, {sql_e(work_code)}, {sql_e(assessment_status)}, {sql_num(item.get('HQ%'))}, {sql_num(costs['reference_part_price'])}, {sql_num(costs['part_cost'])}, {sql_num(costs['paint_material_cost'])}, {sql_num(costs['labor_cost'])}, {sql_num(costs['pre_part_cost'])}, {sql_num(costs['pre_labor_cost'])}, {sql_num(costs['post_part_cost'])}, {sql_num(costs['post_labor_cost'])}, {sql_num(costs['item_total'])});",
+                    "INSERT INTO repair_case_item (case_id, source_item_key, part_code, raw_item_name, line_type, work_type, work_code, assessment_status, hq, reference_part_price, part_cost, paint_material_cost, labor_cost, pre_adjustment_part_cost, pre_adjustment_labor_cost, post_adjustment_part_cost, post_adjustment_labor_cost, item_total)",
+                    f"VALUES (:case_{ordinal}_case_id, {sql_e(f'item-{item_ordinal:05d}')}, {sql_e(part_code)}, {sql_e(raw_name)}, {sql_e(line_type)}, {sql_e(stored_work_type)}, {sql_e(work_code)}, {sql_e(assessment_status)}, {sql_num(item.get('HQ%'))}, {sql_num(costs['reference_part_price'])}, {sql_num(costs['part_cost'])}, {sql_num(costs['paint_material_cost'])}, {sql_num(costs['labor_cost'])}, {sql_num(costs['pre_part_cost'])}, {sql_num(costs['pre_labor_cost'])}, {sql_num(costs['post_part_cost'])}, {sql_num(costs['post_labor_cost'])}, {sql_num(costs['item_total'])})",
+                    "ON CONFLICT (case_id, source_item_key) DO UPDATE SET part_code=EXCLUDED.part_code, raw_item_name=EXCLUDED.raw_item_name, line_type=EXCLUDED.line_type, work_type=EXCLUDED.work_type, work_code=EXCLUDED.work_code, assessment_status=EXCLUDED.assessment_status, hq=EXCLUDED.hq, reference_part_price=EXCLUDED.reference_part_price, part_cost=EXCLUDED.part_cost, paint_material_cost=EXCLUDED.paint_material_cost, labor_cost=EXCLUDED.labor_cost, pre_adjustment_part_cost=EXCLUDED.pre_adjustment_part_cost, pre_adjustment_labor_cost=EXCLUDED.pre_adjustment_labor_cost, post_adjustment_part_cost=EXCLUDED.post_adjustment_part_cost, post_adjustment_labor_cost=EXCLUDED.post_adjustment_labor_cost, item_total=EXCLUDED.item_total;",
                     "",
                 ]
             )

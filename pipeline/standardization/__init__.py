@@ -15,6 +15,7 @@ from .normalizer import (
     normalize_inference,
     normalize_repair_label,
 )
+from .estimate_items import estimate_item_costs, money, normalize_estimate_item
 from .roi import (
     INPUT_SIZE,
     LETTERBOX_FILL,
@@ -62,6 +63,9 @@ __all__ = [
     "normalize_estimate_work",
     "normalize_inference",
     "normalize_repair_label",
+    "estimate_item_costs",
+    "money",
+    "normalize_estimate_item",
     # ROI 생성 계약 (ERD/A307_DAMAGE_ROI_VECTOR_DB_DESIGN.md 3~6절)
     "INPUT_SIZE",
     "LETTERBOX_FILL",

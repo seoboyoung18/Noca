@@ -1,5 +1,4 @@
-"""검색 기본 데이터(``part_code``, ``part_name_mapping``, ``repair_case``,
-``repair_case_image``)를 readiness 확정 범위만큼 DB에 적재한다.
+"""damage 중심 검색 데이터와 견적 기반 사례 부품 후보를 적재한다.
 
 원천 견적 전체는 ``load_estimate_raw.py``가 별도 보존한다. 이 job은
 ``is_final_searchable_case=True``인 사례만 처리하며, 이미지가 없거나
@@ -14,22 +13,30 @@ import csv
 import json
 import os
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+PIPELINE_ROOT = Path(__file__).resolve().parents[1]
+if str(PIPELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PIPELINE_ROOT))
+
+from standardization import PARTS, normalize_estimate_item
 
 ESTIMATE_REL = Path("1.Training") / "1.원천데이터_230126_add" / "TS_99. 붙임_견적서"
 ALLOWED_CLASSES = {"CityCar", "Compact", "Mid-size", "Full-size"}
 CASE_RE = re.compile(r"^(?:as|sc)-\d+$")
 LABEL_RE = re.compile(r"_(?P<case>(?:as|sc)-\d+)\.json$", re.IGNORECASE)
 SOURCE_BY_PREFIX = {"as": "AIHUB_AS", "sc": "AIHUB_SC"}
-# 검색 사례 이미지는 서비스 검색 모델의 입력 분포를 맞추기 위해
-# damage_part 계열만 사용한다. damage 계열은 별도 YOLO 목적의 데이터라
-# 화각·포함 영역이 달라 같은 검색 코퍼스에 섞지 않는다.
-SEARCH_LABEL_DIRS = (
-    Path("1.Training/2.라벨링데이터/TL_damage_part/damage_part"),
-    Path("2.Validation/2.라벨링데이터/VL_damage_part/damage_part"),
+# 한 사례의 두 이미지 유형은 함께 적재하지만 역할은 섞지 않는다.
+IMAGE_GROUPS = (
+    ("TRAIN", "DAMAGE", Path("1.Training/2.라벨링데이터/TL_damage/damage")),
+    ("TRAIN", "DAMAGE_PART", Path("1.Training/2.라벨링데이터/TL_damage_part/damage_part")),
+    ("VALIDATION", "DAMAGE", Path("2.Validation/2.라벨링데이터/VL_damage/damage")),
+    ("VALIDATION", "DAMAGE_PART", Path("2.Validation/2.라벨링데이터/VL_damage_part/damage_part")),
 )
+SEARCH_LABEL_DIRS = tuple(group[2] for group in IMAGE_GROUPS)
 
 
 def truth(value: Any) -> bool:
@@ -111,10 +118,26 @@ def load_readiness(path: Path, source: str) -> set[str]:
 def load_case_manifest(path: Path) -> set[str]:
     selected: set[str] = set()
     with path.open(encoding="utf-8-sig", newline="") as fp:
-        for row in csv.DictReader(fp):
+        reader = csv.DictReader(fp)
+        has_purpose = "purpose" in (reader.fieldnames or [])
+        non_dev_purposes: set[str] = set()
+        for row in reader:
             case_id = str(row.get("case_id") or "").strip()
-            if CASE_RE.fullmatch(case_id):
-                selected.add(case_id)
+            if not CASE_RE.fullmatch(case_id):
+                continue
+            if has_purpose:
+                purpose = str(row.get("purpose") or "").strip()
+                if purpose != "DEV":
+                    non_dev_purposes.add(purpose or "<empty>")
+                    continue
+            selected.add(case_id)
+
+    if non_dev_purposes:
+        values = ", ".join(sorted(non_dev_purposes))
+        raise ValueError(
+            "검색 DB 적재 manifest에는 purpose=DEV 사례만 포함할 수 있습니다. "
+            f"발견된 목적: {values}. search_dev_cases.csv를 사용하세요."
+        )
     return selected
 
 
@@ -133,6 +156,14 @@ def build_label_index(subset_root: Path, selected: set[str]) -> dict[str, list[P
                 if match and match.group("case") in selected:
                     index[match.group("case")].append(Path(entry.path))
     return index
+
+
+def image_metadata_for_label(label_path: Path) -> tuple[str, str]:
+    normalized = label_path.as_posix()
+    for dataset_split, image_type, relative_dir in IMAGE_GROUPS:
+        if relative_dir.as_posix() in normalized:
+            return image_type, dataset_split
+    raise ValueError(f"unknown image label group: {label_path}")
 
 
 def load_mapping(workbook: Path) -> list[tuple[str, str]]:
@@ -197,8 +228,8 @@ def upsert_case(cur, case_id: str, estimate: dict[str, Any], car_class: str) -> 
     return cur.fetchone()[0]
 
 
-def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path) -> int:
-    loaded = 0
+def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path) -> dict[str, int]:
+    loaded: dict[str, int] = defaultdict(int)
     for label_path in sorted(label_paths):
         # readiness 검증이 라벨·이미지 조인을 끝냈고, 원천 파일명은 라벨 stem과
         # 동일하다. 전수 적재에서 선별된 라벨 JSON을 다시 파싱하지 않는다.
@@ -206,16 +237,20 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
         if not image_path.is_file():
             raise FileNotFoundError(f"라벨에 대응하는 이미지가 없습니다: {image_path}")
         source_image_ref = image_path.relative_to(dataset_root).as_posix()
+        image_type, source_dataset_split = image_metadata_for_label(label_path)
         cur.execute(
             """
-            INSERT INTO repair_case_image(case_id, source_image_ref, storage_key, quality_status, is_searchable)
-            VALUES (%s,%s,%s,NULL,TRUE)
+            INSERT INTO repair_case_image(
+                case_id, source_image_ref, storage_key, image_type, source_dataset_split,
+                quality_status, is_searchable)
+            VALUES (%s,%s,%s,%s,%s,NULL,TRUE)
             ON CONFLICT (source_image_ref) DO UPDATE SET
                 case_id=EXCLUDED.case_id, storage_key=EXCLUDED.storage_key,
+                image_type=EXCLUDED.image_type, source_dataset_split=EXCLUDED.source_dataset_split,
                 quality_status=EXCLUDED.quality_status, is_searchable=EXCLUDED.is_searchable
             RETURNING case_image_id
             """,
-            (case_pk, source_image_ref, source_image_ref),
+            (case_pk, source_image_ref, source_image_ref, image_type, source_dataset_split),
         )
         case_image_pk = cur.fetchone()[0]
         storage_key = repair_case_image_key(case_pk, case_image_pk)
@@ -223,8 +258,104 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
             "UPDATE repair_case_image SET storage_key=%s WHERE case_image_id=%s",
             (storage_key, case_image_pk),
         )
-        loaded += 1
+        loaded[image_type] += 1
     return loaded
+
+
+def upsert_damage_part_annotations(cur, case_pk: int, label_paths: list[Path], dataset_root: Path) -> int:
+    """DAMAGE_PART의 직접 part 영역을 보존하되 DAMAGE ROI와 연결하지 않는다."""
+    loaded = 0
+    for label_path in label_paths:
+        image_type, _ = image_metadata_for_label(label_path)
+        if image_type != "DAMAGE_PART":
+            continue
+        source_image_ref = image_path_for_label(label_path).relative_to(dataset_root).as_posix()
+        cur.execute("SELECT case_image_id FROM repair_case_image WHERE source_image_ref=%s", (source_image_ref,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"damage_part image is not loaded: {label_path}")
+        for part_code, source_annotation_ref, polygon in direct_damage_part_annotations(label_path):
+            cur.execute(
+                """
+                INSERT INTO repair_case_image_part_annotation(
+                    case_image_id, part_code, source_annotation_ref, part_polygon)
+                VALUES (%s,%s,%s,%s::jsonb)
+                ON CONFLICT (case_image_id, source_annotation_ref) DO UPDATE SET
+                    part_code=EXCLUDED.part_code, part_polygon=EXCLUDED.part_polygon
+                """,
+                (row[0], part_code, source_annotation_ref, json.dumps(polygon, ensure_ascii=False)),
+            )
+            loaded += 1
+    return loaded
+
+
+def direct_damage_part_annotations(label_path: Path) -> list[tuple[str, str, Any]]:
+    """보조 이미지의 직접 part 라벨만 추출한다. DAMAGE ROI에는 빈 목록을 돌려준다."""
+    image_type, _ = image_metadata_for_label(label_path)
+    if image_type != "DAMAGE_PART":
+        return []
+    part_by_raw = {values[0].casefold(): code for code, values in PARTS.items()}
+    document = json.loads(label_path.read_text(encoding="utf-8-sig"))
+    rows: list[tuple[str, str, Any]] = []
+    for ordinal, annotation in enumerate(document.get("annotations") or [], start=1):
+        part_code = part_by_raw.get(str(annotation.get("part") or "").strip().casefold())
+        if part_code:
+            rows.append((str(annotation.get("id") or ordinal), part_code,
+                         annotation.get("segmentation") or annotation.get("bbox")))
+    return [(part_code, source_ref, polygon) for source_ref, part_code, polygon in rows]
+
+
+def upsert_estimate_items(cur, case_pk: int, estimate: dict[str, Any], source: str,
+                          mapping: dict[str, str]) -> tuple[int, dict[str, int], list[dict[str, Any]]]:
+    """견적 항목을 사례 부품 후보로 적재한다. ROI part_code에는 쓰지 않는다."""
+    loaded = 0
+    stats: dict[str, int] = defaultdict(int)
+    errors: list[dict[str, Any]] = []
+    for ordinal, raw_item in enumerate(estimate.get("수리내역") or [], start=1):
+        if not isinstance(raw_item, dict):
+            errors.append({"type": "invalid_estimate_item", "ordinal": ordinal})
+            continue
+        try:
+            item = normalize_estimate_item(raw_item, source, mapping, ordinal)
+        except ValueError as exc:
+            reason = str(exc)
+            stats[reason] += 1
+            if reason == "unmapped_part":
+                stats["part_mapping_missing"] += 1
+            errors.append({"type": reason, "ordinal": ordinal,
+                           "raw_item_name": raw_item.get("작업항목 및 부품명")})
+            continue
+        if item["part_code"]:
+            stats["part_mapping_success"] += 1
+        else:
+            stats["part_mapping_missing"] += 1
+        cur.execute(
+            """
+            INSERT INTO repair_case_item(
+                case_id, source_item_key, part_code, raw_item_name, line_type, work_type, work_code,
+                assessment_status, hq, reference_part_price, part_cost, paint_material_cost,
+                labor_cost, pre_adjustment_part_cost, pre_adjustment_labor_cost,
+                post_adjustment_part_cost, post_adjustment_labor_cost, item_total)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (case_id, source_item_key) DO UPDATE SET
+                part_code=EXCLUDED.part_code, raw_item_name=EXCLUDED.raw_item_name,
+                line_type=EXCLUDED.line_type, work_type=EXCLUDED.work_type, work_code=EXCLUDED.work_code,
+                assessment_status=EXCLUDED.assessment_status, hq=EXCLUDED.hq,
+                reference_part_price=EXCLUDED.reference_part_price, part_cost=EXCLUDED.part_cost,
+                paint_material_cost=EXCLUDED.paint_material_cost, labor_cost=EXCLUDED.labor_cost,
+                pre_adjustment_part_cost=EXCLUDED.pre_adjustment_part_cost,
+                pre_adjustment_labor_cost=EXCLUDED.pre_adjustment_labor_cost,
+                post_adjustment_part_cost=EXCLUDED.post_adjustment_part_cost,
+                post_adjustment_labor_cost=EXCLUDED.post_adjustment_labor_cost, item_total=EXCLUDED.item_total
+            """,
+            (case_pk, item["source_item_key"], item["part_code"], item["raw_item_name"],
+             item["line_type"], item["work_type"], item["work_code"], item["assessment_status"],
+             item["hq"], item["reference_part_price"], item["part_cost"], item["paint_material_cost"],
+             item["labor_cost"], item["pre_part_cost"], item["pre_labor_cost"],
+             item["post_part_cost"], item["post_labor_cost"], item["item_total"]),
+        )
+        loaded += 1
+    return loaded, stats, errors
 
 
 def class_from_labels(label_paths: list[Path]) -> tuple[str | None, str | None]:
@@ -250,7 +381,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--subset-root", type=Path, required=True)
     parser.add_argument("--readiness-csv", type=Path, required=True)
-    parser.add_argument("--case-manifest", type=Path, default=None,
+    parser.add_argument("--case-manifest", type=Path, required=True,
                         help="DEV/DEMO/EVAL 등 사례 단위 subset manifest")
     mapping = parser.add_mutually_exclusive_group(required=True)
     mapping.add_argument("--mapping-workbook", type=Path)
@@ -271,20 +402,19 @@ def main() -> None:
     subset_root = args.subset_root.resolve()
     dataset_root = (args.dataset_root or subset_root.parent).resolve()
     selected = load_readiness(args.readiness_csv.resolve(), args.source)
-    if args.case_manifest:
-        selected &= load_case_manifest(args.case_manifest.resolve())
+    selected &= load_case_manifest(args.case_manifest.resolve())
     if args.limit is not None:
         selected = set(sorted(selected)[:args.limit])
     label_index = build_label_index(subset_root, selected)
     estimate_dir = subset_root / ESTIMATE_REL
     mapping_rows = load_mapping(args.mapping_workbook.resolve()) if args.mapping_workbook else []
     summary = {
-        "policy": "final_searchable_with_damage_part_image_and_valid_car_class",
-        "image_source_scope": "damage_part_only",
+        "policy": "damage_roi_with_case_estimate_part_candidates",
+        "image_source_scope": "damage_and_damage_part",
         "readiness_selected": len(selected),
         "mapping_rows": len(mapping_rows) if args.mapping_workbook else "seed_sql",
         "raw_estimate_scope": "separate_aihub_estimate_raw_all_125006",
-        "annotation_scope": "ddl_and_loader_only_no_full_load",
+        "annotation_scope": "damage_part_direct_part_annotation",
     }
 
     errors: list[tuple[str, str, dict[str, Any]]] = []
@@ -368,19 +498,53 @@ def main() -> None:
                 )
         conn.commit()
 
-        loaded_images = 0
+        with conn.cursor() as cur:
+            cur.execute("SELECT raw_name, part_code FROM part_name_mapping")
+            db_mapping = {str(raw): str(code) for raw, code in cur}
+
+        loaded_images: dict[str, int] = defaultdict(int)
+        loaded_items = 0
+        loaded_part_annotations = 0
+        item_stats: dict[str, int] = defaultdict(int)
+        cases_with_estimate_part_candidate = 0
         for start in range(0, len(valid), args.commit_every):
             batch = valid[start : start + args.commit_every]
             with conn.cursor() as cur:
                 for case_id, estimate_path, car_class, labels in batch:
                     estimate = json.loads(estimate_path.read_text(encoding="utf-8-sig"))
                     case_pk = upsert_case(cur, case_id, estimate, car_class)
-                    loaded_images += upsert_images(cur, case_pk, labels, dataset_root)
+                    image_counts = upsert_images(cur, case_pk, labels, dataset_root)
+                    for key, value in image_counts.items():
+                        loaded_images[key] += value
+                    loaded_part_annotations += upsert_damage_part_annotations(
+                        cur, case_pk, labels, dataset_root)
+                    item_count, stats, item_errors = upsert_estimate_items(
+                        cur, case_pk, estimate, source_for_case(case_id), db_mapping)
+                    loaded_items += item_count
+                    for key, value in stats.items():
+                        item_stats[key] += value
+                    if stats.get("part_mapping_success", 0):
+                        cases_with_estimate_part_candidate += 1
+                    for detail in item_errors:
+                        errors.append(("estimate_item_" + detail["type"], case_id, detail))
             conn.commit()
 
         summary["loaded_cases"] = len(valid)
-        summary["loaded_images"] = loaded_images
+        summary["loaded_images"] = dict(sorted(loaded_images.items()))
+        summary["loaded_repair_case_items"] = loaded_items
+        summary["loaded_damage_part_annotations"] = loaded_part_annotations
+        summary["estimate_item_mapping"] = dict(sorted(item_stats.items()))
+        summary["estimate_item_mapping"].setdefault("part_mapping_success", 0)
+        summary["estimate_item_mapping"].setdefault("part_mapping_missing", 0)
+        # 확정 mapping은 raw_name당 하나의 part_code만 허용한다. 향후 모호 mapping을
+        # 별도 입력으로 받으면 이 값도 증가시킨다.
+        summary["estimate_item_mapping"].setdefault("part_mapping_ambiguous", 0)
+        summary["cases_with_estimate_part_candidate"] = cases_with_estimate_part_candidate
+        summary["cases_with_damage_geometry"] = len(valid)
         summary["status"] = "PARTIAL" if errors else "SUCCEEDED"
+        summary["error_counts"] = dict(sorted(
+            {kind: sum(1 for error in errors if error[0] == kind) for kind, _, _ in errors}.items()
+        ))
         with conn.cursor() as cur:
             for error_type, case_id, detail in errors:
                 cur.execute(
