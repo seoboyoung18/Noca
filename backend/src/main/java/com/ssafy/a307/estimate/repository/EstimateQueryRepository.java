@@ -64,6 +64,27 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
     List<EstimateItemView> findItems(@Param("estimateId") Long estimateId);
 
     /**
+     * 항목별 산정 근거. 정렬은 {@link #findItems} 와 같아야 한다 — 화면이 두 응답을 나란히
+     * 놓고 항목과 근거를 짝지으므로, 순서가 어긋나면 다른 부위의 근거가 붙어 보인다.
+     *
+     * <p><b>{@code ref_condition} 을 문자열로 꺼낸다.</b> JSONB 를 그대로 받으면 드라이버마다
+     * 타입이 달라지고(H2 는 JSON, PostgreSQL 은 jsonb) 엔티티 매핑도 없다. 읽는 쪽이
+     * {@link com.ssafy.a307.estimate.domain.RefConditionReader} 하나로 모이도록 원문을 넘긴다.
+     */
+    @Query(value = """
+            SELECT ei.estimate_item_id AS estimateItemId,
+                   dp.part_code AS partCode, pc.name_ko AS partNameKo,
+                   ei.repair_method AS repairMethod, ei.ref_case_count AS refCaseCount,
+                   CAST(ei.ref_condition AS VARCHAR) AS refCondition
+              FROM estimate_item ei
+              JOIN damaged_part dp ON dp.damaged_part_id = ei.damaged_part_id
+              JOIN part_code pc ON pc.part_code = dp.part_code
+             WHERE ei.estimate_id = :estimateId
+             ORDER BY pc.display_order, ei.estimate_item_id
+            """, nativeQuery = true)
+    List<EstimateBasisItemView> findBasisItems(@Param("estimateId") Long estimateId);
+
+    /**
      * 사고 하나에 딸린 견적 이력. 최신이 앞이다.
      * <p>
      * 한 사고에 분석 작업이 여러 번 있을 수 있어({@code analysis_job} 재시도·재분석)
@@ -168,5 +189,20 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
         String getConfidenceGrade();
 
         OffsetDateTime getCreatedAt();
+    }
+
+    interface EstimateBasisItemView {
+        Long getEstimateItemId();
+
+        String getPartCode();
+
+        String getPartNameKo();
+
+        String getRepairMethod();
+
+        Integer getRefCaseCount();
+
+        /** {@code estimate_item.ref_condition} 원문. 빈 근거는 {@code '{}'} 로 저장돼 있다. */
+        String getRefCondition();
     }
 }

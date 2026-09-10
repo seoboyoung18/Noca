@@ -2,6 +2,7 @@ package com.ssafy.a307.estimate.controller;
 
 import com.ssafy.a307.auth.principal.UserPrincipal;
 import com.ssafy.a307.common.response.ApiResponse;
+import com.ssafy.a307.estimate.dto.EstimateBasisResponse;
 import com.ssafy.a307.estimate.dto.EstimateResponse;
 import com.ssafy.a307.estimate.dto.EstimateSummaryResponse;
 import com.ssafy.a307.estimate.service.EstimateQueryService;
@@ -39,6 +40,17 @@ public class EstimateController {
                                                 @AuthenticationPrincipal UserPrincipal principal) {
 
         return ApiResponse.of(estimateQueryService.detail(estimateId, principal.getMemberId()));
+    }
+
+    /**
+     * 항목별 산정 근거. 견적 조회와 나눈 것은 근거가 "자세히 보기"로 펼쳐 보는 것이라
+     * 화면 첫 장에 필요하지 않고, 근거 스냅샷이 JSONB 라 응답이 커지기 때문이다.
+     */
+    @GetMapping("/estimates/{estimateId}/basis")
+    public ApiResponse<EstimateBasisResponse> basis(@PathVariable Long estimateId,
+                                                    @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ApiResponse.of(estimateQueryService.basis(estimateId, principal.getMemberId()));
     }
 
     /**

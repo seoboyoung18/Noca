@@ -2,6 +2,9 @@ package com.ssafy.a307.estimate.service;
 
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
+import com.ssafy.a307.estimate.domain.RefConditionReader;
+import com.ssafy.a307.estimate.dto.EstimateBasisItemResponse;
+import com.ssafy.a307.estimate.dto.EstimateBasisResponse;
 import com.ssafy.a307.estimate.dto.EstimateItemResponse;
 import com.ssafy.a307.estimate.dto.EstimateNotice;
 import com.ssafy.a307.estimate.dto.EstimateResponse;
@@ -25,6 +28,7 @@ import java.util.List;
 public class EstimateQueryService {
 
     private final EstimateQueryRepository estimateQueryRepository;
+    private final RefConditionReader refConditionReader;
 
     @Transactional(readOnly = true)
     public EstimateResponse detail(Long estimateId, Long memberId) {
@@ -37,6 +41,28 @@ public class EstimateQueryService {
                 .toList();
 
         return EstimateResponse.of(view, items, notices());
+    }
+
+    /**
+     * 항목별 산정 근거. 견적 조회와 나눈 것은 근거가 "자세히 보기"로 펼쳐 보는 것이고
+     * {@code ref_condition} 이 JSONB 라 응답이 커지기 때문이다.
+     *
+     * <p>소유자 검사는 {@link #detail} 과 같은 경로를 탄다 — 근거에도 수리비 통계가 들어 있어
+     * 남에게 보이면 안 되고, 두 API 가 서로 다른 판정을 내리면 한쪽으로 새어 나간다.
+     */
+    @Transactional(readOnly = true)
+    public EstimateBasisResponse basis(Long estimateId, Long memberId) {
+        var view = estimateQueryRepository.findDetail(estimateId, memberId)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.NOT_FOUND, "존재하지 않는 견적입니다."));
+
+        List<EstimateBasisItemResponse> items =
+                estimateQueryRepository.findBasisItems(estimateId).stream()
+                        .map(item -> EstimateBasisItemResponse.of(
+                                item, refConditionReader.read(item.getRefCondition())))
+                        .toList();
+
+        return new EstimateBasisResponse(view.getEstimateId(), view.getVersion(), items);
     }
 
     /**
