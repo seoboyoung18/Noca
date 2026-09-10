@@ -5,6 +5,7 @@ import com.ssafy.a307.member.entity.Provider;
 import com.ssafy.a307.member.repository.MemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -215,6 +216,132 @@ class EstimateQueryApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * 산정 근거 조회(S15P21A307-286).
+     *
+     * <p><b>근거를 채우는 쪽이 아직 없다.</b> 산정 로직(S15P21A307-256·257)이 들어오기 전까지
+     * 모든 행의 {@code ref_condition} 은 빈 객체다. 그래도 <b>계약과 소유자 검사는 지금
+     * 확정할 수 있고</b>, 근거가 없다는 사실을 화면에 알리는 것 자체가 요구사항이다(명세서 51행).
+     */
+    @Nested
+    @DisplayName("산정 근거")
+    class Basis {
+
+        private static final String FULL_BASIS = """
+                {"fallbackStage":"MODEL",
+                 "costDistribution":{"p25":74000,"median":92000,"p75":118000},
+                 "refYearFrom":2023,"refYearTo":2025,
+                 "repairMethodReason":{"candidates":["sheet_metal","exchange"],"reasonCode":"MAJORITY"}}
+                """;
+
+        @Test
+        @DisplayName("근거가 있으면 문구와 상세를 함께 준다")
+        void returnsNarrativeAndDetail() throws Exception {
+            long accidentId = insertAccident(memberId);
+            long jobId = insertAnalysisJob(accidentId);
+            long estimateId = insertEstimate(jobId, (short) 2, 800_000);
+            insertItem(estimateId, jobId, "front_bumper", "프론트 범퍼",
+                    (short) 1, "exchange", 300_000, FULL_BASIS);
+
+            mockMvc.perform(get("/api/estimates/{id}/basis", estimateId).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.estimateId").value((int) estimateId))
+                    // 어느 버전의 근거인지 밝히지 않으면 옛 견적에 새 근거가 붙어 보인다
+                    .andExpect(jsonPath("$.data.version").value(2))
+                    .andExpect(jsonPath("$.data.items.length()").value(1))
+                    .andExpect(jsonPath("$.data.items[0].basisAvailable").value(true))
+                    .andExpect(jsonPath("$.data.items[0].narrative")
+                            .value("2023~2025년 동일 모델 프론트 범퍼 교환 사례 12건의 중앙값 기준"))
+                    .andExpect(jsonPath("$.data.items[0].fallbackStage").value("MODEL"))
+                    .andExpect(jsonPath("$.data.items[0].costDistribution.median").value(92_000))
+                    .andExpect(jsonPath("$.data.items[0].refYearFrom").value(2023))
+                    .andExpect(jsonPath("$.data.items[0].repairMethodReason.candidates.length()")
+                            .value(2))
+                    .andExpect(jsonPath("$.data.items[0].refCaseCount").value(12));
+        }
+
+        /**
+         * 산정 로직이 들어오기 전 모든 행이 이 상태다. 빈 근거를 "근거가 있다"고 내보내면
+         * 화면은 확인되지 않은 견적을 확인된 것처럼 보여 준다.
+         */
+        @Test
+        @DisplayName("근거가 비면 그 사실이 명시된다")
+        void emptyBasisIsStated() throws Exception {
+            long accidentId = insertAccident(memberId);
+            long jobId = insertAnalysisJob(accidentId);
+            long estimateId = insertEstimate(jobId, (short) 1, 800_000);
+            insertItem(estimateId, jobId, "hood", "본넷", (short) 5, "sheet_metal", 200_000);
+
+            mockMvc.perform(get("/api/estimates/{id}/basis", estimateId).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.items[0].basisAvailable").value(false))
+                    .andExpect(jsonPath("$.data.items[0].fallbackStage").value(nullValue()))
+                    .andExpect(jsonPath("$.data.items[0].costDistribution").value(nullValue()))
+                    // 건수는 별도 컬럼이라 근거가 비어도 남아 있다
+                    .andExpect(jsonPath("$.data.items[0].refCaseCount").value(12))
+                    .andExpect(jsonPath("$.data.items[0].narrative").value("본넷 판금 사례 12건의 기준"));
+        }
+
+        /** 근거 한 줄이 깨졌다고 500 을 내면 사용자는 금액도 항목도 못 본다. */
+        @Test
+        @DisplayName("깨진 근거도 조회를 끊지 않는다")
+        void malformedBasisDoesNotBreakQuery() throws Exception {
+            long accidentId = insertAccident(memberId);
+            long jobId = insertAnalysisJob(accidentId);
+            long estimateId = insertEstimate(jobId, (short) 1, 800_000);
+            insertItem(estimateId, jobId, "front_bumper", "프론트 범퍼",
+                    (short) 1, "exchange", 300_000, "{\"fallbackStage\":\"UNKNOWN_STAGE\"}");
+
+            mockMvc.perform(get("/api/estimates/{id}/basis", estimateId).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.items[0].basisAvailable").value(false));
+        }
+
+        /** 화면이 견적 조회와 근거 조회를 짝지으므로 순서가 어긋나면 남의 부위 근거가 붙는다. */
+        @Test
+        @DisplayName("항목 순서가 견적 조회와 같다")
+        void itemOrderMatchesDetail() throws Exception {
+            long accidentId = insertAccident(memberId);
+            long jobId = insertAnalysisJob(accidentId);
+            long estimateId = insertEstimate(jobId, (short) 1, 800_000);
+            insertItem(estimateId, jobId, "rear_bumper", "리어 범퍼", (short) 9, "repair", 100_000);
+            insertItem(estimateId, jobId, "front_bumper", "프론트 범퍼", (short) 1, "exchange", 300_000);
+
+            mockMvc.perform(get("/api/estimates/{id}/basis", estimateId).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.items[0].partNameKo").value("프론트 범퍼"))
+                    .andExpect(jsonPath("$.data.items[1].partNameKo").value("리어 범퍼"));
+        }
+
+        /** 근거에도 수리비 통계가 들어 있어 견적 조회와 같은 판정을 내려야 한다. */
+        @Test
+        @DisplayName("남의 견적 근거는 404 다")
+        void othersBasisIsNotFound() throws Exception {
+            long otherMemberId = insertMember("other-" + System.nanoTime());
+            long otherAccidentId = insertAccident(otherMemberId);
+            long otherJobId = insertAnalysisJob(otherAccidentId);
+            long otherEstimateId = insertEstimate(otherJobId, (short) 1, 500_000);
+
+            mockMvc.perform(get("/api/estimates/{id}/basis", otherEstimateId).session(session))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
+        }
+
+        @Test
+        @DisplayName("없는 견적 근거도 같은 404 다")
+        void missingBasisIsNotFound() throws Exception {
+            mockMvc.perform(get("/api/estimates/{id}/basis", 999_999).session(session))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("로그인하지 않으면 401 이다")
+        void rejectsAnonymous() throws Exception {
+            mockMvc.perform(get("/api/estimates/{id}/basis", 1))
+                    .andExpect(status().isUnauthorized());
+        }
+    }
+
     // ---------- 데이터 준비 ----------
 
     private long insertMember(String providerUserId) {
@@ -282,6 +409,12 @@ class EstimateQueryApiTest {
 
     private void insertItem(long estimateId, long jobId, String partCode, String nameKo,
                             short displayOrder, String repairMethod, int median) {
+        insertItem(estimateId, jobId, partCode, nameKo, displayOrder, repairMethod, median, "{}");
+    }
+
+    private void insertItem(long estimateId, long jobId, String partCode, String nameKo,
+                            short displayOrder, String repairMethod, int median,
+                            String refCondition) {
         jdbcTemplate.update("""
                 insert into part_code (part_code, name_ko, layout_zone, display_order, is_active)
                 values (?, ?, 'FRONT', ?, true)
@@ -299,9 +432,9 @@ class EstimateQueryApiTest {
                 insert into estimate_item (estimate_id, damaged_part_id, repair_method, standard_hq,
                     part_cost_median, labor_cost_median, item_min, item_median, item_max,
                     ref_case_count, ref_condition, is_low_confidence)
-                values (?, ?, ?, 2.30, null, ?, ?, ?, ?, 12, '{}', false)
+                values (?, ?, ?, 2.30, null, ?, ?, ?, ?, 12, ? FORMAT JSON, false)
                 """, estimateId, damagedPartId, repairMethod,
-                median, (int) (median * 0.8), median, (int) (median * 1.3));
+                median, (int) (median * 0.8), median, (int) (median * 1.3), refCondition);
     }
 
     private MockHttpSession signedInSession() throws Exception {
