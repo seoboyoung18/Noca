@@ -23,6 +23,22 @@
   - PIL thumbnail()은 축소만 하므로 224 캔버스의 평균 89.5%가 회색 패딩이었다.
     letterbox()가 확대도 하도록 고친 것은 설계 이탈이 아니라 4절 준수 수정이다.
 
+2026-09-11 same-image damage-part pairing baseline:
+  - ``analyze_damage_part_pairing.py``의 seed ``a307-damage-part-pairing-v1``로
+    TRAIN+VALIDATION에서 hash 선택한 label 1,200개, damage ROI 4,505개 기준
+    PAIRED 3,192(70.9%), UNPAIRED 691(15.3%), AMBIGUOUS 622(13.8%)
+  - 표본 선택은 파일명 정렬이 아니라 고정 hash 순서다. 따라서 같은 seed와
+    dataset-root를 사용하면 동일 표본을 재현할 수 있다.
+  - 0.5 threshold sweep (hash 표본):
+    0.3 = 69.2/12.8/17.9%, 0.4 = 70.4/13.9/15.7%,
+    0.5 = 70.9/15.3/13.8%, 0.6 = 71.7/16.9/11.5%,
+    0.7 = 71.7/18.5/9.8% (PAIRED/UNPAIRED/AMBIGUOUS)
+  - 0.5에서 bbox AMBIGUOUS 622건 중 polygon을 픽셀 mask로 rasterize해 다시
+    계산했을 때 17건은 다중 part가 남고, 605건은 bbox 근사에서만 생긴 후보였다.
+    이 결과는 분석용 참고값이며 실제 polygon 규칙 확정 전 수동 검토가 필요하다.
+  - 현재 0.5 threshold는 최종 tuning 값이 아니라 초기 baseline이다.
+  - 위 수치는 캐시 기반 표본 비교 결과이며, 전체 corpus 전수 sweep 결과로 해석하지 않는다.
+
 2026-09-09 부품 잘림 실측 (TL_damage_part 라벨 무작위 1,200개):
   - 부품 annotation 1,755개 중 경계 접촉 54개 = 3.1% (TOL=1px)
     접촉 변은 위 22 / 왼 14 / 아래 11 / 오른 11로 한쪽에 쏠리지 않는다
@@ -62,7 +78,9 @@ LOW_CONFIDENCE_MIN_SIDE = 16
 
 # 부품-손상 연결 (설계 5절)
 PART_LINK_MIN_OVERLAP = 0.5
-PART_LINK_RULE_VERSION = "bbox-overlap-v1"   # mask 기준으로 바꾸면 v2
+# IoU가 아니라 damage 면적 대비 교집합 면적이다. part bbox가 damage보다 훨씬
+# 크므로 IoU를 쓰면 "이 손상이 이 부품 안에 있는가"를 과소평가한다.
+PART_LINK_RULE_VERSION = "bbox-damage-coverage-v1"   # 실제 mask 교차 기준은 v2 후보
 
 MASK_RULE_VERSION = "bbox-as-min-rect-v1"
 
@@ -313,7 +331,12 @@ def make_roi(
 
 
 def overlap(damage_bbox, part_bbox) -> float:
-    """설계 5절: intersection(part, damage) / area(damage)."""
+    """damage coverage = intersection(part, damage) / area(damage).
+
+    IoU가 아닌 비대칭 coverage다. ``source_bbox``가 segmentation의 최소
+    bounding rectangle을 우선 사용하므로, 얇은 대각선·L자형 polygon은 실제
+    pixel coverage보다 크게 계산될 수 있다.
+    """
     dx, dy, dw, dh = damage_bbox
     px, py, pw, ph = part_bbox
     if dw <= 0 or dh <= 0:
@@ -328,15 +351,19 @@ def link_parts(
     part_annotations: list[dict],
     min_overlap: float = PART_LINK_MIN_OVERLAP,
 ) -> list[tuple[dict, float]]:
-    """설계 5절: 겹침 비율이 임계값 이상인 부품을 겹침 큰 순으로 모두 돌려준다.
+    """coverage가 임계값 이상인 부품을 겹침 큰 순으로 모두 돌려준다.
 
     설계는 "손상이 부품 경계에 걸쳐 있으면 일정 임계값 이상인 복수 부품과
     연결할 수 있다"고 했으므로 하나로 줄이지 않는다.
 
-    빈 리스트는 오류가 아니다. damage 그룹 라벨에는 part 주석이 아예 없고,
-    damage_part 그룹에서도 부품 영역 밖 손상이 존재한다. 이 경우 견적 repair
-    필드로 부품을 보완한다 — case_search_readiness.csv의 part_code_source가
-    이 두 경로를 구분한다.
+    빈 리스트는 오류가 아니다. damage_part 그룹에서도 부품 영역 밖 손상이
+    존재한다. 이 경우 부품을 억지로 보완하지 않고 매칭 없음으로 남긴다. 견적
+    repair 필드나 다른 이미지의 part를 ROI 부품으로 전파하지 않는다.
+
+    현재 0.5는 초기 보수 기준이다. 서로 다른 part_code 후보가 2개 이상이면
+    점수 차이가 커도 primary를 임의 확정하지 않고 ambiguous로 남긴다. 같은
+    part_code의 annotation이 여러 개 겹치는 경우에는 표준 부품 의미가 같으므로
+    호출부가 하나의 strict part로 합칠 수 있다.
 
     설계 5절 공식 보완: intersection/area(damage)는 부품 영역이 서로 포개져
     있을 때 둘 다 1.0이 되어 기본 부품을 못 고른다(범퍼가 펜더를 포함하는

@@ -1,23 +1,88 @@
-# damage 중심 유사 사례 검색 스키마
+# damage_part 중심 유사 사례 검색 스키마
 
 기준일: 2026-09-11
 
 ## 목적
 
-`damage` 이미지의 손상 ROI를 유사도 검색의 주 데이터로 사용하고,
-`damage_part` 이미지는 차량·부품 맥락을 보조하는 자료로 함께 보존한다.
-이 문서는 부품명과 손상 유형을 사용해 검색 후보를 줄이되, 사례 부품 정보를
-ROI 부품 정답으로 오인하지 않기 위한 데이터 계약이다.
+`damage_part` 이미지의 손상 ROI를 유사도 검색의 주 데이터로 사용하고,
+`damage` 이미지는 같은 사례의 선택적 시각 참고 자료로 보존한다.
+두 폴더는 category_id 단위로만 연결되며 사진 단위 짝이 아니므로, 한 폴더의
+annotation을 다른 폴더 이미지에 전파하지 않는다. 이 문서는 같은 이미지 안에서
+damage type과 part를 매칭할 때만 ROI 부품을 확정하기 위한 데이터 계약이다.
 
 ## 정보의 단위와 확정성
 
 | 정보 | 저장 위치 | 단위 | 검색에서의 의미 |
 |---|---|---|---|
-| 손상 유형·polygon | `repair_case_roi_embedding` | damage ROI | 확정 메타데이터. 하드 필터 가능 |
-| ROI 임베딩 | `repair_case_roi_embedding` | damage ROI | 최종 유사도 순위 |
+| 손상 유형·polygon | `repair_case_roi_embedding` | damage_part ROI | 확정 메타데이터. 하드 필터 가능 |
+| ROI 임베딩 | `repair_case_roi_embedding` | damage_part ROI | 최종 유사도 순위 |
 | 견적 부품·수리 항목 | `repair_case_item` | 사고 사례 | 부품 후보. ROI 부품 확정값 아님 |
-| 직접 부품 영역 | `repair_case_image_part_annotation` | damage_part 이미지 | 맥락 근거. 다른 이미지 ROI로 자동 전파 금지 |
-| 이미지 유형 | `repair_case_image.image_type` | 이미지 | `DAMAGE` 주 검색 / `DAMAGE_PART` 보조 |
+| 직접 부품 영역 | `repair_case_image_part_annotation` | damage_part 이미지 | 같은 이미지 ROI 매칭 근거 |
+| 이미지 유형 | `repair_case_image.image_type` | 이미지 | `DAMAGE_PART` 주 검색 / `DAMAGE` 보조 |
+
+### 같은 이미지 damage-part 매칭 규칙
+
+`damage_part` JSON 안의 damage annotation과 part annotation만 비교한다. `damage` 폴더
+또는 같은 category_id의 다른 사진에 있는 part annotation은 사용하지 않는다.
+
+현재 규칙 버전은 `bbox-damage-coverage-v1`이다.
+
+```text
+damage coverage = area(damage_bbox ∩ part_bbox) / area(damage_bbox)
+```
+
+IoU가 아닌 이유는 범퍼·펜더 같은 part 영역이 damage 영역보다 훨씬 크기 때문이다.
+IoU를 사용하면 damage가 part 안에 정확히 들어가도 part 면적 때문에 점수가 낮아진다.
+현재 임계값은 `0.5`이며 `coverage >= 0.5`를 후보로 본다.
+
+- 후보 0개: `UNPAIRED` → `VECTOR_ONLY`
+- 후보 1개: `PAIRED` → `STRICT`
+- 서로 다른 part_code 후보 2개 이상: `AMBIGUOUS` → `VECTOR_ONLY`
+- annotation 후보가 여러 개여도 표준 part_code가 하나면 `PAIRED` → `STRICT`
+
+서로 다른 part_code 후보 중 하나가 0.90이고 다른 하나가 0.51이어도 최댓값 우선으로
+확정하지 않는다. 경계 부위의 잘못된 part 확정을 피하기 위한 의도적인 보수 정책이다.
+
+segmentation이 있으면 실제 polygon 교차 면적이 아니라 최소 bounding rectangle을
+만들어 coverage를 계산하고, segmentation이 없으면 원천 bbox를 사용한다. 따라서
+대각선·L자형·얇은 손상은 실제 polygon보다 coverage가 과대평가될 수 있다. 이는
+계산 단순화를 위한 현재의 알려진 trade-off이며, 실제 mask 교차는 별도 규칙 버전으로
+검토한다.
+
+초기 기준 검토용으로 `TRAIN+VALIDATION`에서 고정 seed
+`a307-damage-part-pairing-v1`로 hash 선택한 `damage_part` label 1,200개를 읽은
+결과는 다음과 같다. 동일 `part_code` 후보를 하나로 합친 현재 규칙을 적용한 수치다.
+
+| 상태 | ROI 수 | 비율 |
+|---|---:|---:|
+| PAIRED | 3,192 | 70.9% |
+| UNPAIRED | 691 | 15.3% |
+| AMBIGUOUS | 622 | 13.8% |
+| 합계 | 4,505 | 100% |
+
+파일명·case_id 정렬 순서가 아니라 고정 hash 순서로 표본을 선택하므로, 같은
+`dataset-root`와 seed를 사용하면 동일 표본을 재현할 수 있다.
+
+동일 hash 표본의 threshold sweep은 다음과 같다.
+
+| coverage threshold | PAIRED | UNPAIRED | AMBIGUOUS |
+|---:|---:|---:|---:|
+| 0.3 | 3,119 (69.2%) | 578 (12.8%) | 808 (17.9%) |
+| 0.4 | 3,173 (70.4%) | 624 (13.9%) | 708 (15.7%) |
+| 0.5 | 3,192 (70.9%) | 691 (15.3%) | 622 (13.8%) |
+| 0.6 | 3,228 (71.7%) | 760 (16.9%) | 517 (11.5%) |
+| 0.7 | 3,228 (71.7%) | 834 (18.5%) | 443 (9.8%) |
+
+0.5는 최종 최적화 값이 아니라 초기 baseline이다. threshold를 올리면 AMBIGUOUS는
+줄지만 UNPAIRED가 늘어나며, 낮추면 그 반대다. 현재 표본에서는 0.5를 유지하고,
+AMBIGUOUS가 실제 경계 손상인지 bbox 근사에 의한 과대평가인지 별도 시각 검토한다.
+
+동일 표본에서 polygon을 픽셀 mask로 rasterize해 비교한 분석 참고값은 다음과 같다.
+0.5 기준 bbox `AMBIGUOUS` 622건 중 polygon 기준으로도 다중 부품인 건은 17건,
+나머지 605건은 bbox 근사에서만 생긴 후보였다. 이는 polygon 규칙으로 즉시 전환했다는
+뜻이 아니라, bbox 근사가 모호성 비율을 크게 부풀릴 수 있다는 후속 검증 신호다.
+해당 비교는 [analyze_damage_part_pairing.py](../../pipeline/jobs/analyze_damage_part_pairing.py)
+로 재현하며, 전체 corpus 전수 sweep 결과가 아닌 표본 분석이다.
 
 `repair` annotation의 부품 문자열은 이 계약의 부품 정본이 아니다. 견적서 원천
 수리 항목을 `part_name_mapping`으로 표준화한 `repair_case_item.part_code`를
@@ -69,8 +134,8 @@ source_dataset_split VARCHAR(20) NULL
   CHECK (source_dataset_split IN ('TRAIN', 'VALIDATION'))
 ```
 
-- `DAMAGE`: 손상 ROI를 만들고 주 검색 대상으로 사용한다.
-- `DAMAGE_PART`: 보조 이미지다. 주 ROI 검색 색인 대상이 아니다.
+- `DAMAGE_PART`: 손상 ROI를 만들고 주 검색 대상으로 사용한다.
+- `DAMAGE`: 선택적 시각 참고 이미지다. 주 ROI 검색 색인 대상이 아니다.
 - `source_dataset_split`은 원천 TRAIN/VALIDATION 추적용이다. 서비스 목적 분할인
   DEV/DEMO/EVAL과 혼용하지 않는다.
 
@@ -100,7 +165,7 @@ created_at                    TIMESTAMPTZ NOT NULL
 UNIQUE (case_image_id, source_annotation_ref)
 ```
 
-이 테이블은 `DAMAGE_PART` 이미지에 직접 라벨된 부품 영역을 감사·표시·후속 연구에
+이 테이블은 `DAMAGE_PART` 이미지에 직접 라벨된 부품 영역을 감사·표시·ROI 매칭에
 보존한다. `case_image_id`가 `DAMAGE_PART`를 가리키는지는 적재기가 검증한다.
 교차 테이블 CHECK로 다른 테이블의 `image_type`까지 검사할 수 없으므로, 적재 전
 검증과 테스트에서 불변식으로 보장한다.
@@ -116,17 +181,17 @@ UNIQUE (case_image_id, source_annotation_ref)
 
 1. 한 `case_id`의 damage·damage_part 이미지는 동일한 서비스 subset에 배정한다.
 2. 원천 TRAIN/VALIDATION 판정은 두 image type을 합쳐 case 단위로 한다.
-3. `DAMAGE` ROI의 `part_code=NULL`은 정상값이다.
-4. `DAMAGE_PART`의 부품 polygon은 해당 이미지의 근거일 뿐, 다른 이미지의 ROI에
-   좌표 또는 부품 코드를 전파하지 않는다.
+3. `DAMAGE_PART` damage ROI의 `part_code=NULL`은 vector-only 정상값이다.
+4. `DAMAGE_PART`의 부품 polygon은 같은 이미지의 damage ROI와 geometry가 명확히
+   겹칠 때만 해당 ROI의 part_code로 연결한다. 다른 이미지의 ROI에는 전파하지 않는다.
 5. S3 업로드는 새 DB 이미지 레코드의 최신 `storage_key`를 기준으로 한다.
 
 ## 적용 순서
 
 1. 기존 DB에 `pipeline/sql/006_damage_search_corpus.sql`을 적용한다.
 2. 기존 `repair_case_image` 행은 `DAMAGE_PART`로 backfill한다.
-3. loader와 readiness·split manifest가 두 image type을 읽고, DAMAGE ROI의
-   geometry-only 적재를 허용하도록 수정한다.
+3. loader와 readiness·split manifest가 두 image type을 읽되, DAMAGE_PART의
+   damage ROI를 공식 검색 대상으로 판정하도록 수정한다. DAMAGE는 참고 이미지다.
 4. 견적 수리항목을 `repair_case_item`에 적재하고, 매핑 성공·결측·모호 항목 수를 실행
    summary에 남긴다. `load_search_data.py`는 원천 배열 순번을 `source_item_key`로 사용해
    멱등 upsert한다.

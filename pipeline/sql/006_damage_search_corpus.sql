@@ -1,11 +1,11 @@
--- A307 검색 코퍼스 계약 006 · damage 중심 유사 사례 검색 전환
+-- A307 검색 코퍼스 계약 006 · damage_part 중심 유사 사례 검색 전환
 --
 -- 적용 대상: 기존 PostgreSQL 검색 DB
 -- 정본 반영: Docs/Erd/A307_ddl_final.sql
 -- 설계 계약: Docs/Erd/A307_DAMAGE_SEARCH_SCHEMA.md
 --
 -- 이 migration은 기존 damage_part 적재 행을 삭제하지 않는다. 기존 행에 이미지
--- 역할을 명시하고, 새 damage ROI가 부품 미확정 상태로 적재될 수 있게 한다.
+-- 역할을 명시하고, 새 damage_part ROI가 부품 미확정(vector-only) 상태로 적재될 수 있게 한다.
 -- DB·S3 재적재는 이 migration만으로 수행하지 않는다.
 
 BEGIN;
@@ -54,6 +54,7 @@ ALTER TABLE repair_case_item
 ALTER TABLE repair_case_item
     ADD CONSTRAINT uk_rci_source_item UNIQUE (case_id, source_item_key);
 
+-- damage_part 이미지에 직접 라벨된 부품 영역. 같은 이미지 ROI와 명확히 매칭할 때만 사용한다.
 CREATE TABLE IF NOT EXISTS repair_case_image_part_annotation (
     case_image_part_annotation_id BIGSERIAL    PRIMARY KEY,
     case_image_id                 BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id) ON DELETE CASCADE,

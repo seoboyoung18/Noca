@@ -8,7 +8,8 @@
   - TRAIN-only 사례: DEV 후보
   - VALIDATION-only 사례: DEMO/EVAL 후보
   - TRAIN·VALIDATION 양쪽 사례: MIXED, 정량 평가에서 제외
-  - 검색 전체 적재용 manifest에는 세 그룹 모두 포함
+  - 정식 검색 이미지 집계는 DAMAGE_PART만 포함
+  - DAMAGE는 동일 사례의 선택적 참고 이미지로 별도 집계
 """
 
 from __future__ import annotations
@@ -155,16 +156,25 @@ def add_repair_parts(value: Any, parts: set[str]) -> None:
             continue
 
 
-def label_metadata(paths: Iterable[Path]) -> tuple[set[str], set[str], set[str]]:
+def label_metadata(paths: Iterable[Path]) -> tuple[set[str], set[str], set[str], int, int]:
     classes: set[str] = set()
     parts: set[str] = set()
     damages: set[str] = set()
+    search_image_count = 0
+    reference_image_count = 0
     for path in paths:
+        is_search_image = "damage_part" in path.parts
+        if is_search_image:
+            search_image_count += 1
+        else:
+            reference_image_count += 1
         document = json.loads(path.read_text(encoding="utf-8-sig"))
         category = document.get("categories") or {}
         car_class = normalize_class(category.get("supercategory_name"))
-        if car_class:
+        if car_class and is_search_image:
             classes.add(car_class)
+        if not is_search_image:
+            continue
         for annotation in document.get("annotations") or []:
             damage = DAMAGE_BY_RAW.get(str(annotation.get("damage") or "").strip().casefold())
             if damage:
@@ -172,8 +182,7 @@ def label_metadata(paths: Iterable[Path]) -> tuple[set[str], set[str], set[str]]
             part = PART_BY_RAW.get(str(annotation.get("part") or "").strip().casefold())
             if part:
                 parts.add(part)
-            add_repair_parts(annotation.get("repair"), parts)
-    return classes, parts, damages
+    return classes, parts, damages, search_image_count, reference_image_count
 
 
 def vehicle_metadata(path: Path) -> tuple[str, str]:
@@ -245,6 +254,7 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     fields = [
         "case_id", "source", "dataset_split", "purpose", "car_class",
         "vehicle_model", "model_name", "part_codes", "damage_types", "image_count",
+        "reference_image_count",
     ]
     with path.open("w", encoding="utf-8", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=fields)
@@ -285,7 +295,7 @@ def main() -> None:
         labels = sorted(label_index.get(case_id, []))
         if not labels:
             continue
-        classes, parts, damages = label_metadata(labels)
+        classes, parts, damages, search_image_count, reference_image_count = label_metadata(labels)
         estimate_path = estimate_root / f"{case_id}.json"
         vehicle_model, model_name = vehicle_metadata(estimate_path)
         split = dataset_split(groups.get(case_id, ""))
@@ -299,7 +309,8 @@ def main() -> None:
             "model_name": model_name,
             "part_codes": "|".join(sorted(parts)),
             "damage_types": "|".join(sorted(damages)),
-            "image_count": str(len(labels)),
+            "image_count": str(search_image_count),
+            "reference_image_count": str(reference_image_count),
         })
 
     train_only = [row for row in rows if row["dataset_split"] == "TRAIN_ONLY"]
@@ -332,7 +343,7 @@ def main() -> None:
         "demo_cases": len(demo),
         "eval_cases": len(eval_rows),
         "mixed_cases_excluded_from_eval": counts["MIXED"],
-        "image_source_scope": "damage_and_damage_part_case_split__damage_query_default",
+        "image_source_scope": "damage_part_search__damage_optional_reference",
         "seed": args.seed,
     }, ensure_ascii=False, indent=2))
 

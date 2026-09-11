@@ -44,6 +44,9 @@ class SearchMetadataTest(unittest.TestCase):
         self.assertEqual(record["features"]["confidence"]["damage"], 0.87)
         self.assertNotIn("severity", record["features"])
         self.assertTrue(record["search"]["is_searchable"])
+        self.assertEqual(record["search"]["searchability"], "STRICT")
+        self.assertTrue(record["search"]["strict_searchable"])
+        self.assertFalse(record["search"]["vector_only"])
         self.assertIsNone(record["search"]["exclusion_reason"])
         self.assertEqual(record["provenance"]["model_name"], "yolo")
 
@@ -131,7 +134,27 @@ class SearchMetadataTest(unittest.TestCase):
         self.assertIsNone(record["features"]["part_code"])
         self.assertEqual(record["features"]["damage_type"], "SCRATCHED")
         self.assertTrue(record["search"]["is_searchable"])
+        self.assertEqual(record["search"]["searchability"], "VECTOR_ONLY")
+        self.assertFalse(record["search"]["strict_searchable"])
+        self.assertTrue(record["search"]["vector_only"])
+        self.assertEqual(record["search"]["vector_only_reason"], "missing_or_ambiguous_part_code")
         self.assertIsNone(record["search"]["exclusion_reason"])
+
+    def test_ambiguous_part_match_is_vector_only(self):
+        normalized = normalized_sample()
+        normalized["detections"][0]["part"] = {
+            "code": None,
+            "match_status": "AMBIGUOUS",
+        }
+        record = build_search_metadata(
+            normalized,
+            case_id="sc-104422",
+            source="AIHUB_SC",
+            car_class="Compact",
+            pipeline_version_id="pv-test",
+        )[0]
+        self.assertEqual(record["search"]["searchability"], "VECTOR_ONLY")
+        self.assertTrue(record["search"]["vector_only"])
 
     def test_low_confidence_wins_over_part_clip(self):
         """손상 자체를 못 믿는데 부품 잘림을 따지지 않는다."""

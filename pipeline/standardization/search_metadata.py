@@ -3,8 +3,9 @@
 원본 YOLO 출력과 공통 추론 결과를 직접 검색 테이블로 사용하지 않고,
 ROI 단위의 검색 계약으로 투영한다. 비용·작업 의미는 다루지 않는다.
 
-damage_type은 ROI 직접 라벨이라 강한 필터다. part_code는 비어 있을 수 있으며,
-견적 기반 사례 부품 후보는 별도 조인·점수 경로에서 다룬다.
+damage_type은 ROI 직접 라벨이라 강한 필터다. part_code가 같은 이미지의 part
+annotation과 명확히 매칭되면 strict 검색 대상이고, 없거나 모호하면 vector-only
+후보로 남긴다. 견적 기반 사례 부품 후보는 별도 조인·점수 경로에서 다룬다.
 """
 
 from __future__ import annotations
@@ -57,6 +58,16 @@ def _exclusion_reason(quality_status: str, damage_type: str | None) -> str | Non
     if not damage_type:
         return "missing_damage_type"
     return None
+
+
+def _searchability(quality_status: str, damage_type: str | None,
+                   part_code: str | None, part_match_status: str | None) -> tuple[str, bool, bool]:
+    """ROI를 STRICT, VECTOR_ONLY, EXCLUDED 중 하나로 분류한다."""
+    if quality_status not in SEARCHABLE_QUALITY or not damage_type:
+        return "EXCLUDED", False, False
+    if part_code and part_match_status != "AMBIGUOUS":
+        return "STRICT", True, False
+    return "VECTOR_ONLY", False, True
 
 
 def _as_bbox(value: Any) -> tuple[float, float, float, float]:
@@ -151,6 +162,7 @@ def build_search_metadata(
         part = detection.get("part") or {}
         damage = detection.get("damage") or {}
         part_code = part.get("code")
+        part_match_status = part.get("match_status")
         damage_type = damage.get("code")
         detection_id = str(detection.get("detection_id") or f"detection-{index:04d}")
         segmentation = geometry.get("segmentation") or {}
@@ -160,7 +172,9 @@ def build_search_metadata(
         part_is_clipped = (None if part_box is None
                            else part_clipped(_as_bbox(part_box), (width, height)))
         quality_status = feature_quality(roi_status, part_is_clipped)
-        searchable = quality_status in SEARCHABLE_QUALITY and bool(damage_type)
+        searchability, strict_searchable, vector_only = _searchability(
+            quality_status, damage_type, part_code, part_match_status)
+        searchable = strict_searchable or vector_only
         exclusion_reason = _exclusion_reason(quality_status, damage_type)
         quality_reasons = _quality_reasons(
             roi_status, part_is_clipped, clipped, damage_type)
@@ -195,12 +209,19 @@ def build_search_metadata(
             },
             "features": {
                 "part_code": part_code,
+                "part_match_status": part_match_status,
                 "damage_type": damage_type,
                 "confidence": confidence,
             },
             "search": {
                 "is_searchable": searchable,
+                "searchability": searchability,
+                "strict_searchable": strict_searchable,
+                "vector_only": vector_only,
                 "exclusion_reason": exclusion_reason,
+                "vector_only_reason": (
+                    "missing_or_ambiguous_part_code" if vector_only else None
+                ),
             },
             "provenance": {
                 "pipeline_version_id": pipeline_version_id,

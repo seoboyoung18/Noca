@@ -1,9 +1,10 @@
-"""Search-readiness validation: DAMAGE geometry + case estimate part candidates.
+"""Search-readiness validation: DAMAGE_PART geometry and same-image part pairing.
 
 Extends the fast key-scan join result (case_id_linkage.csv) with a second pass
 that parses DAMAGE and DAMAGE_PART labels to check:
-  - at least one DAMAGE annotation has valid geometry (bbox or segmentation)
-  - DAMAGE_PART context exists independently from the DAMAGE ROI
+  - at least one DAMAGE_PART annotation has valid damage geometry
+  - a DAMAGE_PART damage annotation has zero, one, or multiple same-image part matches
+  - DAMAGE images are counted only as optional visual references
   - when estimate root and mapping workbook are supplied, whether an estimate
     item resolves to a standard part_code for the same case.
 
@@ -101,6 +102,7 @@ def main() -> None:
         parser.error("--estimate-root와 --mapping-workbook은 함께 지정해야 합니다")
 
     sys.path.insert(0, str(args.catalog_path.resolve()))
+    from standardization.damage_part_pairing import damage_part_roi_rows
     estimate_mapping: dict[str, str] = {}
     if args.mapping_workbook:
         import pandas as pd
@@ -130,10 +132,11 @@ def main() -> None:
         if not groups_to_scan:
             raise SystemExit(f"unknown --only-group {args.only_group!r}")
 
-    case_geometry_ok: set[str] = set()
+    case_damage_part_geometry_ok: set[str] = set()
     case_damage_part_context: set[str] = set()
     case_label_counts: Counter[str] = Counter()
     case_orphan_counts: Counter[str] = Counter()
+    case_stats: dict[str, Counter[str]] = defaultdict(Counter)
     parse_errors = 0
     processed = 0
     group_counts: dict[str, Counter] = defaultdict(Counter)
@@ -188,30 +191,54 @@ def main() -> None:
                 case_orphan_counts[case_id] += 1
             if label_type == "DAMAGE_PART":
                 case_damage_part_context.add(case_id)
-            for ann in data.get("annotations") or []:
-                geom_ok = valid_bbox(ann.get("bbox"), width, height) or valid_segmentation(ann.get("segmentation"))
-                if label_type == "DAMAGE" and geom_ok and ann.get("damage"):
-                    case_geometry_ok.add(case_id)
+                case_stats[case_id]["damage_part_image_count"] += 1
+                rows = damage_part_roi_rows(data)
+                if rows:
+                    case_damage_part_geometry_ok.add(case_id)
+                for row in rows:
+                    case_stats[case_id]["damage_part_damage_count"] += 1
+                    status = row["match_status"]
+                    if status == "PAIRED":
+                        case_stats[case_id]["paired_roi_count"] += 1
+                        case_stats[case_id]["strict_searchable_roi_count"] += 1
+                    elif status == "AMBIGUOUS":
+                        case_stats[case_id]["ambiguous_part_match_count"] += 1
+                        case_stats[case_id]["vector_only_roi_count"] += 1
+                    else:
+                        case_stats[case_id]["unpaired_damage_count"] += 1
+                        case_stats[case_id]["vector_only_roi_count"] += 1
+            elif label_type == "DAMAGE":
+                case_stats[case_id]["damage_reference_image_count"] += 1
 
     if args.only_group:
         partial = {
             "group": args.only_group,
-            "case_geometry_ok": sorted(case_geometry_ok),
+            "case_damage_part_geometry_ok": sorted(case_damage_part_geometry_ok),
             "case_damage_part_context": sorted(case_damage_part_context),
+            "case_stats": {case_id: dict(stats) for case_id, stats in case_stats.items()},
+            "case_label_counts": dict(case_label_counts),
+            "case_orphan_counts": dict(case_orphan_counts),
             "processed": processed,
             "parse_errors": parse_errors,
             "group_counts": {k: dict(v) for k, v in group_counts.items()},
         }
         safe_name = args.only_group.replace(":", "_").lower()
         (output / f"group_partial_{safe_name}__shard{args.shard_index}of{args.shard_count}.json").write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
-        print(f"partial written for {args.only_group}: processed={processed} geometry_ok={len(case_geometry_ok)} part_ok={len(case_part_ok)}")
+        print(
+            f"partial written for {args.only_group}: "
+            f"processed={processed} geometry_ok={len(case_damage_part_geometry_ok)}"
+        )
         return
 
     if args.merge_only:
         for partial_path in sorted(output.glob("group_partial_*.json")):
             partial = json.loads(partial_path.read_text(encoding="utf-8"))
-            case_geometry_ok.update(partial["case_geometry_ok"])
+            case_damage_part_geometry_ok.update(partial["case_damage_part_geometry_ok"])
             case_damage_part_context.update(partial.get("case_damage_part_context", []))
+            for case_id, stats in partial.get("case_stats", {}).items():
+                case_stats[case_id].update(stats)
+            case_label_counts.update(partial.get("case_label_counts", {}))
+            case_orphan_counts.update(partial.get("case_orphan_counts", {}))
             processed += partial["processed"]
             parse_errors += partial["parse_errors"]
             for g, counts in partial["group_counts"].items():
@@ -222,6 +249,9 @@ def main() -> None:
 
     fields = [
         "case_id", "has_estimate", "source_image_count", "label_file_count", "orphan_label_count",
+        "damage_part_image_count", "damage_part_damage_count", "damage_reference_image_count",
+        "paired_roi_count", "unpaired_damage_count", "ambiguous_part_match_count",
+        "strict_searchable_roi_count", "vector_only_roi_count",
         "is_searchable_case_candidate", "has_damage_geometry", "has_estimate_part_candidate",
         "has_damage_part_context", "is_final_searchable_case",
     ]
@@ -232,7 +262,7 @@ def main() -> None:
         writer.writeheader()
         for case_id, row in sorted(candidates.items()):
             is_candidate = row["is_searchable_case_candidate"] in ("True", "true", "1")
-            geom_ok = case_id in case_geometry_ok
+            geom_ok = case_id in case_damage_part_geometry_ok
             estimate_candidate = False
             if args.estimate_root:
                 estimate_path = args.estimate_root / f"{case_id}.json"
@@ -255,12 +285,24 @@ def main() -> None:
                 "source_image_count": case_label_counts.get(case_id, 0),
                 "label_file_count": case_label_counts.get(case_id, 0),
                 "orphan_label_count": case_orphan_counts.get(case_id, 0),
+                "damage_part_image_count": case_stats[case_id].get("damage_part_image_count", 0),
+                "damage_part_damage_count": case_stats[case_id].get("damage_part_damage_count", 0),
+                "damage_reference_image_count": case_stats[case_id].get("damage_reference_image_count", 0),
+                "paired_roi_count": case_stats[case_id].get("paired_roi_count", 0),
+                "unpaired_damage_count": case_stats[case_id].get("unpaired_damage_count", 0),
+                "ambiguous_part_match_count": case_stats[case_id].get("ambiguous_part_match_count", 0),
+                "strict_searchable_roi_count": case_stats[case_id].get("strict_searchable_roi_count", 0),
+                "vector_only_roi_count": case_stats[case_id].get("vector_only_roi_count", 0),
                 "is_searchable_case_candidate": is_candidate,
                 "has_damage_geometry": geom_ok,
                 "has_estimate_part_candidate": estimate_candidate,
                 "has_damage_part_context": case_id in case_damage_part_context,
                 "is_final_searchable_case": is_final,
             })
+
+    aggregate_stats: Counter[str] = Counter()
+    for stats in case_stats.values():
+        aggregate_stats.update(stats)
 
     summary = {
         "batch_job_execution": {
@@ -276,11 +318,20 @@ def main() -> None:
             "parse_errors": parse_errors,
             "label_files_processed": processed,
             "fail_reasons_among_prior_candidates": dict(sorted(fail_reasons.items())),
+            "damage_part_image_count": aggregate_stats.get("damage_part_image_count", 0),
+            "damage_part_damage_count": aggregate_stats.get("damage_part_damage_count", 0),
+            "damage_reference_image_count": aggregate_stats.get("damage_reference_image_count", 0),
+            "paired_roi_count": aggregate_stats.get("paired_roi_count", 0),
+            "unpaired_damage_count": aggregate_stats.get("unpaired_damage_count", 0),
+            "ambiguous_part_match_count": aggregate_stats.get("ambiguous_part_match_count", 0),
+            "strict_searchable_roi_count": aggregate_stats.get("strict_searchable_roi_count", 0),
+            "vector_only_roi_count": aggregate_stats.get("vector_only_roi_count", 0),
         },
         "group_summary": {k: dict(v) for k, v in sorted(group_counts.items())},
         "rules": {
-            "image_source_scope": "DAMAGE is the ROI source; DAMAGE_PART is context only",
-            "has_damage_geometry": "at least one DAMAGE annotation with non-null damage code and valid bbox or polygon",
+            "image_source_scope": "DAMAGE_PART is the canonical ROI source; DAMAGE is optional reference only",
+            "has_damage_geometry": "at least one DAMAGE_PART annotation with non-null damage code and valid bbox or polygon",
+            "part_pairing": "same-image geometry overlap only; one match is strict, zero or multiple are not direct pairs",
             "has_estimate_part_candidate": "an estimate item name resolves through the mapping workbook; not required for ROI indexing",
             "is_final_searchable_case": "is_searchable_case_candidate AND has_damage_geometry",
         },

@@ -51,15 +51,15 @@ from standardization import PARTS, normalize_inference, normalize_repair_label, 
 하나가 레코드 하나다. 품질이 낮아도 레코드는 남기고 `search.is_searchable`만 false로 둔다
 — 제외된 검출도 원본과 대조할 수 있어야 한다.
 
-2026-09-11 정책에서 `damage_type`은 ROI의 직접 라벨이므로 강한 필터다. 견적서에서 얻은
-`part_code`는 사례 부품 후보이며 ROI 부품 정답이 아니다. 따라서 주 경로는
-`damage_type` 필터 → 선택적 사례 부품 후보 조건 → ROI 벡터 검색이다. 부품 후보를
-하드 필터로 노출할 때도 "해당 ROI의 부품"이 아니라 "해당 사고에 그 부품 견적이 있음"으로
-표시한다. 상세 계약은 [damage 중심 유사 사례 검색 스키마](../Docs/Erd/A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
+2026-09-11 정책에서 정식 검색 이미지는 `damage_part`다. 같은 이미지의 damage
+annotation은 `damage_type`과 ROI를 만들고, geometry가 명확히 겹치는 part annotation만
+ROI `part_code`로 연결한다. 견적서에서 얻은 `part_code`는 사례 부품 후보이며 ROI 부품
+정답이 아니다. 따라서 주 경로는 `damage_type` 필터 → strict `part_code` 조건(선택)
+→ `damage_part` ROI 벡터 검색이다. 상세 계약은 [damage_part 중심 유사 사례 검색 스키마](../Docs/Erd/A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
 
-현재 `search_metadata.py`는 `part_code`가 없으면 `is_searchable=false`로 판정하므로
-새 정책과 맞지 않는다. DAMAGE ROI의 부품 미확정을 허용하도록 loader·메타데이터 어댑터를
-바꾸기 전에는 이 모듈의 출력으로 새 코퍼스를 적재하지 않는다.
+`search_metadata.py`는 strict 검색과 vector-only를 구분한다. 유효 damage_type이
+있지만 part_code가 없거나 모호한 ROI는 vector-only로 남기고, geometry 또는 damage_type이
+없는 ROI만 제외한다.
 
 `pipeline_version_id`는 필수 인자다. 검색은 같은 값을 가진 레코드끼리만 비교한다(설계 2절
 전제 3번). 기본값을 두지 않은 이유는, 버전 없는 레코드가 한 번 적재되면 무엇으로 만든
@@ -89,7 +89,7 @@ A~D로 나뉜다. 산출물을 전달하는 단계는 순서대로 실행한다.
 | 순서 | 스크립트 | 역할 |
 |---|---|---|
 | 1 | `validate_category_id_integrity.py` | `category_id` 기준 이미지·라벨·견적 조인 무결성 검증. orphan 라벨을 격리하고 검색 가능 사고 **후보**를 산출 |
-| 2 | `validate_search_readiness.py` | 1의 후보에 polygon 유효성과 표준 부품 코드 확보 여부를 추가 판정해 **최종 검색 가능 사고 수**를 확정 |
+| 2 | `validate_search_readiness.py` | 1의 후보에 damage_part geometry와 same-image part pairing을 추가 판정해 **최종 검색 가능 사고 수**를 확정 |
 
 **B. 견적 부품명 표준화** — 견적서 텍스트 기준
 
@@ -309,20 +309,19 @@ python pipeline/jobs/build_label_path_index.py \
 
 ### 11. 검색 기본 데이터 적재
 
-현재 `load_search_data.py`는 `damage_part` 전용 구현이다. 기존 55,363건 readiness는
-이전 정책 기록이며, 새 damage 중심 코퍼스의 적재 범위가 아니다. 새 정책은 DAMAGE와
-DAMAGE_PART를 함께 적재하고, DAMAGE의 유효 geometry·damage type만으로 ROI 적재를
-허용한다. 견적 부품 매핑 결측은 ROI 적재 제외가 아니라 사례 부품 후보 결측으로 남긴다.
+현재 `load_search_data.py`는 `DAMAGE_PART`를 공식 검색 이미지로 적재하고,
+`DAMAGE`는 선택적 참고 이미지로 적재한다. 기존 55,363건 readiness는 이전 정책
+기록이며 새 readiness를 재생성해야 한다. 같은 이미지의 damage-part geometry 매칭이
+명확한 ROI는 strict, 매칭 없음·모호한 ROI는 vector-only로 summary에 남긴다.
 
 `load_search_data.py`는 견적 수리항목 → `part_name_mapping` →
 `repair_case_item.part_code`를 함께 적재한다. 원천 배열 순번을 `source_item_key`로
 사용해 재실행 시 같은 항목을 upsert한다. 부품 코드 결측·작업 유형 오류는 항목을 임의로
 채우지 않고 `data_validation_error`에 남긴다.
 
-따라서 아래 명령은 **기존 damage_part 전용 loader의 실행 예**다. 새 코퍼스에는
-`validate_search_readiness.py`, `load_search_data.py`, 사례 split manifest, query manifest,
-ROI metadata adapter를 함께 변경한 뒤 사용한다. 설계와 migration은
-[damage 중심 유사 사례 검색 스키마](../Docs/Erd/A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
+따라서 아래 명령은 **새 damage_part 중심 loader의 실행 예**다. readiness, 사례 split
+manifest, ROI metadata adapter를 같은 정책으로 생성한 뒤 사용한다. 설계와 migration은
+[damage_part 중심 유사 사례 검색 스키마](../Docs/Erd/A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
 
 구현 후에는 readiness에 견적 경로와 매핑 워크북을 함께 넘겨 사례 부품 후보 상태를
 만들고, 006 migration 적용 뒤 정식 loader를 실행한다.
@@ -364,8 +363,8 @@ python pipeline/jobs/load_search_data.py \
 `repair-cases/{caseId}/images/{caseImageId}/original.jpg` 규칙으로 생성한다.
 `--dataset-root`는 원본 상대 경로의 기준만 결정하며 S3 key 자체에는 포함되지 않는다.
 검색 이미지 원천은 `TL_damage_part`/`VL_damage_part`의 `damage_part` 디렉터리로
-고정한다. `TL_damage`/`VL_damage`의 `damage` 이미지는 화각과 포함 영역이 달라
-검색 코퍼스에 섞지 않는다.
+고정한다. `TL_damage`/`VL_damage`의 `damage` 이미지는 동일 사진 짝이 아니므로
+라벨을 전파하지 않으며, 필요할 때만 참고 이미지로 함께 적재한다.
 
 개발·시연·평가용 subset을 적재할 때는 전체 readiness와 사례 manifest를 함께 넘긴다.
 manifest도 `case_id` 단위라 한 사례의 이미지는 모두 같은 subset에 남는다.

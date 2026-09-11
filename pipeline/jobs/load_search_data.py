@@ -1,4 +1,4 @@
-"""damage 중심 검색 데이터와 견적 기반 사례 부품 후보를 적재한다.
+"""damage_part 중심 검색 데이터와 견적 기반 사례 부품 후보를 적재한다.
 
 원천 견적 전체는 ``load_estimate_raw.py``가 별도 보존한다. 이 job은
 ``is_final_searchable_case=True``인 사례만 처리하며, 이미지가 없거나
@@ -23,6 +23,7 @@ if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
 from standardization import PARTS, normalize_estimate_item
+from standardization.damage_part_pairing import damage_part_roi_rows
 
 ESTIMATE_REL = Path("1.Training") / "1.원천데이터_230126_add" / "TS_99. 붙임_견적서"
 ALLOWED_CLASSES = {"CityCar", "Compact", "Mid-size", "Full-size"}
@@ -243,14 +244,15 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
             INSERT INTO repair_case_image(
                 case_id, source_image_ref, storage_key, image_type, source_dataset_split,
                 quality_status, is_searchable)
-            VALUES (%s,%s,%s,%s,%s,NULL,TRUE)
+            VALUES (%s,%s,%s,%s,%s,NULL,%s)
             ON CONFLICT (source_image_ref) DO UPDATE SET
                 case_id=EXCLUDED.case_id, storage_key=EXCLUDED.storage_key,
                 image_type=EXCLUDED.image_type, source_dataset_split=EXCLUDED.source_dataset_split,
                 quality_status=EXCLUDED.quality_status, is_searchable=EXCLUDED.is_searchable
             RETURNING case_image_id
             """,
-            (case_pk, source_image_ref, source_image_ref, image_type, source_dataset_split),
+            (case_pk, source_image_ref, source_image_ref, image_type, source_dataset_split,
+             image_type == "DAMAGE_PART"),
         )
         case_image_pk = cur.fetchone()[0]
         storage_key = repair_case_image_key(case_pk, case_image_pk)
@@ -260,6 +262,30 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
         )
         loaded[image_type] += 1
     return loaded
+
+
+def damage_part_pairing_counts(label_paths: list[Path]) -> dict[str, int]:
+    """정식 검색 이미지의 ROI·part pairing 상태를 적재 summary로 집계한다."""
+    counts: dict[str, int] = defaultdict(int)
+    for label_path in label_paths:
+        image_type, _ = image_metadata_for_label(label_path)
+        if image_type != "DAMAGE_PART":
+            continue
+        document = json.loads(label_path.read_text(encoding="utf-8-sig"))
+        counts["damage_part_image_count"] += 1
+        for row in damage_part_roi_rows(document):
+            counts["damage_part_damage_count"] += 1
+            if row["match_status"] == "PAIRED":
+                counts["paired_roi_count"] += 1
+                counts["strict_searchable_roi_count"] += 1
+            elif row["match_status"] == "AMBIGUOUS":
+                counts["ambiguous_part_match_count"] += 1
+                counts["vector_only_roi_count"] += 1
+            else:
+                counts["unpaired_damage_count"] += 1
+                counts["vector_only_roi_count"] += 1
+
+    return dict(counts)
 
 
 def upsert_damage_part_annotations(cur, case_pk: int, label_paths: list[Path], dataset_root: Path) -> int:
@@ -409,12 +435,12 @@ def main() -> None:
     estimate_dir = subset_root / ESTIMATE_REL
     mapping_rows = load_mapping(args.mapping_workbook.resolve()) if args.mapping_workbook else []
     summary = {
-        "policy": "damage_roi_with_case_estimate_part_candidates",
-        "image_source_scope": "damage_and_damage_part",
+        "policy": "damage_part_roi_with_same_image_part_pairing",
+        "image_source_scope": "damage_part_search__damage_optional_reference",
         "readiness_selected": len(selected),
         "mapping_rows": len(mapping_rows) if args.mapping_workbook else "seed_sql",
         "raw_estimate_scope": "separate_aihub_estimate_raw_all_125006",
-        "annotation_scope": "damage_part_direct_part_annotation",
+        "annotation_scope": "damage_part_damage_and_part_annotations_only",
     }
 
     errors: list[tuple[str, str, dict[str, Any]]] = []
@@ -445,18 +471,34 @@ def main() -> None:
             if reason or car_class not in ALLOWED_CLASSES:
                 errors.append(("invalid_car_class", case_id, {"reason": reason or car_class}))
                 continue
-              # 메모리에는 경로만 보관한다. 전수 적재에서는 견적 JSON 객체를
-              # 모두 쌓지 않고 DB 배치 직전에 읽는다.
+            # 메모리에는 경로만 보관한다. 전수 적재에서는 견적 JSON 객체를
+            # 모두 쌓지 않고 DB 배치 직전에 읽는다.
             json.loads(estimate_path.read_text(encoding="utf-8-sig"))
             valid.append((case_id, estimate_path, car_class, labels))
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
             errors.append(("case_input_error", case_id, {"reason": str(exc)}))
+
+    preflight_pairing: dict[str, int] = defaultdict(int)
+    for _, _, _, labels in valid:
+        for key, value in damage_part_pairing_counts(labels).items():
+            preflight_pairing[key] += value
 
     summary.update({
         "valid_case_count": len(valid),
         "excluded_case_count": len(errors),
         "label_count": sum(len(labels) for _, _, _, labels in valid),
         "error_counts": dict(sorted({kind: sum(1 for error in errors if error[0] == kind) for kind, _, _ in errors}.items())),
+        "paired_roi_count": preflight_pairing.get("paired_roi_count", 0),
+        "unpaired_damage_count": preflight_pairing.get("unpaired_damage_count", 0),
+        "ambiguous_part_match_count": preflight_pairing.get("ambiguous_part_match_count", 0),
+        "missing_part_count": preflight_pairing.get("unpaired_damage_count", 0),
+        "damage_part_image_count": preflight_pairing.get("damage_part_image_count", 0),
+        "damage_reference_image_count": sum(
+            1 for _, _, _, labels in valid for label in labels
+            if image_metadata_for_label(label)[0] == "DAMAGE"
+        ),
+        "strict_searchable_roi_count": preflight_pairing.get("strict_searchable_roi_count", 0),
+        "vector_only_roi_count": preflight_pairing.get("vector_only_roi_count", 0),
     })
     if args.dry_run:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -505,6 +547,7 @@ def main() -> None:
         loaded_images: dict[str, int] = defaultdict(int)
         loaded_items = 0
         loaded_part_annotations = 0
+        pairing_counts: dict[str, int] = defaultdict(int)
         item_stats: dict[str, int] = defaultdict(int)
         cases_with_estimate_part_candidate = 0
         for start in range(0, len(valid), args.commit_every):
@@ -516,6 +559,8 @@ def main() -> None:
                     image_counts = upsert_images(cur, case_pk, labels, dataset_root)
                     for key, value in image_counts.items():
                         loaded_images[key] += value
+                    for key, value in damage_part_pairing_counts(labels).items():
+                        pairing_counts[key] += value
                     loaded_part_annotations += upsert_damage_part_annotations(
                         cur, case_pk, labels, dataset_root)
                     item_count, stats, item_errors = upsert_estimate_items(
@@ -533,6 +578,16 @@ def main() -> None:
         summary["loaded_images"] = dict(sorted(loaded_images.items()))
         summary["loaded_repair_case_items"] = loaded_items
         summary["loaded_damage_part_annotations"] = loaded_part_annotations
+        summary.update({
+            "paired_roi_count": pairing_counts.get("paired_roi_count", 0),
+            "unpaired_damage_count": pairing_counts.get("unpaired_damage_count", 0),
+            "ambiguous_part_match_count": pairing_counts.get("ambiguous_part_match_count", 0),
+            "missing_part_count": pairing_counts.get("unpaired_damage_count", 0),
+            "damage_part_image_count": pairing_counts.get("damage_part_image_count", 0),
+            "damage_reference_image_count": loaded_images.get("DAMAGE", 0),
+            "strict_searchable_roi_count": pairing_counts.get("strict_searchable_roi_count", 0),
+            "vector_only_roi_count": pairing_counts.get("vector_only_roi_count", 0),
+        })
         summary["estimate_item_mapping"] = dict(sorted(item_stats.items()))
         summary["estimate_item_mapping"].setdefault("part_mapping_success", 0)
         summary["estimate_item_mapping"].setdefault("part_mapping_missing", 0)

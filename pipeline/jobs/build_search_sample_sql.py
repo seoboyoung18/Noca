@@ -4,6 +4,9 @@
 `repair_case` / `repair_case_image` / `repair_case_item` INSERT 문을 생성한다.
 ROI 임베딩은 적재하지 않는다.
 
+정식 검색 이미지는 DAMAGE_PART다. DAMAGE 이미지는 같은 사례의 선택적 참고
+이미지로 적재할 수 있지만 ``is_searchable=FALSE``로 저장한다.
+
 견적서 한 행은 `line_type` 4종으로 갈라 저장한다. 출처(AS/SC)를 몰라도 해석되어야 한다.
 
   WORK            공임이 붙는 수리 작업. 정산 포함
@@ -352,7 +355,7 @@ def main() -> None:
             case_sql.extend(
                 [
                     "INSERT INTO repair_case_image (case_id, source_image_ref, storage_key, image_type, source_dataset_split, quality_status, is_searchable)",
-                    f"VALUES (:case_{ordinal}_case_id, {sql_e(source_image_ref)}, {sql_e(source_image_ref)}, {sql_e(image_type)}, {sql_e(source_dataset_split)}, NULL, TRUE)",
+                    f"VALUES (:case_{ordinal}_case_id, {sql_e(source_image_ref)}, {sql_e(source_image_ref)}, {sql_e(image_type)}, {sql_e(source_dataset_split)}, NULL, {str(image_type == 'DAMAGE_PART').upper()})",
                     "ON CONFLICT (source_image_ref) DO UPDATE SET",
                     "    case_id = EXCLUDED.case_id,",
                     "    storage_key = EXCLUDED.storage_key,",

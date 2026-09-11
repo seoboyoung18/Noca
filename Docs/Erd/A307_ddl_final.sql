@@ -332,7 +332,7 @@ CREATE TABLE repair_case_image (
     storage_key          VARCHAR(500) NOT NULL,
     blur_key             VARCHAR(500),
     angle_tag            VARCHAR(20),
-    -- DAMAGE는 주 검색 ROI 원본, DAMAGE_PART는 차량·부품 맥락 보조 이미지다.
+    -- DAMAGE_PART는 주 검색 ROI 원본, DAMAGE는 선택적 시각 참고 이미지다.
     image_type           VARCHAR(20)  NOT NULL,
     -- AI-Hub의 물리 split. 서비스 DEV/DEMO/EVAL subset과 다른 축이다.
     source_dataset_split VARCHAR(20),
@@ -351,7 +351,8 @@ CREATE TABLE repair_case_roi_embedding (
     case_image_id    BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id)          ON DELETE CASCADE,
     model_version_id BIGINT       NOT NULL REFERENCES embedding_model_version(model_version_id) ON DELETE RESTRICT,
     -- NULL은 부품 부재가 아니라 이 damage ROI에 직접 연결된 부품 근거가 없다는 뜻이다.
-    -- 사례 견적의 part_code나 다른 damage_part 이미지의 part를 여기에 복사하지 않는다.
+    -- 같은 damage_part 이미지의 직접 part 근거만 저장한다. 사례 견적이나 다른 이미지의
+    -- part_code는 여기에 복사하지 않는다. 근거가 없으면 NULL(vector-only)이다.
     part_code        VARCHAR(50)  REFERENCES part_code(part_code)                               ON DELETE RESTRICT,
     damage_type      VARCHAR(20)  NOT NULL,
     roi_index        SMALLINT     NOT NULL,
@@ -364,7 +365,8 @@ CREATE TABLE repair_case_roi_embedding (
     CONSTRAINT ck_roi_type CHECK (damage_type IN ('Scratched','Separated','Crushed','Breakage'))
 );
 
--- damage_part 이미지에 직접 라벨된 부품 영역. damage ROI와 자동 연결하지 않는다.
+-- damage_part 이미지에 직접 라벨된 부품 영역. 같은 이미지의 damage ROI와 명확히
+-- 매칭할 때만 ROI part_code로 연결한다.
 CREATE TABLE repair_case_image_part_annotation (
     case_image_part_annotation_id BIGSERIAL    PRIMARY KEY,
     case_image_id                 BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id) ON DELETE CASCADE,

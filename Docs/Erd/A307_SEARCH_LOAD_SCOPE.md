@@ -1,4 +1,4 @@
-# damage 중심 검색 데이터 적재 범위
+# damage_part 중심 검색 데이터 적재 범위
 
 기준일: 2026-09-11 · 코드 대조: `develop` `4a0836d`
 
@@ -6,31 +6,34 @@
 
 ## 결정
 
-주 검색 벡터는 `damage` 이미지에서 만든 손상 ROI다. `damage_part`는 같은 사고의
-차량·부품 맥락을 확인하는 보조 이미지로 함께 적재한다. 검색 필터와 스키마의 상세
-계약은 [damage 중심 유사 사례 검색 스키마](A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
+주 검색 벡터는 `damage_part` 이미지에서 만든 손상 ROI다. `damage`는 같은 사고의
+선택적 시각 참고 이미지로만 적재한다. 두 폴더는 category_id 단위로만 연결되므로
+서로의 annotation을 전파하지 않는다. 검색 필터와 스키마의 상세 계약은
+[damage_part 중심 유사 사례 검색 스키마](A307_DAMAGE_SEARCH_SCHEMA.md)를 본다.
 
-`damage_type`은 ROI에 직접 라벨된 값이므로 하드 필터로 쓴다. 부품명은 견적
-수리항목에서 얻는 사례 부품 후보이므로, 기본 검색에서는 후보 축소 또는 재정렬
-신호로 쓴다. 사례 부품을 해당 ROI의 확정 부품으로 저장하지 않는다.
+`damage_type`은 같은 `damage_part` 이미지의 ROI에 직접 라벨된 값이므로 하드 필터로
+쓴다. 같은 이미지의 part annotation과 geometry가 명확히 매칭된 경우에만
+`part_code`를 strict 필터에 사용한다. 견적 수리항목의 부품은 사례 부품 후보이므로
+기본 검색에서는 후보 축소 또는 재정렬 신호로만 쓴다.
 
 ```text
-damage_type 하드 필터
+damage_part ROI의 damage_type 하드 필터
 → 사례 견적 part_code 후보 조건(선택)
-→ damage ROI 벡터 유사도 검색
+→ damage_part ROI 벡터 유사도 검색
 → 사례 부품 후보 근거와 함께 결과 표시
 ```
 
-## 이전 damage_part 정책
+## 기존 damage_part 전용 실행 기록
 
-아래 55,363건·98,617이미지 및 readiness 설명은 2026-09-10의 **기존
-damage_part 전용 정책 기록**이다. 새 damage 코퍼스의 후보 수, 이미지 수,
-TRAIN/VALIDATION/MIXED 판정은 두 이미지 유형을 합쳐 사례 단위로 다시 계산한다.
-기존 수치를 새 적재 범위나 완료 건수로 사용하지 않는다.
+아래 55,363건·98,617이미지 및 readiness 설명은 2026-09-10의 기존 실행 기록이다.
+당시에는 damage_part 전용으로 적재했지만 동일 이미지의 damage-part pairing을
+집계하지 않았다. 기존 수치를 새 적재 범위나 완료 건수로 사용하지 않고, 새
+readiness에서 damage_part 기준 geometry·pairing을 다시 계산한다.
 
 `repair_case`는 `case_search_readiness.csv`의 `is_final_searchable_case=True`인
-사례만 대상으로 한다. 이 판정은 이미지·라벨·견적 조인, 유효 damage geometry,
-표준 부품 코드 확보를 모두 통과한 상태다.
+사례만 대상으로 한다. 이 판정은 이미지·라벨·견적 조인과 유효한
+`damage_part` damage geometry를 확인한 상태다. 표준 부품 코드 확보는 사례 전체의
+필수 조건이 아니며, ROI별 strict/vector-only 상태로 별도 집계한다.
 
 | 구분 | 건수 | 처리 |
 |---|---:|---|
@@ -56,7 +59,7 @@ readiness 단계의 중간 수치는 견적·사례 조인 후보 116,809건이�
 
 ## 검색 이미지 원천 범위
 
-두 이미지 유형을 함께 적재한다.
+두 이미지 유형을 읽되 검색 역할을 분리한다.
 
 ```text
 1.Training/2.라벨링데이터/TL_damage/damage             → DAMAGE
@@ -65,16 +68,17 @@ readiness 단계의 중간 수치는 견적·사례 조인 후보 116,809건이�
 2.Validation/2.라벨링데이터/VL_damage_part/damage_part → DAMAGE_PART
 ```
 
-`damage`는 ROI 임베딩의 주 원천이며 `damage_part`는 주 벡터 검색에서 제외한다.
+`damage_part`는 ROI 임베딩의 주 원천이며 `damage`는 주 벡터 검색에서 제외한다.
 두 유형은 같은 `repair_case`에 연결하되 `repair_case_image.image_type`으로 반드시
-구분한다. `damage_part`의 직접 부품 영역은 보조 이미지 근거로만 보존하며 다른
-`damage` 이미지의 ROI에 part code를 자동 연결하지 않는다.
+구분한다. `damage_part`의 직접 부품 영역은 같은 이미지의 damage ROI와 geometry가
+명확히 매칭될 때만 part_code를 연결하며, `damage` 이미지나 다른 사례 이미지에는
+전파하지 않는다.
 
 readiness·loader·split manifest는 두 유형을 함께 읽되 다음 상태를 별도로 남긴다.
 
-- `has_damage_geometry`: DAMAGE에서 유효 damage polygon과 damage type이 있는가
+- `has_damage_geometry`: DAMAGE_PART에서 유효 damage polygon과 damage type이 있는가
 - `has_estimate_part_candidate`: 견적 수리항목이 표준 part code로 매핑되는가
-- `has_damage_part_context`: DAMAGE_PART의 보조 이미지 또는 직접 part annotation이 있는가
+- `has_damage_part_context`: DAMAGE_PART의 검색 이미지 또는 직접 part annotation이 있는가
 
 `has_damage_geometry=True`이면 부품 후보가 없어도 ROI 적재 후보가 될 수 있다.
 부품 후보 결측은 검색 제외 사유가 아니라 결과에서 표시할 근거 부족 상태다.

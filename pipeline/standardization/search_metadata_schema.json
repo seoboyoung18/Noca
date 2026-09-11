@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bareun-gyeonjeok.example/schemas/search-metadata-1.0.0.json",
+  "$id": "https://bareun-gyeonjeok.example/schemas/search-metadata-1.2.0.json",
   "title": "Bareun Quote search metadata",
-  "description": "One searchable metadata record per damage ROI. This is derived from the raw YOLO output and the standardized inference output; embeddings are stored separately.",
+  "description": "One searchable metadata record per damage_part ROI. This is derived from the raw YOLO output and the standardized inference output; embeddings are stored separately.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -199,6 +199,7 @@
       "additionalProperties": false,
       "required": [
         "part_code",
+        "part_match_status",
         "damage_type",
         "confidence"
       ],
@@ -207,6 +208,18 @@
           "type": [
             "string",
             "null"
+          ]
+        },
+        "part_match_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "PAIRED",
+            "UNPAIRED",
+            "AMBIGUOUS",
+            null
           ]
         },
         "damage_type": {
@@ -248,13 +261,37 @@
       "additionalProperties": false,
       "required": [
         "is_searchable",
-        "exclusion_reason"
+        "searchability",
+        "strict_searchable",
+        "vector_only",
+        "exclusion_reason",
+        "vector_only_reason"
       ],
       "properties": {
         "is_searchable": {
           "type": "boolean"
         },
+        "searchability": {
+          "type": "string",
+          "enum": [
+            "STRICT",
+            "VECTOR_ONLY",
+            "EXCLUDED"
+          ]
+        },
+        "strict_searchable": {
+          "type": "boolean"
+        },
+        "vector_only": {
+          "type": "boolean"
+        },
         "exclusion_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vector_only_reason": {
           "type": [
             "string",
             "null"
