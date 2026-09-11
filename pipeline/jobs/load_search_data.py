@@ -15,6 +15,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +97,72 @@ def numeric(value: Any) -> float | None:
         return float(text) if text else None
     except ValueError:
         return None
+
+
+# repair_case_item DDL의 수치 범위를 DB에 보내기 전에 검사한다. 특히 hq는
+# NUMERIC(6,2)라서 DB에 맡기면 NumericValueOutOfRange가 현재 배치 전체를
+# 오염시키고, 한 항목의 이상값이 전수 적재를 중단시킨다.
+NUMERIC_RANGES = {
+    "hq": (Decimal("-9999.99"), Decimal("9999.99")),
+}
+INTEGER_FIELDS = {
+    "reference_part_price",
+    "part_cost",
+    "paint_material_cost",
+    "labor_cost",
+    "pre_part_cost",
+    "pre_labor_cost",
+    "post_part_cost",
+    "post_labor_cost",
+    "item_total",
+}
+INTEGER_MIN = -(2**31)
+INTEGER_MAX = 2**31 - 1
+
+
+def estimate_item_numeric_violations(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """DB 수치 컬럼 범위를 벗어난 견적 항목 필드를 반환한다.
+
+    이상값은 호출자가 해당 항목만 data_validation_error로 격리한다.
+    값을 NULL이나 임의의 대체값으로 바꾸지 않는다.
+    """
+    violations: list[dict[str, Any]] = []
+    for field, (lower, upper) in NUMERIC_RANGES.items():
+        value = item.get(field)
+        if value is None:
+            continue
+        try:
+            decimal_value = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            violations.append({"field": field, "value": value, "reason": "not_numeric"})
+            continue
+        if not decimal_value.is_finite() or not lower <= decimal_value <= upper:
+            violations.append({
+                "field": field,
+                "value": value,
+                "min": str(lower),
+                "max": str(upper),
+                "reason": "out_of_range",
+            })
+
+    for field in INTEGER_FIELDS:
+        value = item.get(field)
+        if value is None:
+            continue
+        try:
+            integer_value = int(value)
+        except (TypeError, ValueError):
+            violations.append({"field": field, "value": value, "reason": "not_integer"})
+            continue
+        if not INTEGER_MIN <= integer_value <= INTEGER_MAX:
+            violations.append({
+                "field": field,
+                "value": value,
+                "min": INTEGER_MIN,
+                "max": INTEGER_MAX,
+                "reason": "out_of_range",
+            })
+    return violations
 
 
 def image_path_for_label(label_path: Path) -> Path:
@@ -596,6 +663,16 @@ def upsert_estimate_items(cur, case_pk: int, estimate: dict[str, Any], source: s
             errors.append({"type": reason, "ordinal": ordinal,
                            "raw_item_name": raw_item.get("작업항목 및 부품명")})
             continue
+        numeric_violations = estimate_item_numeric_violations(item)
+        if numeric_violations:
+            stats["numeric_out_of_range"] += 1
+            errors.append({
+                "type": "numeric_out_of_range",
+                "ordinal": ordinal,
+                "raw_item_name": raw_item.get("작업항목 및 부품명"),
+                "fields": numeric_violations,
+            })
+            continue
         if item["part_code"]:
             stats["part_mapping_success"] += 1
         else:
@@ -808,37 +885,63 @@ def main() -> None:
         loaded_images: dict[str, int] = defaultdict(int)
         loaded_items = 0
         loaded_part_annotations = 0
+        loaded_case_count = 0
         pairing_counts: dict[str, int] = defaultdict(int)
         item_stats: dict[str, int] = defaultdict(int)
         cases_with_estimate_part_candidate = 0
-        for start in range(0, len(valid), args.commit_every):
-            batch = valid[start : start + args.commit_every]
+        try:
+            for start in range(0, len(valid), args.commit_every):
+                batch = valid[start : start + args.commit_every]
+                with conn.cursor() as cur:
+                    for case_id, estimate_path, car_class, labels in batch:
+                        estimate = json.loads(estimate_path.read_text(encoding="utf-8-sig"))
+                        case_pk = upsert_case(cur, case_id, estimate, car_class)
+                        image_counts = upsert_images(cur, case_pk, labels, dataset_root)
+                        for key, value in image_counts.items():
+                            loaded_images[key] += value
+                        # part annotation과 feature가 동일한 문서 객체를 공유한다.
+                        documents = load_damage_part_documents(labels)
+                        loaded_part_annotations += upsert_damage_part_annotations(
+                            cur, case_pk, labels, dataset_root, documents=documents)
+                        feature_counts = upsert_damage_features(
+                            cur, case_pk, labels, dataset_root,
+                            args.pipeline_version_id, documents=documents)
+                        for key, value in feature_counts.items():
+                            pairing_counts[key] += value
+                        item_count, stats, item_errors = upsert_estimate_items(
+                            cur, case_pk, estimate, source_for_case(case_id), db_mapping)
+                        loaded_items += item_count
+                        for key, value in stats.items():
+                            item_stats[key] += value
+                        if stats.get("part_mapping_success", 0):
+                            cases_with_estimate_part_candidate += 1
+                        for detail in item_errors:
+                            errors.append(("estimate_item_" + detail["type"], case_id, detail))
+                        loaded_case_count += 1
+                conn.commit()
+        except Exception as exc:
+            # DB 예외는 현재 transaction을 오염시킬 수 있으므로 rollback 후
+            # 별도 UPDATE로 batch를 RUNNING에 남기지 않는다.
+            conn.rollback()
+            failure_summary = dict(summary)
+            failure_summary.update({
+                "status": "FAILED",
+                "failure_type": type(exc).__name__,
+                "failure_reason": str(exc),
+                "partial_loaded_case_count": loaded_case_count,
+                "partial_loaded_repair_case_items": loaded_items,
+            })
             with conn.cursor() as cur:
-                for case_id, estimate_path, car_class, labels in batch:
-                    estimate = json.loads(estimate_path.read_text(encoding="utf-8-sig"))
-                    case_pk = upsert_case(cur, case_id, estimate, car_class)
-                    image_counts = upsert_images(cur, case_pk, labels, dataset_root)
-                    for key, value in image_counts.items():
-                        loaded_images[key] += value
-                    # part annotation과 feature가 동일한 문서 객체를 공유한다.
-                    documents = load_damage_part_documents(labels)
-                    loaded_part_annotations += upsert_damage_part_annotations(
-                        cur, case_pk, labels, dataset_root, documents=documents)
-                    feature_counts = upsert_damage_features(
-                        cur, case_pk, labels, dataset_root,
-                        args.pipeline_version_id, documents=documents)
-                    for key, value in feature_counts.items():
-                        pairing_counts[key] += value
-                    item_count, stats, item_errors = upsert_estimate_items(
-                        cur, case_pk, estimate, source_for_case(case_id), db_mapping)
-                    loaded_items += item_count
-                    for key, value in stats.items():
-                        item_stats[key] += value
-                    if stats.get("part_mapping_success", 0):
-                        cases_with_estimate_part_candidate += 1
-                    for detail in item_errors:
-                        errors.append(("estimate_item_" + detail["type"], case_id, detail))
+                cur.execute(
+                    """
+                    UPDATE batch_job_execution
+                       SET status='FAILED', completed_at=now(), summary=%s::jsonb
+                     WHERE batch_job_execution_id=%s
+                    """,
+                    (json.dumps(failure_summary, ensure_ascii=False), execution_id),
+                )
             conn.commit()
+            raise
 
         summary["loaded_cases"] = len(valid)
         summary["loaded_images"] = dict(sorted(loaded_images.items()))

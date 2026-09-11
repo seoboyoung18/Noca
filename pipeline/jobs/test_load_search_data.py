@@ -42,6 +42,21 @@ class SearchDataLoaderTest(unittest.TestCase):
                 return (900 + len(self.calls),)
             return None
 
+    def test_estimate_item_numeric_range_quarantines_hq_overflow(self):
+        from load_search_data import estimate_item_numeric_violations
+
+        violations = estimate_item_numeric_violations({"hq": 31818})
+
+        self.assertEqual(len(violations), 1)
+        self.assertEqual(violations[0]["field"], "hq")
+        self.assertEqual(violations[0]["reason"], "out_of_range")
+
+    def test_estimate_item_numeric_range_accepts_hq_boundary(self):
+        from load_search_data import estimate_item_numeric_violations
+
+        self.assertEqual(estimate_item_numeric_violations({"hq": 9999.99}), [])
+        self.assertEqual(estimate_item_numeric_violations({"hq": -9999.99}), [])
+
     def test_load_case_manifest_reads_case_ids(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cases.csv"
