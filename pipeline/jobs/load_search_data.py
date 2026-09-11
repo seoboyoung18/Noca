@@ -89,6 +89,15 @@ def money(value: Any) -> int | None:
         return None
 
 
+def numeric(value: Any) -> float | None:
+    """PostgreSQL numeric 입력용 값. 원천의 빈 문자열은 NULL로 보낸다."""
+    text = str(value or "").replace(",", "").replace("%", "").strip()
+    try:
+        return float(text) if text else None
+    except ValueError:
+        return None
+
+
 def image_path_for_label(label_path: Path) -> Path:
     parts = list(label_path.parts)
     marker = "2.라벨링데이터"
@@ -168,6 +177,25 @@ def build_label_index(subset_root: Path, selected: set[str]) -> dict[str, list[P
                 if match and match.group("case") in selected:
                     index[match.group("case")].append(Path(entry.path))
     return index
+
+
+def filter_search_labels(
+    label_paths: list[Path],
+    *,
+    include_damage_reference: bool = False,
+) -> list[Path]:
+    """기본 검색 적재는 공식 corpus인 DAMAGE_PART만 사용한다.
+
+    DAMAGE는 사진 단위 짝이 없는 선택적 참고 이미지다. 필요할 때만 명시적
+    ``--include-damage-reference``로 함께 적재하며, 그 경우에도 ROI feature는
+    DAMAGE_PART에서만 만든다.
+    """
+    if include_damage_reference:
+        return label_paths
+    return [
+        label_path for label_path in label_paths
+        if image_metadata_for_label(label_path)[0] == "DAMAGE_PART"
+    ]
 
 
 def image_metadata_for_label(label_path: Path) -> tuple[str, str]:
@@ -335,7 +363,9 @@ def upsert_damage_part_annotations(
         image_type, _ = image_metadata_for_label(label_path)
         if image_type != "DAMAGE_PART":
             continue
-        source_image_ref = image_path_for_label(label_path).relative_to(dataset_root).as_posix()
+        source_image_ref = (
+            image_path_for_label(label_path) / (label_path.stem + ".jpg")
+        ).relative_to(dataset_root).as_posix()
         cur.execute("SELECT case_image_id FROM repair_case_image WHERE source_image_ref=%s", (source_image_ref,))
         row = cur.fetchone()
         if not row:
@@ -450,7 +480,9 @@ def upsert_damage_features(
 
         document = _document_for_label(label_path, documents)
         image_size = _image_size(document)
-        source_image_ref = image_path_for_label(label_path).relative_to(dataset_root).as_posix()
+        source_image_ref = (
+            image_path_for_label(label_path) / (label_path.stem + ".jpg")
+        ).relative_to(dataset_root).as_posix()
         cur.execute(
             """
             SELECT case_image_id
@@ -589,7 +621,7 @@ def upsert_estimate_items(cur, case_pk: int, estimate: dict[str, Any], source: s
             """,
             (case_pk, item["source_item_key"], item["part_code"], item["raw_item_name"],
              item["line_type"], item["work_type"], item["work_code"], item["assessment_status"],
-             item["hq"], item["reference_part_price"], item["part_cost"], item["paint_material_cost"],
+             numeric(item["hq"]), item["reference_part_price"], item["part_cost"], item["paint_material_cost"],
              item["labor_cost"], item["pre_part_cost"], item["pre_labor_cost"],
              item["post_part_cost"], item["post_labor_cost"], item["item_total"]),
         )
@@ -632,6 +664,8 @@ def main() -> None:
     parser.add_argument("--dsn", help="PostgreSQL DSN")
     parser.add_argument("--pipeline-version-id", type=int, required=True,
                         help="feature_pipeline_version.pipeline_version_id")
+    parser.add_argument("--include-damage-reference", action="store_true",
+                        help="선택적 DAMAGE 참고 이미지를 함께 적재")
     parser.add_argument("--source", choices=("all", "AIHUB_AS", "AIHUB_SC"), default="all")
     parser.add_argument("--commit-every", type=int, default=500)
     parser.add_argument("--limit", type=int)
@@ -651,7 +685,11 @@ def main() -> None:
     mapping_rows = load_mapping(args.mapping_workbook.resolve()) if args.mapping_workbook else []
     summary = {
         "policy": "damage_part_roi_with_same_image_part_pairing",
-        "image_source_scope": "damage_part_search__damage_optional_reference",
+        "image_source_scope": (
+            "damage_part_search__damage_optional_reference"
+            if args.include_damage_reference else "damage_part_search_only"
+        ),
+        "include_damage_reference": args.include_damage_reference,
         "pipeline_version_id": args.pipeline_version_id,
         "readiness_selected": len(selected),
         "mapping_rows": len(mapping_rows) if args.mapping_workbook else "seed_sql",
@@ -662,7 +700,10 @@ def main() -> None:
     errors: list[tuple[str, str, dict[str, Any]]] = []
     valid: list[tuple[str, Path, str, list[Path]]] = []
     for case_id in sorted(selected):
-        labels = label_index.get(case_id, [])
+        labels = filter_search_labels(
+            label_index.get(case_id, []),
+            include_damage_reference=args.include_damage_reference,
+        )
         estimate_path = estimate_dir / f"{case_id}.json"
         if not labels:
             errors.append(("missing_image", case_id, {"reason": "readiness case에 라벨 파일이 없습니다"}))

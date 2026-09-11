@@ -8,6 +8,7 @@ from load_search_data import (
     build_label_index,
     class_from_labels,
     direct_damage_part_annotations,
+    filter_search_labels,
     image_metadata_for_label,
     load_case_manifest,
     load_damage_part_documents,
@@ -76,6 +77,17 @@ class SearchDataLoaderTest(unittest.TestCase):
             self.assertEqual(
                 {"damage" in path.parts for path in index["as-0000001"]}, {True, False}
             )
+
+    def test_default_search_labels_are_damage_part_only(self):
+        labels = [
+            Path("1.Training/2.라벨링데이터/TL_damage/damage/x_as-0000001.json"),
+            Path("1.Training/2.라벨링데이터/TL_damage_part/damage_part/x_as-0000001.json"),
+        ]
+        self.assertEqual(
+            filter_search_labels(labels),
+            [labels[1]],
+        )
+        self.assertEqual(filter_search_labels(labels, include_damage_reference=True), labels)
 
     def test_repair_case_image_key(self):
         self.assertEqual(
