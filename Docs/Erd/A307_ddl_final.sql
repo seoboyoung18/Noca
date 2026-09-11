@@ -345,24 +345,48 @@ CREATE TABLE repair_case_image (
                                             OR source_dataset_split IN ('TRAIN', 'VALIDATION'))
 );
 
--- ─── 9. 임베딩 (고속 증가) ───────────────────────────────────
+-- ─── 9. 검색 feature·임베딩 (고속 증가) ──────────────────────
+CREATE TABLE feature_pipeline_version (
+    pipeline_version_id BIGSERIAL   PRIMARY KEY,
+    pipeline_name       VARCHAR(100) NOT NULL,
+    version             VARCHAR(50)  NOT NULL,
+    pair_rule_version   VARCHAR(50)  NOT NULL,
+    pair_threshold      NUMERIC(3,2) NOT NULL,
+    roi_padding_ratio   NUMERIC(3,2),
+    params              JSONB,
+    is_active           BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uk_fpv UNIQUE (pipeline_name, version)
+);
+
+CREATE TABLE repair_case_damage_feature (
+    damage_feature_id   BIGSERIAL   PRIMARY KEY,
+    case_image_id       BIGINT      NOT NULL REFERENCES repair_case_image(case_image_id) ON DELETE CASCADE,
+    pipeline_version_id BIGINT      NOT NULL REFERENCES feature_pipeline_version(pipeline_version_id) ON DELETE RESTRICT,
+    roi_index            SMALLINT    NOT NULL,
+    damage_type          VARCHAR(20) NOT NULL,
+    damage_polygon       JSONB       NOT NULL,
+    roi_box              JSONB       NOT NULL,
+    part_code            VARCHAR(50) REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    pair_status          VARCHAR(20) NOT NULL,
+    quality_status       VARCHAR(20) NOT NULL,
+    confidence           NUMERIC(5,4),
+    is_searchable        BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rcdf UNIQUE (case_image_id, pipeline_version_id, roi_index),
+    CONSTRAINT ck_rcdf_type CHECK (damage_type IN ('SCRATCHED','SEPARATED','CRUSHED','BREAKAGE')),
+    CONSTRAINT ck_rcdf_pair CHECK (pair_status IN ('PAIRED','UNPAIRED','AMBIGUOUS'))
+);
+
 CREATE TABLE repair_case_roi_embedding (
     roi_embedding_id BIGSERIAL    PRIMARY KEY,
     case_image_id    BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id)          ON DELETE CASCADE,
     model_version_id BIGINT       NOT NULL REFERENCES embedding_model_version(model_version_id) ON DELETE RESTRICT,
-    -- NULL은 부품 부재가 아니라 이 damage ROI에 직접 연결된 부품 근거가 없다는 뜻이다.
-    -- 같은 damage_part 이미지의 직접 part 근거만 저장한다. 사례 견적이나 다른 이미지의
-    -- part_code는 여기에 복사하지 않는다. 근거가 없으면 NULL(vector-only)이다.
-    part_code        VARCHAR(50)  REFERENCES part_code(part_code)                               ON DELETE RESTRICT,
-    damage_type      VARCHAR(20)  NOT NULL,
-    roi_index        SMALLINT     NOT NULL,
-    damage_polygon   JSONB        NOT NULL,
+    damage_feature_id BIGINT      NOT NULL REFERENCES repair_case_damage_feature(damage_feature_id) ON DELETE CASCADE,
     confidence       NUMERIC(5,4),
     embedding        vector(768)  NOT NULL,
-    is_searchable    BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT uk_roi      UNIQUE (case_image_id, model_version_id, roi_index),
-    CONSTRAINT ck_roi_type CHECK (damage_type IN ('Scratched','Separated','Crushed','Breakage'))
+    CONSTRAINT uk_roi UNIQUE (damage_feature_id, model_version_id)
 );
 
 -- damage_part 이미지에 직접 라벨된 부품 영역. 같은 이미지의 damage ROI와 명확히
@@ -586,12 +610,16 @@ CREATE INDEX ix_rc_class          ON repair_case (car_class);
 CREATE INDEX ix_rc_model          ON repair_case (model_id) WHERE model_id IS NOT NULL;
 CREATE INDEX ix_rcimg_case        ON repair_case_image (case_id);
 
--- ── 임베딩 ──
-CREATE INDEX ix_roi_filter        ON repair_case_roi_embedding (part_code, damage_type)
+-- ── 검색 feature·임베딩 ──
+CREATE INDEX ix_rcdf_damage       ON repair_case_damage_feature (damage_type, pipeline_version_id)
     WHERE is_searchable;
--- damage_type은 ROI 직접 라벨이므로 부품 미확정 ROI도 먼저 좁힐 수 있다.
-CREATE INDEX ix_roi_damage_filter ON repair_case_roi_embedding (damage_type, model_version_id)
+CREATE INDEX ix_rcdf_part         ON repair_case_damage_feature (part_code, damage_type)
     WHERE is_searchable;
+CREATE INDEX ix_rcdf_image        ON repair_case_damage_feature (case_image_id);
+CREATE UNIQUE INDEX ux_fpv_active ON feature_pipeline_version (is_active)
+    WHERE is_active;
+CREATE UNIQUE INDEX ux_emv_active ON embedding_model_version (is_active)
+    WHERE is_active;
 -- 주의: 대량 적재 전에 만들면 INSERT 가 느려집니다 (실측 11.4만건 65초).
 --       초기 backfill 은 인덱스 없이 적재한 뒤 이 문을 실행하세요.
 CREATE INDEX ix_roi_hnsw          ON repair_case_roi_embedding
