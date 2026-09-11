@@ -2,33 +2,22 @@
 
 > **대상 백로그** `[BE] 사고 이력 목록 조회 API 구현`(S15P21A307-225) · 상위 스토리 `[BE] 회원 사고 이력 조회 기능 구현`(224)
 > **연관 FE 백로그** `[FE] 마이페이지 사고 이력 목록 UI 및 상세 진입 연동 구현`(S15P21A307-230)
-> **서버 상태** 이 브랜치(`feature/S15P21A307-225-accident-query`)에서 구현. `develop` 머지 후 사용 가능
-> **작성 기준** `origin/develop` `41b87e1` 기준 · 2026-09-08 · H2 테스트 218개 통과
+> **서버 상태** **`develop` 머지 완료 · 로그인 연동 완료.** 이제 실제로 호출된다
+> **작성 기준** 2026-09-08 작성 (`origin/develop` `41b87e1`) · **2026-09-11 갱신** — `origin/develop` `0ffb7c0` 기준
+> **⚠️ 이 문서는 목록 응답의 추가 7필드(`status`·`imageCount`·`thumbnailUrl`·`thumbnailExpiresAt`·`estimatedCost*`)를 다루지 않는다.** 그 필드들은 이 문서 작성 뒤에 들어왔다. **정본은 `김재원 담당 백엔드 API — FE 인수인계.md` §5-3 이다.**
 > **근거** API 명세서 CSV 27·37행 · `A307_ddl_final.sql` · 와이어프레임 `마이페이지_견적이력.png` · 코드 직접 확인
 
 ---
 
 ## ⚠️ 시작하기 전에 — 두 가지를 먼저 알아야 한다
 
-### 1. 지금은 로그인해도 **500**이 난다 (이 API의 결함이 아니다)
+### 1. ~~지금은 로그인해도 **500**이 난다~~ → **해소됐다** (2026-09-11)
 
-`develop`에 소셜 로그인이 들어와 있지만 **회원 ID를 꺼내는 지점이 아직 스텁**이다.
+초판에는 `CurrentMemberProvider`가 스텁이라 **정상 로그인 세션으로 호출해도 500**이 난다고 적혀 있었다.
 
-```java
-// common/security/CurrentMemberProvider.java — develop 현재 상태
-public Long currentMemberId() {
-    throw new UnsupportedOperationException("인증 연동 전 — 세션 로그인 구현 후 교체 (S15P21A307-auth)");
-}
-```
+`S15P21A307-422`가 그 클래스를 교체해 지금은 `SecurityContextHolder`의 `UserPrincipal`에서 `memberId`를 꺼낸다. **`estimate-validations`·`vehicles`·`accidents`·`cost-comparison` 모두 정상 동작한다.** 예고한 대로 **API 계약은 하나도 바뀌지 않았다** — 아래 응답 예시가 그대로 맞다.
 
-`AccidentController`의 모든 핸들러가 첫 줄에서 이 메서드를 부르므로, **정상 로그인 세션으로 호출해도** 이렇게 온다.
-
-```json
-HTTP 500
-{ "error": { "code": "INTERNAL_ERROR", "message": "서버 내부 오류가 발생했습니다." } }
-```
-
-`estimate-validations`·`vehicles`·`accidents` 컨트롤러가 모두 같은 상태다. **이 클래스 본문만 교체되면 API 계약을 하나도 바꾸지 않고 그대로 동작한다.** 아래 응답 예시는 그 교체 이후를 전제로 한다.
+로그인하지 않은 요청은 **401**(본문 없음)이다. 500이 아니다.
 
 ### 2. ★ 이 API만으로는 `마이페이지_견적이력` 화면을 완성할 수 없다
 
@@ -36,10 +25,10 @@ HTTP 500
 
 | 와이어프레임 항목 | 이 API가 주는가 | 설명 |
 |---|:---:|---|
-| **사진**(썸네일) | ❌ | 이미지가 응답에 없다. `variant='BLURRED'` 생성 기능이 아직 없어 지금 내보내면 번호판·얼굴이 그대로 나간다 → 4-1 |
+| **사진**(썸네일) | ✅ **(갱신)** | `thumbnailUrl` · `thumbnailExpiresAt` 이 추가됐다. `THUMBNAIL` variant 에 presigned GET 을 발급하며 **원본은 나가지 않는다.** 이 문서 아래 4-1 의 "없다" 는 낡은 서술이다 → **정본은 `김재원 담당 백엔드 API — FE 인수인계.md` §5-3** |
 | **차량** (`현대 아반떼AD`) | ✅ | `manufacturer` + `modelName` 을 이어 붙이면 된다 |
 | **분석일** (`2026.08.24`) | ⚠️ **다른 값** | 응답의 `createdAt` 은 **사고 접수 시각**이다. AI 분석일이 아니다 → 4-2 |
-| **예상 수리비** (`48만 ~ 61만원`) | ❌ | 견적 요약이 응답에 없다 → 4-1 |
+| **예상 수리비** (`48만 ~ 61만원`) | ⚠️ **필드만 있다** | `estimatedCostMin`·`Median`·`Max` 가 추가됐으나 **값이 항상 `null`** 이다(AI 견적 생성 경로가 아직 없다). **"0원" 으로 그리지 말 것** → 같은 §5-3 |
 | **총 N건** | ✅ | `totalElements` 를 쓴다. **배열 길이가 아니다** — 배열은 현재 페이지 분량이다 |
 | **페이지네이션** (1, 2) | ✅ | `page`·`size` 파라미터와 `totalPages`·`hasNext` 를 준다 → 3-4 |
 | 행 클릭 → 상세 이동 | ✅ | `accidentId` 로 `GET /api/accidents/{accidentId}` 를 부르면 된다 |

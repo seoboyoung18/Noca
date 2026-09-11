@@ -1,10 +1,11 @@
 # 관리자 마스터·규칙 관리 API — FE 인수인계
 
 > **독자** — 관리자 화면을 만드는 프론트엔드 담당자. **백엔드 코드를 열지 않고** 이 문서만으로 붙일 수 있게 썼습니다.
-> **작성 기준** — `develop` `25dccdd` 위의 로컬 작업본. 2026-09-10 갱신(부품명 매핑 계약 변경 · `changeReason` · 상태 변경 멱등성).
+> **작성 기준** — 2026-09-10 작성 (`develop` `25dccdd` 위의 로컬 작업본, 부품명 매핑 계약 변경 · `changeReason` · 상태 변경 멱등성) · **2026-09-11 갱신** — `origin/develop` **`0ffb7c0`** 에 머지 완료(`5278d21`).
 > **이 문서의 JSON 은 실제 DTO 에서 옮긴 것입니다.** 추측한 필드가 없습니다.
 >
-> ⚠️ **아직 커밋되지 않았습니다.** 로컬 작업본 기준이고, 운영 DB 마이그레이션도 적용 전입니다(10장).
+> ⚠️ **코드는 머지됐지만 운영 DB 마이그레이션은 적용 전입니다**(10장). `Docs/Erd/migrations/2026-09-10-admin-master-and-rules.sql` 을 **코드 배포보다 먼저** 적용해야 합니다 — `ddl-auto=validate` 라 순서가 바뀌면 서버가 기동하지 않습니다.
+> ⚠️ **이 문서에 빠진 엔드포인트가 둘 있습니다** — `GET /api/admin/rules/overview` · `GET /api/admin/rules/history`. 계약은 `김재원 담당 백엔드 API — FE 인수인계.md` **§9-3** 에 있습니다.
 
 ---
 
@@ -726,4 +727,4 @@ GET /api/admin/audit-logs?from=&to=&actorMemberId=&actionType=&targetType=&targe
 
 ---
 
-*작성 2026-09-10 · 브랜치 `feature/S15P21A307-rule-management` 로컬 작업본 기준 · 커밋 전*
+*작성 2026-09-10 · 2026-09-11 갱신 — `origin/develop` `0ffb7c0` 머지 완료(`5278d21`, 브랜치 `feature/S15P21A307-362-be-admin-master-and-rules`). 계약 변경 없음*
