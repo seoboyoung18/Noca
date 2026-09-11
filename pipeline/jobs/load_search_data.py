@@ -22,7 +22,18 @@ PIPELINE_ROOT = Path(__file__).resolve().parents[1]
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
-from standardization import PARTS, normalize_estimate_item
+from standardization import (
+    PAD_RATIO,
+    PARTS,
+    QUALITY_GOOD,
+    QUALITY_PARTIAL_PART,
+    feature_quality,
+    normalize_estimate_item,
+    part_clipped,
+    roi_box,
+    roi_quality,
+    source_bbox,
+)
 from standardization.damage_part_pairing import damage_part_roi_rows
 
 ESTIMATE_REL = Path("1.Training") / "1.원천데이터_230126_add" / "TS_99. 붙임_견적서"
@@ -264,14 +275,36 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
     return loaded
 
 
-def damage_part_pairing_counts(label_paths: list[Path]) -> dict[str, int]:
+def _document_for_label(
+    label_path: Path,
+    documents: dict[Path, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if documents is not None and label_path in documents:
+        return documents[label_path]
+    return json.loads(label_path.read_text(encoding="utf-8-sig"))
+
+
+def load_damage_part_documents(label_paths: list[Path]) -> dict[Path, dict[str, Any]]:
+    """한 case의 DAMAGE_PART label을 한 번만 읽어 후속 적재 경로가 공유한다."""
+    documents: dict[Path, dict[str, Any]] = {}
+    for label_path in label_paths:
+        image_type, _ = image_metadata_for_label(label_path)
+        if image_type == "DAMAGE_PART":
+            documents[label_path] = _document_for_label(label_path)
+    return documents
+
+
+def damage_part_pairing_counts(
+    label_paths: list[Path],
+    documents: dict[Path, dict[str, Any]] | None = None,
+) -> dict[str, int]:
     """정식 검색 이미지의 ROI·part pairing 상태를 적재 summary로 집계한다."""
     counts: dict[str, int] = defaultdict(int)
     for label_path in label_paths:
         image_type, _ = image_metadata_for_label(label_path)
         if image_type != "DAMAGE_PART":
             continue
-        document = json.loads(label_path.read_text(encoding="utf-8-sig"))
+        document = _document_for_label(label_path, documents)
         counts["damage_part_image_count"] += 1
         for row in damage_part_roi_rows(document):
             counts["damage_part_damage_count"] += 1
@@ -288,7 +321,14 @@ def damage_part_pairing_counts(label_paths: list[Path]) -> dict[str, int]:
     return dict(counts)
 
 
-def upsert_damage_part_annotations(cur, case_pk: int, label_paths: list[Path], dataset_root: Path) -> int:
+def upsert_damage_part_annotations(
+    cur,
+    case_pk: int,
+    label_paths: list[Path],
+    dataset_root: Path,
+    *,
+    documents: dict[Path, dict[str, Any]] | None = None,
+) -> int:
     """DAMAGE_PART의 직접 part 영역을 보존하되 DAMAGE ROI와 연결하지 않는다."""
     loaded = 0
     for label_path in label_paths:
@@ -300,7 +340,9 @@ def upsert_damage_part_annotations(cur, case_pk: int, label_paths: list[Path], d
         row = cur.fetchone()
         if not row:
             raise ValueError(f"damage_part image is not loaded: {label_path}")
-        for part_code, source_annotation_ref, polygon in direct_damage_part_annotations(label_path):
+        for part_code, source_annotation_ref, polygon in direct_damage_part_annotations(
+            label_path, _document_for_label(label_path, documents)
+        ):
             cur.execute(
                 """
                 INSERT INTO repair_case_image_part_annotation(
@@ -315,13 +357,16 @@ def upsert_damage_part_annotations(cur, case_pk: int, label_paths: list[Path], d
     return loaded
 
 
-def direct_damage_part_annotations(label_path: Path) -> list[tuple[str, str, Any]]:
+def direct_damage_part_annotations(
+    label_path: Path,
+    document: dict[str, Any] | None = None,
+) -> list[tuple[str, str, Any]]:
     """보조 이미지의 직접 part 라벨만 추출한다. DAMAGE ROI에는 빈 목록을 돌려준다."""
     image_type, _ = image_metadata_for_label(label_path)
     if image_type != "DAMAGE_PART":
         return []
     part_by_raw = {values[0].casefold(): code for code, values in PARTS.items()}
-    document = json.loads(label_path.read_text(encoding="utf-8-sig"))
+    document = document or _document_for_label(label_path)
     rows: list[tuple[str, str, Any]] = []
     for ordinal, annotation in enumerate(document.get("annotations") or [], start=1):
         part_code = part_by_raw.get(str(annotation.get("part") or "").strip().casefold())
@@ -329,6 +374,174 @@ def direct_damage_part_annotations(label_path: Path) -> list[tuple[str, str, Any
             rows.append((str(annotation.get("id") or ordinal), part_code,
                          annotation.get("segmentation") or annotation.get("bbox")))
     return [(part_code, source_ref, polygon) for source_ref, part_code, polygon in rows]
+
+
+def _image_size(document: dict[str, Any]) -> tuple[int, int]:
+    image = document.get("images") or {}
+    if isinstance(image, list):
+        image = image[0] if image else {}
+    try:
+        width, height = int(image["width"]), int(image["height"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("damage_part label의 images에 width/height가 없습니다") from exc
+    if width <= 0 or height <= 0:
+        raise ValueError(f"damage_part label의 이미지 크기가 유효하지 않습니다: {(width, height)}")
+    return width, height
+
+
+def _confidence(annotation: dict[str, Any]) -> float | None:
+    """원천 confidence가 있을 때만 보존한다. level(심각도)은 읽지 않는다."""
+    value = annotation.get("confidence")
+    if value is None:
+        value = annotation.get("damage_confidence")
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _roi_box_payload(
+    box: tuple[int, int, int, int],
+    effective_padding: tuple[float, float],
+    clipped: bool,
+) -> dict[str, Any]:
+    x0, y0, x1, y1 = box
+    return {
+        "coordinate_system": "PIXEL_XY_TOP_LEFT",
+        "format": "XYWH",
+        "x": x0,
+        "y": y0,
+        "width": x1 - x0,
+        "height": y1 - y0,
+        "padding_ratio": PAD_RATIO,
+        "effective_padding": [round(value, 4) for value in effective_padding],
+        "clipped": clipped,
+    }
+
+
+def upsert_damage_features(
+    cur,
+    case_pk: int,
+    label_paths: list[Path],
+    dataset_root: Path,
+    pipeline_version_id: int,
+    *,
+    documents: dict[Path, dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    """DAMAGE_PART의 same-image damage ROI feature를 멱등 적재한다.
+
+    roi_index는 라벨 JSON의 damage annotation을 **원본 배열 순서로 0부터 센 값**이다.
+    품질·유효성으로 제외된 ROI도 번호를 소비한다. 따라서 앞의 annotation이
+    INVALID이거나 damage가 아니어도 뒤의 ROI index를 compact하지 않는다. B-5는
+    (source_image_ref, roi_index)로 feature와 vector를 조인하므로 이 규칙이 바뀌면
+    에러 없이 다른 ROI에 붙는 조용한 데이터 오류가 발생한다.
+
+    ROI 생성과 part 연결은 standardization.roi 및 damage_part_pairing의 결과를
+    사용한다. 견적 항목이나 다른 이미지의 annotation은 이 함수에서 참조하지 않는다.
+    """
+    if pipeline_version_id is None or str(pipeline_version_id).strip() == "":
+        raise ValueError("pipeline_version_id is required and must be non-empty")
+
+    counts: dict[str, int] = defaultdict(int)
+    for label_path in sorted(label_paths):
+        image_type, _ = image_metadata_for_label(label_path)
+        if image_type != "DAMAGE_PART":
+            continue
+
+        document = _document_for_label(label_path, documents)
+        image_size = _image_size(document)
+        source_image_ref = image_path_for_label(label_path).relative_to(dataset_root).as_posix()
+        cur.execute(
+            """
+            SELECT case_image_id
+              FROM repair_case_image
+             WHERE case_id=%s AND source_image_ref=%s
+            """,
+            (case_pk, source_image_ref),
+        )
+        image_row = cur.fetchone()
+        if not image_row:
+            raise ValueError(f"damage_part image is not loaded: {label_path}")
+        case_image_pk = image_row[0]
+
+        for row in damage_part_roi_rows(document):
+            damage_annotation = row.get("damage_annotation") or {}
+            bbox = tuple(row["damage_geometry"])
+            confidence = _confidence(damage_annotation)
+            roi_status = roi_quality(bbox, confidence=confidence)
+            box, effective_padding, clipped, _ = roi_box(
+                bbox, image_size, pad_ratio=PAD_RATIO
+            )
+            matched_part = row.get("part_annotation")
+            part_is_clipped = None
+            if matched_part is not None:
+                try:
+                    part_is_clipped = part_clipped(
+                        source_bbox(matched_part), image_size
+                    )
+                except (TypeError, ValueError):
+                    part_is_clipped = None
+            quality_status = feature_quality(roi_status, part_is_clipped)
+
+            # LOW_CONFIDENCE는 search_metadata.py와 같은 정책으로 feature는
+            # 보존하되 벡터 검색 후보에서는 제외한다. PAIRED 여부와는 별개다.
+            is_searchable = quality_status in {QUALITY_GOOD, QUALITY_PARTIAL_PART}
+            damage_polygon = row.get("damage_polygon")
+            if damage_polygon is None:
+                raise ValueError(f"damage polygon이 없습니다: {label_path}#{row['roi_index']}")
+
+            cur.execute(
+                """
+                INSERT INTO repair_case_damage_feature(
+                    case_image_id, pipeline_version_id, roi_index, damage_type,
+                    damage_polygon, roi_box, part_code, pair_status, quality_status,
+                    confidence, is_searchable)
+                VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s)
+                ON CONFLICT (case_image_id, pipeline_version_id, roi_index) DO UPDATE SET
+                    damage_type=EXCLUDED.damage_type,
+                    damage_polygon=EXCLUDED.damage_polygon,
+                    roi_box=EXCLUDED.roi_box,
+                    part_code=EXCLUDED.part_code,
+                    pair_status=EXCLUDED.pair_status,
+                    quality_status=EXCLUDED.quality_status,
+                    confidence=EXCLUDED.confidence,
+                    is_searchable=EXCLUDED.is_searchable
+                RETURNING damage_feature_id
+                """,
+                (
+                    case_image_pk,
+                    pipeline_version_id,
+                    row["roi_index"],
+                    row["damage_type"],
+                    json.dumps(damage_polygon, ensure_ascii=False),
+                    json.dumps(
+                        _roi_box_payload(box, effective_padding, clipped),
+                        ensure_ascii=False,
+                    ),
+                    row["part_code"],
+                    row["match_status"],
+                    quality_status,
+                    confidence,
+                    is_searchable,
+                ),
+            )
+            cur.fetchone()
+            counts["damage_feature_count"] += 1
+            counts["damage_part_damage_count"] += 1
+            status = row["match_status"]
+            if status == "PAIRED":
+                counts["paired_roi_count"] += 1
+                counts["strict_searchable_roi_count"] += 1
+            elif status == "AMBIGUOUS":
+                counts["ambiguous_part_match_count"] += 1
+                counts["vector_only_roi_count"] += 1
+            else:
+                counts["unpaired_damage_count"] += 1
+                counts["missing_part_count"] += 1
+                counts["vector_only_roi_count"] += 1
+
+        counts["damage_part_image_count"] += 1
+    return dict(counts)
 
 
 def upsert_estimate_items(cur, case_pk: int, estimate: dict[str, Any], source: str,
@@ -417,6 +630,8 @@ def main() -> None:
                         default=Path(__file__).resolve().parents[2] / "Docs" / "Erd" / "A307_part_code_seed.sql")
     parser.add_argument("--dataset-root", type=Path)
     parser.add_argument("--dsn", help="PostgreSQL DSN")
+    parser.add_argument("--pipeline-version-id", type=int, required=True,
+                        help="feature_pipeline_version.pipeline_version_id")
     parser.add_argument("--source", choices=("all", "AIHUB_AS", "AIHUB_SC"), default="all")
     parser.add_argument("--commit-every", type=int, default=500)
     parser.add_argument("--limit", type=int)
@@ -437,6 +652,7 @@ def main() -> None:
     summary = {
         "policy": "damage_part_roi_with_same_image_part_pairing",
         "image_source_scope": "damage_part_search__damage_optional_reference",
+        "pipeline_version_id": args.pipeline_version_id,
         "readiness_selected": len(selected),
         "mapping_rows": len(mapping_rows) if args.mapping_workbook else "seed_sql",
         "raw_estimate_scope": "separate_aihub_estimate_raw_all_125006",
@@ -478,10 +694,14 @@ def main() -> None:
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
             errors.append(("case_input_error", case_id, {"reason": str(exc)}))
 
+    # 실제 적재에서는 아래 feature upsert가 pairing summary의 단일 산출 경로다.
+    # dry-run만 파일을 읽어 요약을 미리 계산한다. 실제 적재 전에 같은 label을
+    # preflight에서 읽고 다시 읽지 않도록 한다.
     preflight_pairing: dict[str, int] = defaultdict(int)
-    for _, _, _, labels in valid:
-        for key, value in damage_part_pairing_counts(labels).items():
-            preflight_pairing[key] += value
+    if args.dry_run:
+        for _, _, _, labels in valid:
+            for key, value in damage_part_pairing_counts(labels).items():
+                preflight_pairing[key] += value
 
     summary.update({
         "valid_case_count": len(valid),
@@ -559,10 +779,15 @@ def main() -> None:
                     image_counts = upsert_images(cur, case_pk, labels, dataset_root)
                     for key, value in image_counts.items():
                         loaded_images[key] += value
-                    for key, value in damage_part_pairing_counts(labels).items():
-                        pairing_counts[key] += value
+                    # part annotation과 feature가 동일한 문서 객체를 공유한다.
+                    documents = load_damage_part_documents(labels)
                     loaded_part_annotations += upsert_damage_part_annotations(
-                        cur, case_pk, labels, dataset_root)
+                        cur, case_pk, labels, dataset_root, documents=documents)
+                    feature_counts = upsert_damage_features(
+                        cur, case_pk, labels, dataset_root,
+                        args.pipeline_version_id, documents=documents)
+                    for key, value in feature_counts.items():
+                        pairing_counts[key] += value
                     item_count, stats, item_errors = upsert_estimate_items(
                         cur, case_pk, estimate, source_for_case(case_id), db_mapping)
                     loaded_items += item_count
@@ -578,6 +803,7 @@ def main() -> None:
         summary["loaded_images"] = dict(sorted(loaded_images.items()))
         summary["loaded_repair_case_items"] = loaded_items
         summary["loaded_damage_part_annotations"] = loaded_part_annotations
+        summary["loaded_damage_features"] = pairing_counts.get("damage_feature_count", 0)
         summary.update({
             "paired_roi_count": pairing_counts.get("paired_roi_count", 0),
             "unpaired_damage_count": pairing_counts.get("unpaired_damage_count", 0),

@@ -47,24 +47,23 @@ def damage_part_roi_rows(
     ``min_overlap``은 threshold sensitivity 분석에서만 바꾼다. 운영 적재의
     기본값은 ``roi.PART_LINK_MIN_OVERLAP``와 같은 0.5다.
     """
-    annotations = [
-        value for value in (document.get("annotations") or [])
-        if isinstance(value, dict)
-    ]
+    annotations = document.get("annotations") or []
     damage_rows = [
-        (ordinal, annotation)
-        for ordinal, annotation in enumerate(annotations, start=1)
-        if damage_code(annotation) and valid_geometry(annotation)
+        (index, annotation)
+        for index, annotation in enumerate(annotations)
+        if isinstance(annotation, dict)
+        and damage_code(annotation) and valid_geometry(annotation)
     ]
     part_rows = [
-        (ordinal, annotation)
-        for ordinal, annotation in enumerate(annotations, start=1)
-        if part_code(annotation) and valid_geometry(annotation)
+        (index, annotation)
+        for index, annotation in enumerate(annotations)
+        if isinstance(annotation, dict)
+        and part_code(annotation) and valid_geometry(annotation)
     ]
 
     results: list[dict[str, Any]] = []
     part_annotations = [annotation for _, annotation in part_rows]
-    for damage_ordinal, damage_annotation in damage_rows:
+    for damage_index, damage_annotation in damage_rows:
         links = link_parts(
             damage_annotation,
             part_annotations,
@@ -80,8 +79,8 @@ def damage_part_roi_rows(
             status = "PAIRED"
             matched_code = part_code(matched)
             matched_ref = next(
-                annotation_ref(annotation, ordinal)
-                for ordinal, annotation in part_rows if annotation is matched
+                annotation_ref(annotation, index + 1)
+                for index, annotation in part_rows if annotation is matched
             )
             match_score = links[0][1]
         elif len(linked_codes) > 1:
@@ -96,12 +95,25 @@ def damage_part_roi_rows(
             match_score = None
 
         results.append({
-            "damage_ref": annotation_ref(damage_annotation, damage_ordinal),
+            "damage_ref": annotation_ref(damage_annotation, damage_index + 1),
+            # B-5와 feature 적재가 같은 키로 조인할 수 있도록 원본 annotations
+            # 배열의 0-based index를 보존한다. 유효성 필터로 앞의 행이 빠져도
+            # compact하지 않는다.
+            "roi_index": damage_index,
             "damage_type": damage_code(damage_annotation),
             "match_status": status,
             "part_code": matched_code,
             "part_ref": matched_ref,
             "match_score": match_score,
             "damage_geometry": source_bbox(damage_annotation),
+            "damage_annotation": damage_annotation,
+            "damage_polygon": (
+                damage_annotation.get("segmentation")
+                or damage_annotation.get("polygon")
+                or damage_annotation.get("bbox")
+            ),
+            # loader가 feature_quality(part_is_clipped)를 계산할 때만 사용한다.
+            # 매칭 규칙은 계속 roi.link_parts()의 결과를 그대로 따른다.
+            "part_annotation": matched if status == "PAIRED" else None,
         })
     return results
