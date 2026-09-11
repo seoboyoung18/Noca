@@ -33,6 +33,7 @@ from standardization import (
     part_clipped,
     roi_box,
     roi_quality,
+    repair_case_image_key_from_ref,
     source_bbox,
 )
 from standardization.damage_part_pairing import damage_part_roi_rows
@@ -172,21 +173,6 @@ def image_path_for_label(label_path: Path) -> Path:
     parts[index] = "1.원천데이터"
     parts[index + 1] = parts[index + 1].replace("TL_", "TS_").replace("VL_", "VS_")
     return Path(*parts[:-1])
-
-
-def repair_case_image_key(case_id: int, case_image_id: int,
-                          variant: str = "original", extension: str = "jpg") -> str:
-    """RepairCaseImageKeys.key()와 같은 AI-Hub 사례 이미지 key를 만든다."""
-    if case_id <= 0:
-        raise ValueError("case_id must be positive")
-    if case_image_id <= 0:
-        raise ValueError("case_image_id must be positive")
-    if variant not in {"original", "resized", "thumbnail", "blurred"}:
-        raise ValueError(f"unsupported image variant: {variant}")
-    extension = extension.strip().lower().lstrip(".")
-    if not extension or "/" in extension or "\\" in extension or "." in extension:
-        raise ValueError("extension must not contain path separators or dots")
-    return f"repair-cases/{case_id}/images/{case_image_id}/{variant}.{extension}"
 
 
 def load_readiness(path: Path, source: str) -> set[str]:
@@ -335,7 +321,8 @@ def upsert_case(cur, case_id: str, estimate: dict[str, Any], car_class: str) -> 
     return cur.fetchone()[0]
 
 
-def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path) -> dict[str, int]:
+def upsert_images(cur, case_pk: int, source: str, external_ref: str,
+                  label_paths: list[Path], dataset_root: Path) -> dict[str, int]:
     loaded: dict[str, int] = defaultdict(int)
     for label_path in sorted(label_paths):
         # readiness 검증이 라벨·이미지 조인을 끝냈고, 원천 파일명은 라벨 stem과
@@ -344,6 +331,7 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
         if not image_path.is_file():
             raise FileNotFoundError(f"라벨에 대응하는 이미지가 없습니다: {image_path}")
         source_image_ref = image_path.relative_to(dataset_root).as_posix()
+        storage_key = repair_case_image_key_from_ref(source, external_ref, source_image_ref)
         image_type, source_dataset_split = image_metadata_for_label(label_path)
         cur.execute(
             """
@@ -357,15 +345,10 @@ def upsert_images(cur, case_pk: int, label_paths: list[Path], dataset_root: Path
                 quality_status=EXCLUDED.quality_status, is_searchable=EXCLUDED.is_searchable
             RETURNING case_image_id
             """,
-            (case_pk, source_image_ref, source_image_ref, image_type, source_dataset_split,
+            (case_pk, source_image_ref, storage_key, image_type, source_dataset_split,
              image_type == "DAMAGE_PART"),
         )
-        case_image_pk = cur.fetchone()[0]
-        storage_key = repair_case_image_key(case_pk, case_image_pk)
-        cur.execute(
-            "UPDATE repair_case_image SET storage_key=%s WHERE case_image_id=%s",
-            (storage_key, case_image_pk),
-        )
+        cur.fetchone()
         loaded[image_type] += 1
     return loaded
 
@@ -896,7 +879,8 @@ def main() -> None:
                     for case_id, estimate_path, car_class, labels in batch:
                         estimate = json.loads(estimate_path.read_text(encoding="utf-8-sig"))
                         case_pk = upsert_case(cur, case_id, estimate, car_class)
-                        image_counts = upsert_images(cur, case_pk, labels, dataset_root)
+                        image_counts = upsert_images(
+                            cur, case_pk, source_for_case(case_id), case_id, labels, dataset_root)
                         for key, value in image_counts.items():
                             loaded_images[key] += value
                         # part annotation과 feature가 동일한 문서 객체를 공유한다.

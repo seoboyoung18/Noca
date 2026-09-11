@@ -6,8 +6,8 @@ import com.ssafy.a307.accident.entity.ImageVariant;
  * AI-Hub 검색 사례 이미지의 S3 key 규칙.
  *
  * <pre>
- * repair-cases/{caseId}/images/{caseImageId}/{variant}.{ext}
- * 예) repair-cases/1205/images/88421/original.jpg
+ * repair-cases/{source}/{externalRef}/{sourceImageId}/{variant}.{ext}
+ * 예) repair-cases/AIHUB_AS/as-0000160/0406472/original.jpg
  * </pre>
  *
  * <p>실사용자 사고 이미지가 검색 사례로 색인되는 경우에는 이 규칙으로 복사하지
@@ -22,31 +22,43 @@ public final class RepairCaseImageKeys {
     private RepairCaseImageKeys() {
     }
 
-    public static String key(long caseId, long caseImageId, ImageVariant variant, String extension) {
-        if (caseId <= 0) throw new IllegalArgumentException("caseId must be positive");
-        if (caseImageId <= 0) throw new IllegalArgumentException("caseImageId must be positive");
+    public static String key(String source, String externalRef, String sourceImageId,
+                             ImageVariant variant, String extension) {
         if (variant == null) throw new IllegalArgumentException("variant is required");
+        validateSegment("source", source);
+        validateSegment("externalRef", externalRef);
+        validateSegment("sourceImageId", sourceImageId);
         if (extension == null || extension.isBlank()) {
             throw new IllegalArgumentException("extension is required");
         }
         if (extension.contains("/") || extension.contains("\\") || extension.contains(".")) {
             throw new IllegalArgumentException("extension must not contain path separators or dots");
         }
-        String key = REPAIR_CASE_PREFIX + "/" + caseId + "/" + IMAGE_SEGMENT + "/" + caseImageId
-                + "/" + variant.objectName() + "." + extension;
+        String key = imagePrefix(source, externalRef, sourceImageId)
+                + variant.objectName() + "." + extension;
         if (key.length() > MAX_KEY_LENGTH) {
             throw new IllegalArgumentException("s3 key must not exceed " + MAX_KEY_LENGTH + " characters");
         }
         return key;
     }
 
-    public static String casePrefix(long caseId) {
-        if (caseId <= 0) throw new IllegalArgumentException("caseId must be positive");
-        return REPAIR_CASE_PREFIX + "/" + caseId + "/" + IMAGE_SEGMENT + "/";
+    public static String casePrefix(String source, String externalRef) {
+        validateSegment("source", source);
+        validateSegment("externalRef", externalRef);
+        return REPAIR_CASE_PREFIX + "/" + source + "/" + externalRef + "/";
     }
 
-    public static String imagePrefix(long caseId, long caseImageId) {
-        if (caseImageId <= 0) throw new IllegalArgumentException("caseImageId must be positive");
-        return casePrefix(caseId) + caseImageId + "/";
+    public static String imagePrefix(String source, String externalRef, String sourceImageId) {
+        validateSegment("sourceImageId", sourceImageId);
+        return casePrefix(source, externalRef) + sourceImageId + "/";
+    }
+
+    private static void validateSegment(String name, String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is required");
+        }
+        if (value.contains("/") || value.contains("\\") || value.contains("..")) {
+            throw new IllegalArgumentException(name + " must be a safe path segment");
+        }
     }
 }

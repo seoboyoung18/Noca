@@ -144,11 +144,11 @@ python pipeline/jobs/build_case_split_manifests.py \
 ## 이미지 key와 로컬 파일
 
 AI-Hub 검색 사례 이미지는 `RepairCaseImageKeys.key()`와 같은 규칙으로
-`repair-cases/{caseId}/images/{caseImageId}/{variant}.{ext}`를 사용한다.
-여기서 `caseId`는 `repair_case.case_id`, `caseImageId`는
-`repair_case_image.case_image_id`이며, 현재 전수 적재에서는 실제 원본인
-`original.jpg`만 만든다. `thumbnail`, `resized`는 해당 파생 파일을 생성할 때 같은
-규칙으로 추가한다.
+`repair-cases/{source}/{external_ref}/{source_image_id}/{variant}.{ext}`를 사용한다.
+`source`와 `external_ref`는 `repair_case`의 원천 식별자이고,
+`source_image_id`는 `source_image_ref` 파일명의 숫자 접두를 문자열 그대로 보존한다.
+현재 전수 적재에서는 실제 원본인 `original.jpg`만 만든다. `thumbnail`, `resized`는
+해당 파생 파일을 생성할 때 같은 규칙으로 추가한다.
 
 `blurred`는 만들지 않는다. `S15P21A307-226`~`-228`이 2026-09-10에 MVP 범위 밖으로
 정리됐고, AI-Hub 데이터셋 이미지는 이미 비식별된 상태로 제공되어 가릴 대상이 없다.
@@ -194,8 +194,8 @@ S3 실측에서도 `original.jpg` 2,216개에 `blurred.jpg`는 0개다. 같은 �
 ```
 
 `--dataset-root`는 `source_image_ref`의 기준 경로를 결정한다. 다만 새 S3
-`storage_key`는 이 옵션의 값에 의존하지 않으며, DB의 `case_id`와 `case_image_id`로
-결정된다.
+`storage_key`는 이 옵션의 값이나 DB의 BIGSERIAL `case_id`·`case_image_id`에
+의존하지 않으며, 원천 `source`, `external_ref`, `source_image_id`로 결정된다.
 
 ## 스키마를 바꾸지 않은 이유
 

@@ -360,7 +360,10 @@ python pipeline/jobs/load_search_data.py \
 `part_name_mapping`도 같은 실행에서 seed/upsert하며, `(source, external_ref)`와
 `source_image_ref`를 conflict key로 사용해 재실행해도 중복이 생기지 않는다.
 `source_image_ref`는 AI-Hub 원본 상대 경로로 보존하고, `storage_key`는
-`repair-cases/{caseId}/images/{caseImageId}/original.jpg` 규칙으로 생성한다.
+`repair-cases/{source}/{external_ref}/{source_image_id}/{variant}.{ext}` 규칙으로
+생성한다. `source_image_id`는 원본 파일명 `<image_id>_<external_ref>.<ext>`의
+숫자 접두를 문자열 그대로 보존한다. 예를 들어
+`repair-cases/AIHUB_AS/as-0000160/0406472/original.jpg`와 같다.
 `--dataset-root`는 원본 상대 경로의 기준만 결정하며 S3 key 자체에는 포함되지 않는다.
 검색 이미지 원천은 `TL_damage_part`/`VL_damage_part`의 `damage_part` 디렉터리로
 고정한다. `TL_damage`/`VL_damage`의 `damage` 이미지는 동일 사진 짝이 아니므로
@@ -490,10 +493,10 @@ python -m unittest discover -s pipeline/jobs -p "test_*.py"
 
 **6)이 7)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
 
-이미 검색 사례를 적재한 DB에서 기존 `storage_key`를 새 `repair-cases/...` 규칙으로
-변경할 때는 `pipeline/sql/005_repair_case_image_storage_key.sql`을 적재 후 한 번
-실행한다. 이 migration은 로컬 이미지 파일을 이동하지 않고 DB key와 미판정 품질
-상태만 정리한다.
+이미 검색 사례를 적재한 DB에서 기존 PK 기반 `storage_key`를 새 원천 식별자 기반
+규칙으로 변경할 때는 `pipeline/sql/009_repair_case_image_stable_storage_key.sql`을
+적재 후 한 번 실행한다. 이 migration은 로컬 이미지 파일을 이동하지 않고 DB key만
+정리한다. 같은 `source_image_ref`는 DB를 비우고 재적재해도 같은 key를 만든다.
 
 3)은 원천 견적 JSON 원문을 담는 `aihub_estimate_raw`와 AI-Hub 라벨 원천 4종(`aihub_vehicle_case`, `aihub_vehicle_image`, `aihub_damage_annotation`, `aihub_annotation_repair_method`)을 만든다. 전부 `CREATE TABLE IF NOT EXISTS`라 재적용이 안전하다. `aihub_estimate_raw`는 `(source, external_ref)`를 PK로 두어 `ON CONFLICT`로 재실행이 멱등하며, `repair_case`를 FK로 참조하지 않아 Raw 적재가 검색 테이블 적재를 기다리지 않는다.
 

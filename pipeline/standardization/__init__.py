@@ -16,6 +16,11 @@ from .normalizer import (
     normalize_repair_label,
 )
 from .estimate_items import estimate_item_costs, money, normalize_estimate_item
+from .storage_keys import (
+    repair_case_image_key,
+    repair_case_image_key_from_ref,
+    source_image_id_from_ref,
+)
 from .roi import (
     INPUT_SIZE,
     LETTERBOX_FILL,
@@ -66,6 +71,9 @@ __all__ = [
     "estimate_item_costs",
     "money",
     "normalize_estimate_item",
+    "repair_case_image_key",
+    "repair_case_image_key_from_ref",
+    "source_image_id_from_ref",
     # ROI 생성 계약 (ERD/A307_DAMAGE_ROI_VECTOR_DB_DESIGN.md 3~6절)
     "INPUT_SIZE",
     "LETTERBOX_FILL",

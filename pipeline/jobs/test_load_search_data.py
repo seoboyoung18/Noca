@@ -12,10 +12,10 @@ from load_search_data import (
     image_metadata_for_label,
     load_case_manifest,
     load_damage_part_documents,
-    repair_case_image_key,
     upsert_damage_features,
     upsert_estimate_items,
 )
+from standardization.storage_keys import repair_case_image_key
 
 
 class SearchDataLoaderTest(unittest.TestCase):
@@ -106,8 +106,8 @@ class SearchDataLoaderTest(unittest.TestCase):
 
     def test_repair_case_image_key(self):
         self.assertEqual(
-            repair_case_image_key(1205, 88421),
-            "repair-cases/1205/images/88421/original.jpg",
+            repair_case_image_key("AIHUB_AS", "as-0000160", "0406472"),
+            "repair-cases/AIHUB_AS/as-0000160/0406472/original.jpg",
         )
 
     def test_image_metadata_preserves_damage_role(self):
@@ -149,8 +149,10 @@ class SearchDataLoaderTest(unittest.TestCase):
             ("DAMAGE_PART", "VALIDATION"),
         )
         self.assertEqual(
-            repair_case_image_key(1205, 88421, "thumbnail", ".JPG"),
-            "repair-cases/1205/images/88421/thumbnail.jpg",
+            repair_case_image_key(
+                "AIHUB_SC", "sc-1234567", "0617584", "thumbnail", ".JPG"
+            ),
+            "repair-cases/AIHUB_SC/sc-1234567/0617584/thumbnail.jpg",
         )
 
     def test_class_from_labels_requires_consistent_classes(self):

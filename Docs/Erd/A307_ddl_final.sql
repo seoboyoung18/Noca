@@ -329,6 +329,8 @@ CREATE TABLE repair_case_image (
     case_image_id        BIGSERIAL    PRIMARY KEY,
     case_id              BIGINT       NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
     source_image_ref     VARCHAR(255) NOT NULL,
+    -- AI-Hub: repair-cases/{source}/{external_ref}/{source_image_id}/{variant}.{ext}
+    -- source_image_id는 원본 파일명 숫자 접두를 보존하며 DB PK와 무관하다.
     storage_key          VARCHAR(500) NOT NULL,
     blur_key             VARCHAR(500),
     angle_tag            VARCHAR(20),
