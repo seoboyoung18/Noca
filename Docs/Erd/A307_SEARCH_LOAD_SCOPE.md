@@ -57,6 +57,41 @@ readiness 단계의 중간 수치는 견적·사례 조인 후보 116,809건이�
 
 55,363건은 readiness 후보 수이며 실제 적재 성공 수를 보장하지 않는다. 추가 검증을 통과한 건수와 제외 사유는 `load_search_data.py`의 실행 summary 및 오류 테이블로 확인한다.
 
+## 2026-09-11 damage_part 정책 전수 readiness
+
+현재 브랜치의 damage_part 중심 pairing 코드를 적용해 TRAIN·VALIDATION의 네 label
+그룹을 전수 재생성했다. DB·S3에는 접근하지 않았으며, 산출물은 저장소 밖에 보관했다.
+
+| 항목 | 결과 |
+|---|---:|
+| linkage 기준 prior searchable case 후보 | 116,809 |
+| 최종 searchable case | 55,363 |
+| 전체 label 파일 처리 | 457,670 |
+| parse error | 0 |
+| DAMAGE_PART label/image 수 | 99,910 |
+| DAMAGE_PART damage ROI 수 | 374,138 |
+| PAIRED / STRICT ROI | 265,408 (70.94%) |
+| UNPAIRED / VECTOR_ONLY ROI | 54,720 (14.63%) |
+| AMBIGUOUS / VECTOR_ONLY ROI | 54,010 (14.44%) |
+| 전체 VECTOR_ONLY ROI | 108,730 (29.06%) |
+
+표본에서 관찰한 68~71% 범위와 비교하면 전수 PAIRED 비율은 70.94%로 유사하다.
+다만 이 결과는 readiness 판정 결과이며, 아직 DB 적재·임베딩 생성·S3 업로드가
+완료됐다는 뜻은 아니다.
+
+실행 산출물:
+
+```text
+outputs/data_validation/search_readiness_damage_part_2026-09-11/
+├─ case_search_readiness.csv
+└─ search_readiness_summary.json
+```
+
+SHA-256:
+
+- `case_search_readiness.csv`: `4D68FD73308FB12D9802B59A81C68C3F2B56C5FE8FD743851E3C10166169A170`
+- `search_readiness_summary.json`: `2437CF530D12D41FC02B9A04EB5FFE821309C48C282C0057CB349EA81BB57C61`
+
 ## 검색 이미지 원천 범위
 
 두 이미지 유형을 읽되 검색 역할을 분리한다.

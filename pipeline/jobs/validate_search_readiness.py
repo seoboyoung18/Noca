@@ -147,6 +147,13 @@ def main() -> None:
         except (OSError, UnicodeError):
             return None
 
+    def read_paths_in_batches(paths: list[Path], batch_size: int = 4096):
+        """Read label files in bounded batches for large Windows mounts."""
+        with ThreadPoolExecutor(max_workers=64) as executor:
+            for start in range(0, len(paths), batch_size):
+                batch = paths[start:start + batch_size]
+                yield from zip(batch, executor.map(read_text_safe, batch))
+
     if not args.merge_only:
       for split, label_type, _source_rel, label_rel in groups_to_scan:
         group_name = f"{split.lower()}/{label_type.lower()}"
@@ -162,9 +169,10 @@ def main() -> None:
             print(f"[{group_name}] {len(label_paths)} files (shard {args.shard_index}/{args.shard_count})", flush=True)
         else:
             print(f"[{group_name}] {len(label_paths)} files", flush=True)
-        with ThreadPoolExecutor(max_workers=64) as executor:
-            raw_texts = list(executor.map(read_text_safe, label_paths, chunksize=64))
-        for label_path, raw_text in zip(label_paths, raw_texts):
+        # Keep only one bounded batch of completed reads in memory. The previous
+        # list(executor.map(...)) retained every raw JSON in a 300k-file group
+        # before parsing, which made full readiness unnecessarily memory-heavy.
+        for label_path, raw_text in read_paths_in_batches(label_paths):
             processed += 1
             if processed % 50000 == 0:
                 print(f"processed={processed}", flush=True)
