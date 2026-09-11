@@ -2,48 +2,38 @@
 
 > **대상 백로그** `[BE] 검증 요약·등급 기능 구현`(S15P21A307-314) · `[BE] 3단계 등급 판정 설정값 외부화`(315) · `[BE] 총액 차이·확인 필요 항목 수 산출 및 검증 결과 저장·조회 API 구현`(316)
 > **서버 상태** **`develop` 에 있다.** `d84c6d5 Feat: 견적 검증 이상 항목 탐지 및 결과 저장 구현 (S15P21A307-310)` 에 함께 머지됨
-> **작성 기준** `feature/S15P21A307-314-validation-summary-grade` (develop `2da805b` 머지본). 2026-09-08
+> **작성 기준** 2026-09-08 작성 (`feature/S15P21A307-314-validation-summary-grade`, develop `2da805b` 머지본) · **2026-09-11 갱신** — `origin/develop` `0ffb7c0` 기준. 아래 ⚠️ 절의 3대 차단 요인이 전부 해소됐다
 > **근거** API 명세서 17·19·21·23·25·28행 · `A307_ddl_final.sql` · 와이어프레임 `정비소 견적서 검증 결과.png` · 코드 직접 확인
 >
 > 정비소 확인 질문(`GET .../questions`)의 상세는 **별도 문서 작업(317·318)** 이 다룬다. 이 문서는 엔드포인트 목록에만 올린다.
 
 ---
 
-## ⚠️ 시작하기 전에 — 지금은 로그인해도 **500 이 난다**
+## ⚠️ 시작하기 전에 — 막혀 있던 셋이 **전부 풀렸다** (2026-09-11)
 
-**세 가지가 막혀 있다. 순서대로 풀려야 한다.**
+초판(2026-09-08)에는 세 가지가 막혀 있다고 적혀 있었다. **지금은 셋 다 코드가 들어왔고, 남은 것은 배포 환경변수뿐이다.**
 
-| # | 막힌 것 | 지금 어떻게 되는가 | 풀리는 시점 |
-|---|---|---|:---|
-| **1** | **`CurrentMemberProvider` 가 아직 스텁이다** | 로그인에 성공해도 **모든 검증 API 가 500** | 아래 ★ |
-| 2 | **파일 저장소 어댑터가 없다** | 파일 업로드·PDF 다운로드·삭제가 **503** | S3 어댑터(`S15P21A307-217`) |
-| 3 | **OCR·LLM·PDF 워커가 없다** | 파일 검증이 `QUEUED` 에서 멈춘다 | 각 어댑터 티켓 |
+| # | 막혔던 것 | 지금 |
+|---|---|:---|
+| **1** | `CurrentMemberProvider` 가 스텁이라 **로그인해도 모든 검증 API 가 500** | ✅ **해소.** `S15P21A307-422` 가 교체해 세션의 `UserPrincipal` 에서 `memberId` 를 꺼낸다 |
+| 2 | 파일 저장소 어댑터가 없어 업로드·PDF·삭제가 **503** | ✅ **어댑터 있음.** 단 **환경변수를 넣어야 켜진다** — 아래 |
+| 3 | OCR·LLM·PDF 워커가 없어 `QUEUED` 에서 멈춤 | ✅ **워커 있음.** 단 **기본값이 꺼짐** — 아래 |
 
-### ★ 1번이 무엇인지 — 인증은 붙었는데 컨트롤러가 못 쓴다
+**API 계약은 하나도 바뀌지 않았다.** 이 문서의 응답 예시가 그대로 맞다.
 
-`develop` 에 **소셜 로그인이 실제로 구현되어 있다.** `AuthController`·`OAuth2SuccessHandler`·`UserPrincipal`·`Member` 가 다 있고 세션도 발급된다. 그런데 회원 ID 를 꺼내는 지점이 아직 예외를 던진다.
+### 아직 503 이거나 `QUEUED` 에서 멈춘다면 — 버그가 아니라 설정이다
 
-```java
-// common/security/CurrentMemberProvider.java — develop 현재 상태
-@Component
-public class CurrentMemberProvider {
-    public Long currentMemberId() {
-        throw new UnsupportedOperationException("인증 연동 전 — 세션 로그인 구현 후 교체 (S15P21A307-auth)");
-    }
-}
-```
+| 기능 | 켜는 값 | 기본값 |
+|---|---|---|
+| 견적서 파일 업로드·삭제 | `DOCUMENT_STORAGE_PROVIDER=s3` · `STORAGE_SERVICE_BUCKET` | 둘 다 빈 값 → **503** |
+| 견적서 판독(OCR) | `ESTIMATE_OCR_PROVIDER` · `ESTIMATE_WORKER_ENABLED=true` · `GMS_KEY` | 꺼짐 → `QUEUED` 유지 |
+| 검증 결과 PDF | `VALIDATION_PDF_ENABLED=true` + 위 저장소 설정 | `false` → `GET /pdf` 가 **409** |
 
-`EstimateValidationController` 의 **8개 핸들러 전부**가 첫 줄에서 이 메서드를 부른다. `AuthController` 만 `@AuthenticationPrincipal UserPrincipal` 을 직접 쓰도록 새로 짜였고, **기존 컨트롤러 4개(`estimate-validations`·`accidents`·`vehicles`·`cost-comparison`, 호출 15곳)는 아직 이 스텁에 묶여 있다.**
+> ⚠️ `GMS_KEY` **는 개인정보 승인 전까지 채우면 안 된다.** 이 경로는 견적서 **원본 이미지·PDF 자체**를 외부 LLM 으로 보낸다.
 
-그래서 **정상 로그인 세션으로 호출해도** 이렇게 온다.
+**항목 직접 입력(JSON) 경로는 위 설정 없이도 끝까지 동작한다.** 파일 업로드만 저장소가 필요하다.
 
-```json
-HTTP 500
-{ "error": { "code": "INTERNAL_ERROR", "message": "서버 내부 오류가 발생했습니다." } }
-```
-
-> **FE 가 500 을 보고 "요청이 잘못됐나" 를 의심하지 말 것.** 요청은 정상이다. `CurrentMemberProvider` 본문이 교체되면 **API 계약을 하나도 바꾸지 않고** 그대로 동작한다.
-> 이 문서의 응답 예시는 전부 **그 교체 이후를 전제**로 한다.
+로그인하지 않은 요청은 **401**(본문 없음)이다. 500 이 아니다.
 
 **그래도 화면은 지금 만들 수 있다.** 응답 JSON·필드 출처·판정 규칙·오류 코드가 전부 코드에서 확정돼 있다. 아래는 추측이 아니라 DTO·서비스·DDL 에서 읽은 것이다. **실호출 검증만 1번 이후로 미루면 된다.**
 
