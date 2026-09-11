@@ -4,7 +4,6 @@ import com.ssafy.a307.accident.entity.Accident;
 import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
-import com.ssafy.a307.estimatevalidation.config.EstimateValidationProperties;
 import com.ssafy.a307.estimatevalidation.domain.AnalysisSnapshot;
 import com.ssafy.a307.estimatevalidation.domain.CostReference;
 import com.ssafy.a307.estimatevalidation.domain.EstimateLine;
@@ -12,6 +11,7 @@ import com.ssafy.a307.estimatevalidation.domain.EstimateValidationEngine;
 import com.ssafy.a307.estimatevalidation.domain.GeneratedQuestion;
 import com.ssafy.a307.estimatevalidation.domain.GradeAssessment;
 import com.ssafy.a307.estimatevalidation.domain.GradeDecider;
+import com.ssafy.a307.estimatevalidation.domain.GradePolicy;
 import com.ssafy.a307.estimatevalidation.domain.QuestionSource;
 import com.ssafy.a307.estimatevalidation.domain.RepairShopQuestionGenerator;
 import com.ssafy.a307.estimatevalidation.domain.StandardRepairMethod;
@@ -30,6 +30,7 @@ import com.ssafy.a307.estimatevalidation.dto.ValidationQuestionResponse;
 import com.ssafy.a307.estimatevalidation.dto.ValidationResultResponse;
 import com.ssafy.a307.estimatevalidation.dto.ValidationStatusResponse;
 import com.ssafy.a307.estimatevalidation.entity.EstimateValidation;
+import com.ssafy.a307.estimatevalidation.entity.EstimateValidationRule;
 import com.ssafy.a307.estimatevalidation.entity.EstimateValidationItem;
 import com.ssafy.a307.estimatevalidation.entity.EstimateValidationQuestion;
 import com.ssafy.a307.estimatevalidation.entity.ReferenceSnapshot;
@@ -78,7 +79,11 @@ public class EstimateValidationService {
     private final EstimateReadRepository estimateReadRepository;
     private final RepairCostStatRepository repairCostStatRepository;
     private final PartNameMappingService partNameMappingService;
-    private final EstimateValidationProperties properties;
+    /**
+     * 판정 규칙 공급 경계. 예전에는 {@code EstimateValidationProperties} 를 직접 들고 있어
+     * 임계값을 바꾸려면 재배포가 필요했다. 이제 관리자가 새 버전을 만들면 다음 검증부터 반영된다.
+     */
+    private final EstimateValidationRuleProvider ruleProvider;
 
     /**
      * 요약 생성 어댑터. <b>없어도 된다</b> — 없으면 규칙 기반 템플릿 요약을 그대로 쓴다.
@@ -152,7 +157,10 @@ public class EstimateValidationService {
 
         List<ValidatedLine> validatedLines = engine.validate(new ValidationInput(lines, references, analysis));
         int reviewCount = Math.toIntExact(validatedLines.stream().filter(ValidatedLine::reviewRecommended).count());
-        ValidationGrade grade = decideGrade(validatedLines, snapshots, claimedTotal, estimate, reviewCount);
+        // 규칙을 여기서 한 번만 읽는다. 판정 중간에 다시 읽으면 같은 검증이 두 규칙으로 계산될 수 있다.
+        EstimateValidationRule rule = ruleProvider.currentRule();
+        validation.recordRuleVersion(rule.getRuleVersion());
+        ValidationGrade grade = decideGrade(validatedLines, snapshots, claimedTotal, estimate, reviewCount, rule);
         String summary = summary(grade, reviewCount, validatedLines.size(), claimedTotal, estimate);
 
         Map<Integer, EstimateValidationItem> persistedItemsByLine = new HashMap<>();
@@ -386,7 +394,8 @@ public class EstimateValidationService {
             Map<Integer, ReferenceSnapshot> snapshots,
             int claimedTotal,
             EstimateReadRepository.EstimateContextView estimate,
-            int reviewCount) {
+            int reviewCount,
+            GradePolicy policy) {
         BigDecimal highest = BigDecimal.ZERO;
         for (ValidatedLine line : lines) {
             ReferenceSnapshot reference = snapshots.get(line.line().lineNo());
@@ -402,7 +411,7 @@ public class EstimateValidationService {
             totalDifferenceRatio = BigDecimal.valueOf(Math.abs((long) claimedTotal - estimate.getTotalMedian()))
                     .divide(BigDecimal.valueOf(estimate.getTotalMedian()), 6, RoundingMode.HALF_UP);
         }
-        return gradeDecider.decide(new GradeAssessment(reviewCount, highest, totalDifferenceRatio), properties);
+        return gradeDecider.decide(new GradeAssessment(reviewCount, highest, totalDifferenceRatio), policy);
     }
 
     private String summary(

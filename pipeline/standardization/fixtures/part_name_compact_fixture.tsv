@@ -1,0 +1,60 @@
+# Python compact() 와 Java PartNameCompactKey.compact() 가 같은 결과를 내는지 양쪽이 함께 검증하는 fixture.
+#
+# 정본은 pipeline/jobs/map_estimate_labels.py 의 compact() 다:
+#     value = unicodedata.normalize("NFKC", value).lower()
+#     re.sub(r"[\s_\-－·.,/]+", "", value)
+#
+# 이 파일을 읽는 곳
+#   Python : pipeline/standardization/test_part_name_compact.py
+#   Java   : backend/src/test/java/com/ssafy/a307/estimatevalidation/service/PartNameCompactKeyFixtureTest.java
+#
+# 형식: <입력>\t<기대 compact 결과>
+# 빈 줄과 '#' 로 시작하는 줄은 무시한다. 입력에 탭 문자는 쓰지 않는다.
+#
+# ⚠️ Java PartNameNormalizer(런타임 사전 조회 키)와는 결과가 다르다.
+#    15,308건 중 79.4% 가 다르며, 그것은 버그가 아니라 역할이 다르기 때문이다.
+#    이 fixture 는 compact() 계약만 고정한다.
+
+# ── 공백류 (\s: 스페이스·탭·개행, NFKC 로 접히는 전각 공백 포함)
+앞 범퍼	앞범퍼
+앞  범퍼	앞범퍼
+앞　범퍼	앞범퍼
+
+# ── 제거 대상 구분자 _ - － · . , /
+앞_범퍼	앞범퍼
+앞-범퍼	앞범퍼
+앞－범퍼	앞범퍼
+앞·범퍼	앞범퍼
+앞.범퍼	앞범퍼
+앞,범퍼	앞범퍼
+앞/범퍼	앞범퍼
+앞_-·범퍼	앞범퍼
+뒤범퍼2/1탈착	뒤범퍼21탈착
+
+# ── NFKC 정규화
+ＦＲＯＮＴ	front
+ＢＵＭＰＥＲ	bumper
+㈜부품	(주)부품
+
+# ── 대소문자
+Front Bumper	frontbumper
+FRONT_BUMPER	frontbumper
+front-bumper	frontbumper
+
+# ── 제거하지 않는 문자 (compact 는 괄호·작업 접미사·좌우 표기를 건드리지 않는다)
+앞범퍼(좌)	앞범퍼(좌)
+앞범퍼 교환	앞범퍼교환
+왼쪽 도어	왼쪽도어
+도어(앞우) 그린수가 50% 청구	도어(앞우)그린수가50%청구
+언더커버#1(앞뒤바닥)	언더커버#1(앞뒤바닥)
+
+# ── 실제 seed 에서 뽑은 원문
+후론트 범퍼 커버	후론트범퍼커버
+리어 컴비네이션램프(우)	리어컴비네이션램프(우)
+헤드램프(좌)	헤드램프(좌)
+도어밸트(눈썹)몰딩(앞,좌)재사용50%	도어밸트(눈썹)몰딩(앞좌)재사용50%
+
+# ── 경계: 전부 제거되어 빈 문자열이 되는 입력. 빈 기대값은 <EMPTY> 로 적는다.
+.	<EMPTY>
+---	<EMPTY>
+ _ - . , /	<EMPTY>
