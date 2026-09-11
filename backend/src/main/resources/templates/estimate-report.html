@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="'예상 견적 리포트 ' + ${doc.reportNo()}">예상 견적 리포트</title>
+    <!--
+      validation-report.html 과 같은 원칙이다.
+      - CSS 는 인라인. 외부 CSS 는 렌더링이 네트워크를 타고, 막히면 스타일 없는 문서가 조용히 나간다.
+      - 한글 폰트를 앞에 둔다. @font-face 대신 PdfRendererBuilder.useFont 로 등록한다.
+      - th:text 만 쓴다. 이미지는 서버가 만든 data URI 만 th:src 로 넣는다.
+    -->
+    <style>
+        @page { size: A4; margin: 18mm 15mm 20mm 15mm; }
+        body { font-family: 'korean', serif; font-size: 10pt; color: #222; line-height: 1.5; }
+
+        h1 { font-size: 16pt; margin: 0 0 4mm 0; }
+        h2 { font-size: 11pt; margin: 7mm 0 2mm 0; border-bottom: 1px solid #999; padding-bottom: 1mm; }
+
+        .meta { font-size: 8.5pt; color: #666; margin-bottom: 5mm; }
+        .total { font-size: 12pt; font-weight: bold; margin: 0 0 2mm 0; }
+        .grade { font-size: 12pt; font-weight: bold; margin: 0 0 2mm 0; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 2mm; }
+        th, td { border: 1px solid #bbb; padding: 1.6mm 1.8mm; vertical-align: top; }
+        th { background: #eee; font-size: 9pt; text-align: center; }
+        td { font-size: 9pt; }
+        td.num { text-align: right; }
+        td.mid { text-align: center; }
+
+        table { -fs-table-paginate: paginate; }
+        thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
+
+        .image-cell { text-align: center; }
+        .image-cell img { max-width: 100%; max-height: 95mm; }
+        .no-image { color: #777; padding: 12mm 0; margin: 0; }
+        .caption { font-size: 8pt; color: #666; margin: 1mm 0 0 0; }
+
+        .notice { margin-top: 8mm; padding: 3mm; border: 1px solid #999; background: #f7f7f7;
+                  font-size: 8.5pt; color: #444; }
+        .empty { color: #777; }
+    </style>
+</head>
+<body>
+
+<h1>예상 견적 리포트</h1>
+<p class="meta">
+    <span th:text="'리포트 번호 ' + ${doc.reportNo()}">리포트 번호</span>
+    ·
+    <span th:text="'생성 ' + ${generatedAt}">생성 시각</span>
+</p>
+
+<h2>차량 · 사고 정보</h2>
+<table>
+    <tbody>
+    <tr>
+        <th>차량</th>
+        <td th:text="${report.vehicle().manufacturer() + ' ' + report.vehicle().modelName()}">차량</td>
+        <th>연식</th>
+        <td th:text="${report.vehicle().modelYear() != null} ? ${report.vehicle().modelYear() + '년'} : '-'">연식</td>
+    </tr>
+    <tr>
+        <th>차급</th>
+        <td th:text="${report.vehicle().carClass()}">차급</td>
+        <th>사고 접수</th>
+        <td th:text="${accidentAt}">접수 일시</td>
+    </tr>
+    </tbody>
+</table>
+
+<h2>파손 분석 이미지</h2>
+<p class="empty" th:if="${#lists.isEmpty(doc.images())}">분석에 사용된 사진이 없습니다.</p>
+<table th:unless="${#lists.isEmpty(doc.images())}">
+    <tbody>
+    <tr th:each="img : ${doc.images()}">
+        <td class="image-cell">
+            <img th:if="${img.hasOverlay()}" th:src="${img.dataUri()}" alt="파손 분석 이미지"/>
+            <p class="no-image" th:unless="${img.hasOverlay()}">분석 이미지 없음</p>
+            <p class="caption" th:text="${img.angleCode() != null} ? ${img.angleCode()} : ''">촬영 각도</p>
+        </td>
+    </tr>
+    </tbody>
+</table>
+
+<h2>예상 수리비</h2>
+<p class="total"
+   th:if="${report.estimate().estimable() and report.estimate().totalMin() != null and report.estimate().totalMax() != null}"
+   th:text="${#numbers.formatInteger(report.estimate().totalMin(), 1, 'COMMA') + ' ~ '
+            + #numbers.formatInteger(report.estimate().totalMax(), 1, 'COMMA') + '원'}">범위</p>
+<p th:if="${report.estimate().estimable() and report.estimate().totalMedian() != null}"
+   th:text="${'대표값(중앙값) ' + #numbers.formatInteger(report.estimate().totalMedian(), 1, 'COMMA') + '원'}">중앙값</p>
+<p class="empty" th:unless="${report.estimate().estimable()}"
+   th:text="${'산정 불가 — ' + (report.estimate().nonEstimableReason() != null ? report.estimate().nonEstimableReason() : '사유 없음')}">산정 불가</p>
+
+<table th:unless="${#lists.isEmpty(report.estimate().items())}">
+    <thead>
+    <tr>
+        <th>부위</th>
+        <th>수리 방식</th>
+        <th>예상 범위</th>
+        <th>중앙값</th>
+        <th>참조 사례</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="item : ${report.estimate().items()}">
+        <td th:text="${item.partNameKo()}">부위</td>
+        <td class="mid" th:text="${item.repairMethodDisplayName()}">수리 방식</td>
+        <td class="num"
+            th:text="${item.itemMin() != null and item.itemMax() != null}
+                     ? ${#numbers.formatInteger(item.itemMin(), 1, 'COMMA') + ' ~ ' + #numbers.formatInteger(item.itemMax(), 1, 'COMMA') + '원'}
+                     : '-'">범위</td>
+        <td class="num"
+            th:text="${item.itemMedian() != null} ? ${#numbers.formatInteger(item.itemMedian(), 1, 'COMMA') + '원'} : '-'">중앙값</td>
+        <td class="mid" th:text="${item.refCaseCount() != null} ? ${item.refCaseCount() + '건'} : '-'">사례</td>
+    </tr>
+    </tbody>
+</table>
+
+<h2>산정 근거</h2>
+<p class="empty" th:if="${#lists.isEmpty(report.basis().items())}">표시할 산정 근거가 없습니다.</p>
+<table th:unless="${#lists.isEmpty(report.basis().items())}">
+    <thead>
+    <tr>
+        <th>부위</th>
+        <th>근거</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="basis : ${report.basis().items()}">
+        <td th:text="${basis.partNameKo()}">부위</td>
+        <td th:text="${basis.narrative() != null} ? ${basis.narrative()} : '근거 없음'">근거</td>
+    </tr>
+    </tbody>
+</table>
+
+<div th:if="${report.validation() != null}">
+    <h2>견적서 검증 결과</h2>
+    <p class="grade" th:text="${report.validation().gradeDisplayName()}">등급</p>
+    <p th:text="${report.validation().summary()}">요약</p>
+    <p th:if="${report.validation().claimedTotal() != null}"
+       th:text="${'정비소 청구액 ' + #numbers.formatInteger(report.validation().claimedTotal(), 1, 'COMMA') + '원'}">청구액</p>
+</div>
+
+<div class="notice" th:text="${report.legalNotice()}">고지 문구</div>
+
+</body>
+</html>
