@@ -10,7 +10,7 @@ OAuth 콜백,,No,GET,/login/oauth2/code/{provider},,member,보영,인증,"신규
 프로필 이미지 등록·변경,,No,PUT,/api/members/me/profile-image,,member,보영,회원,multipart/form-data. 지원 형식·최대 용량 미정,필요,1차,
 ROI 이미지 유사도 검색,,No,GET,/api/analysis-jobs/{jobId}/similar-cases-by-image,,repair_case_roi_embedding · embedding_model_version,재원,유사사례,ROI 단위. part_code+damage_type 사전 필터 후 HNSW. 활성 모델 버전만. 임베딩 차원 미확정(임시 768),필요,1차,
 프로필 이미지 삭제,,No,DELETE,/api/members/me/profile-image,,member,보영,회원,삭제 시 기본 이미지 표시,필요,1차,
-속성 기반 유사 사례 검색,,No,GET,/api/estimates/{estimateId}/similar-cases,,repair_case · repair_case_item · repair_cost_stat · vehicle_model,재원,유사사례,repair_case.model_id 로 동일 차량명 → 동일 차급 → 전체 3단 폴백. 적용 단계 화면 표시 필수. [실측] 0.47ms · 2초 이내 목표,필요,1차,
+항목별 유사 사례 조회,,No,GET,/api/estimates/{estimateId}/similar-cases?estimateItemId={id},,estimate_item(ref_condition) · repair_case · repair_case_item · repair_case_image,재원,유사사례,"검색하지 않음 — AI 서버가 찾아 준 사례 ID(ref_condition.referencedCaseIds)로 조회만. estimateItemId 필수(누락 400). AI가 준 순서 유지, 없는 사례 ID는 제외. 부위 금액에서 REFERENCE_PRICE 제외. 이미지 URL 발급 실패 시 그 건만 null. 본인 견적 아니면 404",필요,1차,
 차량 모델 조회,,No,GET,/api/vehicle-models,,vehicle_model,재원,차량,드롭다운용. is_active=true만. 모델 선택이 차급을 결정 — 유사 사례 검색 키,필요,1차,
 사례 상세 조회,,No,GET,/api/repair-cases/{caseId},,repair_case · repair_case_item · repair_case_image,재원,유사사례,화면 노출은 blur_key 만 — 번호판·얼굴 마스킹본. work_type 은 견적서 원문 6종(한글) · AI 출력 4종과 다른 층. hq 로 정비시간 표시,필요,1차,
 차량 등록,,No,POST,/api/vehicles,,vehicle,재원,차량,modelId 필수(NOT NULL). 마스터에 없는 차종은 등록 불가. 연식 1980~2100,필요,1차,
