@@ -31,7 +31,10 @@ public record RepairCaseDetailResponse(
     public record Image(String url) {
     }
 
-    /** @param partTotal 이 부위에 든 비용. <b>불인정 항목은 합산하지 않는다</b> */
+    /**
+     * @param partTotal 이 부위에 든 비용. 정비소 청구 기준이라 <b>불인정 항목도 합산한다</b> —
+     *                  {@code totalCost} 와 같은 기준이다
+     */
     public record Part(String partCode, String partNameKo, long partTotal, List<Item> items) {
     }
 
@@ -40,7 +43,8 @@ public record RepairCaseDetailResponse(
      *
      * @param workName    작업 원문(판금·교환·도장 등). 불인정 행은 원천이 작업을 덮어써 원래 작업을
      *                    복구할 수 없어 {@code "불인정"} 이다
-     * @param notApproved 손해사정에서 불인정된 행. 부위 합계에 들어가지 않는다
+     * @param notApproved 손해사정에서 불인정된 행. 화면 표시용이다 — 정비소가 청구한 금액이라
+     *                    부위 합계에는 들어간다
      * @param hq          정비시간(HQ)
      */
     public record Item(

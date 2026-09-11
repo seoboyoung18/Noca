@@ -87,10 +87,13 @@ public class RepairCaseDetailService {
         return "AIHUB_SC".equals(found.getSource()) ? found.getClaimAmount() : found.getTotalCost();
     }
 
-    /** 부위 합계. <b>불인정 행은 뺀다</b> — 손해사정에서 인정되지 않은 비용이다. */
+    /**
+     * 부위 합계. <b>불인정 행도 더한다.</b> 불인정은 정비소가 청구했으나 보험 손해사정에서 인정되지
+     * 않았다는 뜻이고, 총액은 정비소 청구 기준({@link #totalCost})이라 그 금액이 들어 있다 —
+     * 빼면 부위 합계가 총액과 어긋나고 유사 사례 목록(236)의 부위 금액과도 달라진다.
+     */
     private static Part toPart(String partCode, String partNameKo, List<ItemView> rows) {
         long partTotal = rows.stream()
-                .filter(row -> !NOT_APPROVED.equals(row.getAssessmentStatus()))
                 .mapToLong(row -> row.getItemTotal() == null ? 0 : row.getItemTotal())
                 .sum();
         List<Item> items = rows.stream().map(RepairCaseDetailService::toItem).toList();

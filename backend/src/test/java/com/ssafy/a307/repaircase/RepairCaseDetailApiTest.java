@@ -153,10 +153,13 @@ class RepairCaseDetailApiTest {
                 .andExpect(jsonPath("$.data.parts[0].partTotal").value(100_000));
     }
 
-    /** 불인정 행은 보여 주되 합계에서 뺀다. 원래 작업은 복구할 수 없어 "불인정" 으로 보인다. */
+    /**
+     * 불인정은 정비소가 청구했으나 보험이 인정하지 않은 금액이다. 총액이 정비소 청구 기준이라
+     * 부위 합계에도 들어가야 한다. 원래 작업은 복구할 수 없어 "불인정" 으로 보인다.
+     */
     @Test
-    @DisplayName("불인정 행은 내역에 남고 부위 합계에서 빠진다")
-    void notApprovedIsShownButNotSummed() throws Exception {
+    @DisplayName("불인정 행은 불인정으로 표시되고 부위 합계에 포함된다")
+    void notApprovedIsShownAndSummed() throws Exception {
         long caseId = insertCase("AIHUB_SC", null, 130_000);
         insertWork(caseId, PART_A, "교환", "EXCHANGE", 100_000);
         jdbcTemplate.update(
@@ -169,7 +172,7 @@ class RepairCaseDetailApiTest {
                 .andExpect(jsonPath("$.data.parts[0].items[1].workName").value("불인정"))
                 .andExpect(jsonPath("$.data.parts[0].items[1].notApproved").value(true))
                 .andExpect(jsonPath("$.data.parts[0].items[1].workCode").value(nullValue()))
-                .andExpect(jsonPath("$.data.parts[0].partTotal").value(100_000));
+                .andExpect(jsonPath("$.data.parts[0].partTotal").value(130_000));
     }
 
     /** 견인·구난은 부품이 아니라 부위에 묶을 수 없다. 따로 준다. */
