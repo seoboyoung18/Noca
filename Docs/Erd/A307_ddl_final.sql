@@ -27,7 +27,13 @@ CREATE TABLE part_code (
     layout_zone   VARCHAR(20) NOT NULL,
     display_order SMALLINT    NOT NULL DEFAULT 0,
     is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
-    CONSTRAINT ck_pc_zone CHECK (layout_zone IN ('FRONT','REAR','SIDE_L','SIDE_R','TOP','UNDER'))
+    -- AI 핵심 라벨 32종과 견적 전용 확장 코드를 가르는 명시적 속성.
+    -- 예전에는 display_order(1~32 vs 101~) 로만 구분됐는데 그것은 표시 순서일 뿐이라
+    -- 관리자가 순서를 바꾸면 구분이 조용히 무너졌다.
+    code_scope    VARCHAR(20) NOT NULL DEFAULT 'EXTENDED',
+    version       BIGINT      NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_zone  CHECK (layout_zone IN ('FRONT','REAR','SIDE_L','SIDE_R','TOP','UNDER')),
+    CONSTRAINT ck_pc_scope CHECK (code_scope  IN ('AI_LABEL','EXTENDED'))
 );
 
 CREATE TABLE part_name_mapping (
@@ -87,6 +93,8 @@ CREATE TABLE vehicle_model (
     vehicle_type VARCHAR(20)  NOT NULL,
     car_class    VARCHAR(20)  NOT NULL,
     is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
+    -- 관리자 동시 수정의 lost update 방지. JPA @Version 이 UPDATE 조건에 넣는다.
+    version      BIGINT       NOT NULL DEFAULT 0,
     CONSTRAINT uk_vm        UNIQUE (manufacturer, model_name),
     CONSTRAINT ck_vm_type   CHECK (vehicle_type IN ('SEDAN','SUV','VAN','TRUCK')),
     CONSTRAINT ck_vm_class  CHECK (car_class IN ('CityCar','Compact','Mid-size','Full-size'))
@@ -426,6 +434,60 @@ CREATE TABLE estimate_report (
     CONSTRAINT ck_er_done   CHECK (completed_at IS NULL OR status IN ('COMPLETED','FAILED'))
 );
 
+-- ─── 관리자 마스터 표시층 · 판정 규칙 (S15P21A307 관리자 기능) ───────────
+-- canonical code 는 Java enum·DDL CHECK·통계 쿼리가 공유한다. 관리자가 새 코드를
+-- 추가하면 DB 행만 늘고 계산이 실패하므로, 코드는 불변으로 두고 표시명·순서·활성만 관리한다.
+CREATE TABLE repair_code (
+    code_type     VARCHAR(20) NOT NULL,
+    code          VARCHAR(20) NOT NULL,
+    display_name  VARCHAR(50) NOT NULL,
+    display_order SMALLINT    NOT NULL DEFAULT 0,
+    is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
+    version       BIGINT      NOT NULL DEFAULT 0,
+    PRIMARY KEY (code_type, code),
+    CONSTRAINT ck_rcode_type CHECK (code_type IN ('REPAIR_METHOD','DAMAGE_TYPE'))
+);
+
+-- 심각도 구간 → 수리 방식. severity_score 의 값 범위는 아직 확정되지 않아
+-- DB 는 "하한 < 상한" 만 강제한다. 경계는 [min, max) 이고 max_inclusive 로 마지막 구간만 닫는다.
+CREATE TABLE repair_method_rule (
+    rule_id       BIGSERIAL    PRIMARY KEY,
+    damage_type   VARCHAR(20)  NOT NULL,
+    part_code     VARCHAR(50)  REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    severity_min  NUMERIC(6,2) NOT NULL,
+    severity_max  NUMERIC(6,2) NOT NULL,
+    max_inclusive BOOLEAN      NOT NULL DEFAULT FALSE,
+    repair_method VARCHAR(20)  NOT NULL,
+    priority      SMALLINT     NOT NULL DEFAULT 0,
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    version       BIGINT       NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT ck_rmr_range  CHECK (severity_min < severity_max),
+    CONSTRAINT ck_rmr_damage CHECK (damage_type   IN ('Scratched','Separated','Crushed','Breakage')),
+    CONSTRAINT ck_rmr_method CHECK (repair_method IN ('coating','sheet_metal','exchange','repair'))
+);
+
+-- 이상 탐지 임계값. 행은 불변이고 현재 규칙은 rule_version 이 가장 큰 행이다 —
+-- 활성 플래그를 두지 않아 "활성이 둘" 상태가 생기지 않는다.
+CREATE TABLE estimate_validation_rule (
+    rule_version                        INTEGER      PRIMARY KEY,
+    reference_percentile                SMALLINT     NOT NULL,
+    severe_over_p75_multiplier          NUMERIC(5,2) NOT NULL,
+    caution_total_difference_ratio      NUMERIC(5,4) NOT NULL,
+    needs_review_total_difference_ratio NUMERIC(5,4) NOT NULL,
+    needs_review_item_count             SMALLINT     NOT NULL,
+    changed_by                          BIGINT       REFERENCES member(member_id) ON DELETE SET NULL,
+    change_note                         VARCHAR(200),
+    created_at                          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT ck_evr_version CHECK (rule_version >= 1),
+    CONSTRAINT ck_evr_pct     CHECK (reference_percentile BETWEEN 1 AND 100),
+    CONSTRAINT ck_evr_mult    CHECK (severe_over_p75_multiplier > 1.0),
+    CONSTRAINT ck_evr_caution CHECK (caution_total_difference_ratio >= 0),
+    CONSTRAINT ck_evr_review  CHECK (needs_review_total_difference_ratio >= caution_total_difference_ratio),
+    CONSTRAINT ck_evr_count   CHECK (needs_review_item_count >= 1)
+);
+
 -- ─── 11. 견적서 검증 ────────────────────────────────────────
 CREATE TABLE estimate_validation (
     validation_id  BIGSERIAL    PRIMARY KEY,
@@ -440,6 +502,10 @@ CREATE TABLE estimate_validation (
     llm_grade      VARCHAR(20),
     llm_summary    TEXT,
     failure_reason VARCHAR(200),
+    -- 이 검증이 어떤 이상 탐지 규칙 버전으로 판정됐는지. 규칙이 바뀌어도 과거 결과는
+    -- 다시 계산되지 않으므로, 근거를 되짚으려면 버전이 남아야 한다.
+    -- 컬럼 생성 이전 검증은 알 수 없어 NULL 이다.
+    rule_version      INTEGER   REFERENCES estimate_validation_rule(rule_version) ON DELETE SET NULL,
     review_item_count INTEGER   NOT NULL DEFAULT 0,
     total_item_count  INTEGER   NOT NULL DEFAULT 0,
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -511,9 +577,18 @@ CREATE TABLE audit_log (
     target_type     VARCHAR(50)  NOT NULL,
     target_id       VARCHAR(100) NOT NULL,
     request_id      VARCHAR(64),
-    before_data     JSONB,
-    after_data      JSONB,
-    ip_address      INET,
+    -- JSONB 가 아니라 TEXT 다 — 정정.
+    -- 이 두 컬럼은 검색 조건으로 쓰지 않기로 했고(필터는 행위자·대상·기간뿐), JSONB 의 이점은
+    -- 인덱스와 연산자뿐이다. 그런데 Java 쪽은 평범한 String 이라 ddl-auto=validate 가
+    -- jsonb ↔ varchar 를 불일치로 잡아 기동이 실패한다.
+    -- estimate_validation.llm_summary 가 같은 이유로 TEXT 다 (그때는 실제로 기동이 깨졌다).
+    before_data     TEXT,
+    after_data      TEXT,
+    -- 관리자가 적은 변경 사유. nullable 이다 — 지금 사유를 필수로 받는 경로는 부품명
+    -- 매핑의 등록·수정·삭제뿐이고, NOT NULL 로 잠그면 아직 받지 않는 경로가 전부 깨진다.
+    change_reason   VARCHAR(500),
+    -- INET 이 아니라 VARCHAR(45) 다 — 같은 이유. IPv6 최대 표기 길이가 45자다.
+    ip_address      VARCHAR(45),
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
@@ -588,6 +663,8 @@ CREATE INDEX ix_audit_actor       ON audit_log (actor_member_id, created_at DESC
 CREATE INDEX ix_audit_target      ON audit_log (target_type, target_id, created_at DESC);
 -- 기간별 감사 조회 (actor·target 조건 없이)
 CREATE INDEX ix_audit_created     ON audit_log (created_at DESC);
+CREATE INDEX ix_audit_action      ON audit_log (action_type, created_at DESC);
+CREATE INDEX ix_rmr_lookup        ON repair_method_rule (damage_type, is_active, priority);
 
 -- ── 멱등성 ──
 CREATE UNIQUE INDEX ux_job_inflight ON analysis_job (accident_id)
