@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.1.0",
+  "image": {
+    "id": "img-0001",
+    "width": 1600,
+    "height": 1200
+  },
+  "detections": [
+    {
+      "detection_id": "det-0001",
+      "part": {
+        "code": "FRONT_BUMPER",
+        "name_en": "Front bumper",
+        "name_ko": "앞 범퍼",
+        "group": "BUMPER",
+        "side": "CENTER",
+        "raw_label": "front_bumper"
+      },
+      "damage": {
+        "code": "SCRATCHED",
+        "name_en": "Scratched",
+        "name_ko": "긁힘",
+        "raw_label": "scratched"
+      },
+      "geometry": {
+        "coordinate_system": "PIXEL_XY_TOP_LEFT",
+        "bbox_format": "XYWH",
+        "bbox": { "x": 120.5, "y": 340.0, "width": 260.0, "height": 90.0 },
+        "segmentation": {
+          "format": "POLYGONS",
+          "polygons": [
+            [
+              { "x": 120.5, "y": 340.0 },
+              { "x": 380.5, "y": 340.0 },
+              { "x": 380.5, "y": 430.0 },
+              { "x": 120.5, "y": 430.0 }
+            ]
+          ],
+          "area_px": 23400.0,
+          "area_ratio": 0.012
+        }
+      },
+      "confidence": { "part": 0.91, "damage": 0.87 },
+      "work_candidates": [
+        { "code": "COATING", "name_en": "coating", "name_ko": "도장" }
+      ],
+      "work_decision": "CANDIDATE",
+      "work_rule_version": "1.0.0"
+    },
+    {
+      "detection_id": "det-0002",
+      "part": {
+        "code": "BONNET",
+        "name_en": "Bonnet",
+        "name_ko": "보닛",
+        "group": "BODY_PANEL",
+        "side": "CENTER",
+        "raw_label": "bonnet"
+      },
+      "damage": {
+        "code": "CRUSHED",
+        "name_en": "Crushed",
+        "name_ko": "찌그러짐",
+        "raw_label": "crushed"
+      },
+      "geometry": {
+        "coordinate_system": "PIXEL_XY_TOP_LEFT",
+        "bbox_format": "XYWH",
+        "bbox": { "x": 400.0, "y": 150.0, "width": 520.0, "height": 300.0 },
+        "segmentation": {
+          "format": "POLYGONS",
+          "polygons": [
+            [
+              { "x": 400.0, "y": 150.0 },
+              { "x": 920.0, "y": 150.0 },
+              { "x": 920.0, "y": 450.0 },
+              { "x": 400.0, "y": 450.0 }
+            ],
+            [
+              { "x": 430.0, "y": 470.0 },
+              { "x": 500.0, "y": 470.0 },
+              { "x": 465.0, "y": 520.0 }
+            ]
+          ],
+          "area_px": 157750.0,
+          "area_ratio": 0.082
+        }
+      },
+      "confidence": { "part": 0.88, "damage": 0.79 },
+      "work_candidates": [
+        { "code": "SHEET_METAL", "name_en": "sheet_metal", "name_ko": "판금" },
+        { "code": "EXCHANGE", "name_en": "exchange", "name_ko": "교환" }
+      ],
+      "work_decision": "CANDIDATE",
+      "work_rule_version": "1.0.0"
+    },
+    {
+      "detection_id": "det-0003",
+      "part": {
+        "code": "HEAD_LIGHT_L",
+        "name_en": "Head lights(L)",
+        "name_ko": "헤드램프(L)",
+        "group": "LAMP",
+        "side": "LEFT",
+        "raw_label": "head_light_l"
+      },
+      "damage": {
+        "code": "BREAKAGE",
+        "name_en": "Breakage",
+        "name_ko": "파손",
+        "raw_label": "breakage"
+      },
+      "geometry": {
+        "coordinate_system": "PIXEL_XY_TOP_LEFT",
+        "bbox_format": "XYWH",
+        "bbox": { "x": 60.0, "y": 260.0, "width": 140.0, "height": 70.0 },
+        "segmentation": {
+          "format": "POLYGONS",
+          "polygons": [
+            [
+              { "x": 60.0, "y": 260.0 },
+              { "x": 200.0, "y": 260.0 },
+              { "x": 200.0, "y": 330.0 },
+              { "x": 60.0, "y": 330.0 }
+            ]
+          ],
+          "area_px": 9800.0,
+          "area_ratio": 0.005
+        }
+      },
+      "confidence": { "part": null, "damage": null },
+      "work_candidates": [
+        { "code": "EXCHANGE", "name_en": "exchange", "name_ko": "교환" }
+      ],
+      "work_decision": "CANDIDATE",
+      "work_rule_version": "1.0.0"
+    }
+  ]
+}
