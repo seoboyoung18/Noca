@@ -6,7 +6,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -140,7 +139,11 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
 
         String getConfidenceGrade();
 
-        OffsetDateTime getCreatedAt();
+        /**
+         * {@code Object} 로 받아 {@link NativeTimestamps#toInstant} 로 바꾼다. 드라이버마다 타입이 달라
+         * (PostgreSQL {@code Instant}, H2 {@code OffsetDateTime}) 한쪽으로 고정하면 다른 쪽에서 500 이 난다.
+         */
+        Object getCreatedAt();
     }
 
     interface EstimateItemView {
@@ -188,7 +191,8 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
 
         String getConfidenceGrade();
 
-        OffsetDateTime getCreatedAt();
+        /** {@link EstimateDetailView#getCreatedAt} 와 같은 이유로 {@code Object} 다. */
+        Object getCreatedAt();
     }
 
     interface EstimateBasisItemView {

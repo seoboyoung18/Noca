@@ -1,6 +1,7 @@
 package com.ssafy.a307.estimate.dto;
 
 import com.ssafy.a307.estimate.repository.EstimateQueryRepository.EstimateSummaryView;
+import com.ssafy.a307.estimate.repository.NativeTimestamps;
 
 import java.time.Instant;
 
@@ -29,6 +30,6 @@ public record EstimateSummaryResponse(
                 view.getTotalMedian(),
                 view.getTotalMax(),
                 view.getConfidenceGrade(),
-                view.getCreatedAt().toInstant());
+                NativeTimestamps.toInstant(view.getCreatedAt()));
     }
 }
