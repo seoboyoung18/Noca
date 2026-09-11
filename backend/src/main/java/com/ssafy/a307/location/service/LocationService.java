@@ -2,6 +2,7 @@ package com.ssafy.a307.location.service;
 
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
+import com.ssafy.a307.common.kakao.KakaoLocalException;
 import com.ssafy.a307.common.kakao.KakaoLocalPort;
 import com.ssafy.a307.location.domain.CategoryGroupCode;
 import com.ssafy.a307.location.domain.KoreaBounds;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * 주소·좌표·장소 조회. <b>외부 조회 프록시라 DB 를 쓰지 않는다.</b>
@@ -37,6 +39,14 @@ import java.util.Optional;
  * 상태에서 TTL 과 좌표 반올림 정밀도를 정하면 근거 없는 숫자가 굳고, 조회 경로에 Redis 장애가
  * 전파되는 위험만 먼저 생긴다. 대신 FE 인수인계 문서에 <b>디바운스·최소 이동거리 권고</b>를
  * 적었고, 실제 소비처가 붙은 뒤 호출량을 보고 결정할 항목으로 남겼다.
+ *
+ * <h2>카카오 실패는 여기서 {@code BusinessException} 으로 바꾼다</h2>
+ * 전송 계층이 이미 어떤 {@link ErrorCode} 로 나갈지 정해 {@link KakaoLocalException} 에 담아 온다.
+ * 그런데 그 예외는 {@code BusinessException} 이 아니고 {@code GlobalExceptionHandler} 에도
+ * 핸들러가 없어서, 그대로 두면 catch-all 이 잡아 <b>쿼터 초과도 앱키 오류도 전부 500</b> 이 된다.
+ * FE 가 429 에 "잠시 후 다시" 를, 503 에 "일시적으로 사용할 수 없음" 을 그릴 수 없다.
+ * <b>분류는 다시 하지 않는다</b> — 예외가 들고 온 {@code ErrorCode} 와 사용자용 문구를 그대로 옮긴다.
+ * 문구에는 키도 카카오 원문도 없다({@code KakaoLocalClient} 가 보장).
  */
 @Service
 @RequiredArgsConstructor
@@ -60,7 +70,7 @@ public class LocationService {
         requireQuery(query);
         var request = new KakaoLocalPort.AddressQuery(
                 query, kakaoPage(page), size(size, DEFAULT_ADDRESS_SIZE, MAX_ADDRESS_SIZE), exact);
-        return LocationPageResponse.of(port().searchAddress(request), AddressResponse::from);
+        return LocationPageResponse.of(call(port -> port.searchAddress(request)), AddressResponse::from);
     }
 
     // ── 좌표 → 주소 ───────────────────────────────────────────────────────
@@ -72,7 +82,7 @@ public class LocationService {
      */
     public List<AddressResponse> reverseGeocode(BigDecimal latitude, BigDecimal longitude) {
         var point = KoreaBounds.require(latitude, longitude);
-        return port().reverseGeocode(point)
+        return call(port -> port.reverseGeocode(point))
                 .map(AddressResponse::from)
                 .map(List::of)
                 .orElseGet(List::of);
@@ -93,7 +103,7 @@ public class LocationService {
         var request = new KakaoLocalPort.KeywordQuery(
                 query, center, radius(radius), sort, categoryGroupCode,
                 kakaoPage(page), size(size, DEFAULT_PLACE_SIZE, MAX_PLACE_SIZE));
-        return LocationPageResponse.of(port().searchPlacesByKeyword(request), PlaceResponse::from);
+        return LocationPageResponse.of(call(port -> port.searchPlacesByKeyword(request)), PlaceResponse::from);
     }
 
     // ── 카테고리 장소 검색 ────────────────────────────────────────────────
@@ -117,7 +127,7 @@ public class LocationService {
         var request = new KakaoLocalPort.CategoryQuery(
                 categoryGroupCode, center, radius(radius), null, sort,
                 kakaoPage(page), size(size, DEFAULT_PLACE_SIZE, MAX_PLACE_SIZE));
-        return LocationPageResponse.of(port().searchPlacesByCategory(request), PlaceResponse::from);
+        return LocationPageResponse.of(call(port -> port.searchPlacesByCategory(request)), PlaceResponse::from);
     }
 
     // ── 검증·변환 ─────────────────────────────────────────────────────────
@@ -132,6 +142,21 @@ public class LocationService {
         return kakaoLocalPort.orElseThrow(() -> new BusinessException(
                 ErrorCode.SERVICE_UNAVAILABLE,
                 "위치 정보 서비스가 설정되지 않았습니다. 관리자에게 문의해 주세요."));
+    }
+
+    /**
+     * 포트 호출 한 번. 카카오 실패를 {@code BusinessException} 으로 옮긴다 — 이유는 클래스 Javadoc.
+     *
+     * <p>원인 예외는 싣지 않는다. 카카오 code·엔드포인트는 {@code KakaoLocalClient} 가 이미
+     * 로그로 남겼고, 여기서 스택을 한 번 더 남기면 같은 실패가 두 번 기록된다.
+     */
+    private <T> T call(Function<KakaoLocalPort, T> request) {
+        KakaoLocalPort port = port();
+        try {
+            return request.apply(port);
+        } catch (KakaoLocalException e) {
+            throw new BusinessException(e.errorCode(), e.getMessage());
+        }
     }
 
     private static void requireQuery(String query) {

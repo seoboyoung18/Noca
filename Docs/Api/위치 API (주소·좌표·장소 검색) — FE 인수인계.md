@@ -1,10 +1,11 @@
 # 위치 API (주소·좌표·장소 검색) — FE 인수인계
 
 > **독자** — 지도 화면을 만드는 프론트엔드 담당자. **백엔드 코드를 열지 않고** 이 문서만으로 붙일 수 있게 썼습니다.
-> **작성 기준** — `develop` `25dccdd` 위의 로컬 작업본. 2026-09-10
+> **작성 기준** — `develop` `25dccdd` 위의 로컬 작업본. 2026-09-10 · **2026-09-11 갱신** (develop `4a0836d` 머지 반영, 정비소 전용 API·오류 번역 수정)
 > **이 문서의 JSON 은 실제 DTO 에서 옮긴 것입니다.** 추측한 필드가 없습니다.
 >
-> ⚠️ **아직 커밋되지 않았고, 대응하는 지라 이슈도 없습니다.** 이 API 를 쓰는 화면이 아직 정해지지 않았습니다 (11장).
+> 관련 지라 — `S15P21A307-443`(주변 정비소 지도 검색) · `-444`(카카오 로컬 연동) · `-445`(거리순 정비소 목록).
+> ⚠️ 이 API 를 쓰는 화면은 아직 정해지지 않았습니다 (11장).
 
 ---
 
@@ -17,6 +18,7 @@
 | 장소·업체명으로 검색 | `GET /api/locations/places?query=` |
 | 카테고리로 주변 검색 | `GET /api/locations/places/category?categoryGroupCode=` |
 | 카테고리 코드 목록 | `GET /api/locations/category-groups` |
+| **현재 위치 기준 가까운 정비소** | **`GET /api/repair-shops?latitude=&longitude=`** — 별도 문서 `정비소 검색 API — FE 인수인계.md` |
 
 ### 먼저 알아야 할 다섯 가지
 
@@ -56,6 +58,10 @@
 | `UNAUTHORIZED` | 401 | 비로그인 | 로그인 유도 |
 
 ⚠️ **카카오 원본 오류 메시지는 절대 내려가지 않습니다.** 서버가 프로젝트 문구로 바꿉니다. REST API 키도 응답·로그 어디에도 없습니다.
+
+> **2026-09-11 수정** — `develop` `4a0836d` 까지는 위 표와 달리 카카오 실패(쿼터 초과·앱키 오류·점검)가
+> **전부 500 `INTERNAL_ERROR`** 로 나가고 있었습니다. 전송 계층의 예외가 공통 오류 처리에 연결되지 않았기
+> 때문입니다. 이제 표대로 429·503·400 이 나갑니다 (`LocationKakaoFailureMappingTest`).
 
 ---
 
@@ -362,14 +368,21 @@ GET /api/locations/places/category?categoryGroupCode=PM9&latitude=37.5&longitude
 
 18종을 훑어보면 **자동차 정비 업종이 하나도 없습니다.** 이 서비스의 성격상 "주변 정비소" 를 찾을 일이 있을 텐데, **카테고리 검색으로는 불가능합니다.**
 
+> **2026-09-11 변경 — 정비소 전용 API 가 생겼습니다.** 검색어·거리순을 FE 가 조합하지 말고
+> **`GET /api/repair-shops?latitude=&longitude=`** 를 쓰세요. 서버가 검색어와 가까운 순 정렬을 고정하고
+> 거리를 항상 채워 줍니다. 계약과 Vue 예제는 **`정비소 검색 API — FE 인수인계.md`** 에 있습니다.
+
 ```js
-// ✅ 정비소는 키워드 검색으로
-await api.get('/api/locations/places', {
+// ✅ 정비소는 전용 API 로 — 검색어·정렬을 보내지 않는다
+await http.get('/api/repair-shops', { params: { latitude, longitude, radius: 3000 } });
+
+// ⚠️ 예전 방식 — 동작은 하지만 쓰지 마세요. 검색어가 FE 에 흩어집니다
+await http.get('/api/locations/places', {
   params: { query: '자동차 정비', latitude, longitude, radius: 3000, sort: 'DISTANCE' }
 });
 
 // ❌ 이런 코드는 없습니다. 400 이 납니다
-await api.get('/api/locations/places/category', { params: { categoryGroupCode: 'CAR9' } });
+await http.get('/api/locations/places/category', { params: { categoryGroupCode: 'CAR9' } });
 ```
 
 `AG2`(중개업소)나 `OL7`(주유소·충전소)를 정비소 대용으로 쓰지 마세요 — 다른 업종이고, 결과가 섞이면 사용자가 잘못된 곳으로 차를 가져갑니다.
