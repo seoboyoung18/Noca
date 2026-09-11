@@ -111,6 +111,16 @@ public class EstimateValidation {
     @Column(name = "failure_reason", length = 200)
     private String failureReason;
 
+    /**
+     * 이 검증을 판정한 이상 탐지 규칙 버전.
+     *
+     * <p>규칙이 바뀌어도 <b>과거 검증은 다시 계산되지 않는다.</b> 그래서 "그때 왜 주의였나" 를
+     * 물으면 이 값으로 당시 임계값을 되짚어야 한다. 컬럼이 생기기 전에 끝난 검증은 알 수 없어
+     * {@code null} 이고, 추측해서 채우지 않는다.
+     */
+    @Column(name = "rule_version")
+    private Integer ruleVersion;
+
     @Column(name = "review_item_count", nullable = false)
     private int reviewItemCount;
 
@@ -187,6 +197,14 @@ public class EstimateValidation {
      */
     public void markProcessing() {
         this.status = ValidationStatus.PROCESSING;
+    }
+
+    /**
+     * 이 검증이 사용한 규칙 버전을 남긴다. 판정 직전에 부르며, 한 검증은 시작할 때 읽은
+     * 스냅샷 하나만 쓰므로 값이 중간에 바뀌지 않는다.
+     */
+    public void recordRuleVersion(Integer ruleVersion) {
+        this.ruleVersion = ruleVersion;
     }
 
     public void complete(ValidationGrade grade, String summary, int reviewItemCount, int totalItemCount, Instant now) {
