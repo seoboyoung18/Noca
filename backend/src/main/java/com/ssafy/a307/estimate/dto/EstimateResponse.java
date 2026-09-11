@@ -1,6 +1,7 @@
 package com.ssafy.a307.estimate.dto;
 
 import com.ssafy.a307.estimate.repository.EstimateQueryRepository.EstimateDetailView;
+import com.ssafy.a307.estimate.repository.NativeTimestamps;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -55,6 +56,6 @@ public record EstimateResponse(
                 view.getConfidenceGrade(),
                 items,
                 notices,
-                view.getCreatedAt().toInstant());
+                NativeTimestamps.toInstant(view.getCreatedAt()));
     }
 }
