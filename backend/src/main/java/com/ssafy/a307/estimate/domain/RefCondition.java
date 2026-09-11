@@ -20,6 +20,10 @@ import java.util.List;
  *   <li>참조 사례 건수 — {@code estimate_item.ref_case_count} 컬럼</li>
  *   <li>수리 방식 — {@code estimate_item.repair_method} 컬럼</li>
  * </ul>
+ *
+ * <p><b>참조한 사례 ID 는 여기 담는다.</b> 화면의 "이 사례들 보기"가 <b>항목별 근거 안에</b>
+ * 있어 앞범퍼 사례와 헤드램프 사례를 구분해야 하기 때문이다. {@code refCaseCount} 와는 다른
+ * 값이다 — 그쪽은 통계 산정에 쓴 전체 건수고, 이쪽은 화면에 보여 줄 대표 사례다(항목당 10건).
  * 남은 것이 <b>다른 어디에도 남지 않는 값</b>들이다. 조건을 어디까지 넓혔는지, 그때 통계가
  * 얼마였는지, 참조한 사례가 몇 년 것이었는지, 수리 방식을 왜 그렇게 골랐는지.
  *
@@ -33,10 +37,20 @@ public record RefCondition(
         CostDistribution costDistribution,
         Integer refYearFrom,
         Integer refYearTo,
-        RepairMethodReason repairMethodReason) {
+        RepairMethodReason repairMethodReason,
+        List<Long> referencedCaseIds) {
 
     /** 근거가 하나도 없는 상태. {@code '{}'} 로 저장된 행과 읽지 못한 행이 여기로 온다. */
-    public static final RefCondition EMPTY = new RefCondition(null, null, null, null, null);
+    public static final RefCondition EMPTY =
+            new RefCondition(null, null, null, null, null, null);
+
+    /**
+     * 참조 사례 ID. <b>{@code null} 대신 빈 목록을 돌려준다</b> — 소비처가 매번 null 을 막지
+     * 않게 한다. 사례 조회(S15P21A307-236)가 이 값으로 {@code repair_case} 를 찾는다.
+     */
+    public List<Long> referencedCaseIds() {
+        return referencedCaseIds == null ? List.of() : referencedCaseIds;
+    }
 
     /** 화면에 "근거 없음"을 띄울지 가른다. 하나라도 있으면 보여 줄 것이 있다. */
     public boolean isEmpty() {
@@ -44,7 +58,8 @@ public record RefCondition(
                 && costDistribution == null
                 && refYearFrom == null
                 && refYearTo == null
-                && repairMethodReason == null;
+                && repairMethodReason == null
+                && referencedCaseIds().isEmpty();
     }
 
     /**

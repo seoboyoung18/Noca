@@ -30,7 +30,8 @@ class RefConditionReaderTest {
                 FallbackStage.CAR_CLASS,
                 new RefCondition.CostDistribution(74_000, 92_000, 118_000),
                 2023, 2025,
-                new RefCondition.RepairMethodReason(List.of("sheet_metal", "exchange"), "MAJORITY"));
+                new RefCondition.RepairMethodReason(List.of("sheet_metal", "exchange"), "MAJORITY"),
+                List.of(121381L, 121414L));
 
         RefCondition read = reader.read(objectMapper.writeValueAsString(written));
 
@@ -46,7 +47,7 @@ class RefConditionReaderTest {
     @DisplayName("폴백 단계 세 값이 모두 왕복한다")
     void allFallbackStagesSurvive() {
         for (FallbackStage stage : FallbackStage.values()) {
-            RefCondition written = new RefCondition(stage, null, null, null, null);
+            RefCondition written = new RefCondition(stage, null, null, null, null, null);
 
             assertThat(reader.read(objectMapper.writeValueAsString(written)).fallbackStage())
                     .isEqualTo(stage);
@@ -126,7 +127,7 @@ class RefConditionReaderTest {
     @DisplayName("수리 방식 후보 목록이 보존된다")
     void repairMethodCandidatesSurvive() {
         RefCondition written = new RefCondition(null, null, null, null,
-                new RefCondition.RepairMethodReason(List.of("coating"), null));
+                new RefCondition.RepairMethodReason(List.of("coating"), null), null);
 
         RefCondition read = reader.read(objectMapper.writeValueAsString(written));
 

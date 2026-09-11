@@ -23,7 +23,7 @@ class BasisNarrativeTest {
         RefCondition condition = new RefCondition(
                 FallbackStage.MODEL,
                 new RefCondition.CostDistribution(74_000, 92_000, 118_000),
-                2023, 2025, null);
+                2023, 2025, null, null);
 
         String narrative = BasisNarrative.of(condition, "프론트 범퍼", "교환", 37);
 
@@ -42,7 +42,7 @@ class BasisNarrativeTest {
     @Test
     @DisplayName("참조 연도가 한 해면 범위로 쓰지 않는다")
     void singleYearIsNotARange() {
-        RefCondition condition = new RefCondition(FallbackStage.MODEL, null, 2024, 2024, null);
+        RefCondition condition = new RefCondition(FallbackStage.MODEL, null, 2024, 2024, null, null);
 
         assertThat(BasisNarrative.of(condition, "본넷", "판금", 8)).startsWith("2024년 ");
     }
@@ -67,7 +67,7 @@ class BasisNarrativeTest {
         @Test
         @DisplayName("연도가 한쪽만 있으면 아예 적지 않는다")
         void halfOpenYearRangeIsOmitted() {
-            RefCondition condition = new RefCondition(FallbackStage.ALL, null, 2023, null, null);
+            RefCondition condition = new RefCondition(FallbackStage.ALL, null, 2023, null, null, null);
 
             assertThat(BasisNarrative.of(condition, "본넷", "판금", 5)).doesNotContain("2023");
         }
@@ -77,7 +77,7 @@ class BasisNarrativeTest {
         @DisplayName("중앙값이 없으면 중앙값이라고 쓰지 않는다")
         void withoutMedianDoesNotClaimMedian() {
             RefCondition condition = new RefCondition(FallbackStage.MODEL,
-                    new RefCondition.CostDistribution(74_000, null, 118_000), 2023, 2025, null);
+                    new RefCondition.CostDistribution(74_000, null, 118_000), 2023, 2025, null, null);
 
             assertThat(BasisNarrative.of(condition, "본넷", "판금", 5))
                     .endsWith("기준")
@@ -101,7 +101,8 @@ class BasisNarrativeTest {
                 FallbackStage.MODEL,
                 new RefCondition.CostDistribution(74_000, 92_000, 118_000),
                 2023, 2025,
-                new RefCondition.RepairMethodReason(List.of("exchange"), null));
+                new RefCondition.RepairMethodReason(List.of("exchange"), null),
+                List.of(121381L));
 
         assertThat(BasisNarrative.of(condition, "프론트 범퍼", "교환", 37))
                 .doesNotContain("수도권")
@@ -109,7 +110,7 @@ class BasisNarrativeTest {
     }
 
     private String narrativeWith(FallbackStage stage) {
-        return BasisNarrative.of(new RefCondition(stage, null, 2023, 2025, null),
+        return BasisNarrative.of(new RefCondition(stage, null, 2023, 2025, null, null),
                 "프론트 범퍼", "교환", 37);
     }
 }
