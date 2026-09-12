@@ -10,12 +10,17 @@
 
 | 항목 | 값 |
 | --- | --- |
-| 기준 커밋 | `origin/develop` **`0ffb7c0`** (2026-09-11 `git fetch` 실측) |
+| 기준 커밋 | `origin/develop` **`c9729d8`** (2026-09-12 `git fetch` 실측) |
 | 지라에서 직접 확인한 김재원 담당 이슈 | **83건** (accountId `712020:1510b171-71ab-4244-909b-48a767b48010`) |
 | 개별 상세까지 읽은 이슈 | **83건** (본문·상위 이슈·연결 이슈·댓글) |
-| 이 문서가 다루는 엔드포인트 | **58개** (`@GetMapping` 등 실제 핸들러 수) |
-| 저장소의 Controller | 23개 (전부 김재원 담당은 아닙니다) |
-| 작성일 | 2026-09-11 |
+| 이 문서가 다루는 엔드포인트 | **59개** (`@GetMapping` 등 실제 핸들러 수. 저장소 전체는 77개) |
+| 저장소의 Controller | 24개 (전부 김재원 담당은 아닙니다) |
+| 작성일 | 2026-09-11 · **부분 갱신 2026-09-12** |
+
+> **2026-09-12 갱신분** — `-496`·`-497`·`-498` (머지 `c9729d8`) 이 바꾼 곳만 고쳤습니다.
+> ① §3-3 `AccidentHistoryStatus` 가 **4값 → 6값**, ② §5-3 목록 전용 필드가 **7개 → 8개**
+> (`estimateId` 추가), ③ §5-3 에 **`GET /api/accidents/{accidentId}/analysis` 1개 추가**.
+> 그 밖의 절은 `0ffb7c0` 기준 그대로이며 이번에 다시 대조하지 않았습니다.
 
 ### 1-1. 이 문서를 쓴 방법
 
@@ -207,7 +212,11 @@
 VehicleType           SEDAN · SUV · VAN · TRUCK
 CarClass              CityCar · Compact · Mid-size · Full-size   ← 하이픈 있음. 대문자 아님
 VehicleInputType      REGISTERED · DIRECT
-AccidentHistoryStatus RECEIVED · IMAGES_UPLOADED · ESTIMATED · REPAIR_RECORDED
+AccidentHistoryStatus RECEIVED · IMAGES_UPLOADED · ANALYZING · ANALYSIS_FAILED
+                      ESTIMATED · REPAIR_RECORDED          ← 2026-09-12 에 2값 늘었습니다
+AnalysisJobStatus     QUEUED · PROCESSING · COMPLETED · FAILED
+AnalysisStageType     PREPROCESS · DETECT · MATCH · ESTIMATE   ← 배열 순서가 진행 순서
+AnalysisStageStatus   PENDING · RUNNING · DONE · FAILED
 ImageVariant          ORIGINAL · RESIZED · THUMBNAIL · BLURRED
 ImageUploadState      PENDING · COMPLETED
 ImageProcessingStatus COMPLETED · ALREADY_COMPLETED · FAILED
@@ -222,7 +231,9 @@ angleCode (문자열)     FRONT · REAR · LEFT · RIGHT · FRONT_LEFT · FRONT_
 
 `CarClass` 만 표기가 다릅니다 — `Mid-size` 처럼 **하이픈이 들어간 원문 그대로** 내려옵니다. 화면 라벨로 쓰려면 FE 매핑이 필요합니다.
 
-`ValidationGrade` 는 `gradeDisplayName`(`적정 범위`·`주의`·`확인 필요`)을 **서버가 함께 주므로** FE 가 한글 라벨을 만들 필요가 없습니다. 반대로 `AccidentHistoryStatus` 는 **한글 라벨을 주지 않습니다** — 화면 문구는 FE 가 정합니다.
+`ValidationGrade` 는 `gradeDisplayName`(`적정 범위`·`주의`·`확인 필요`)을 **서버가 함께 주므로** FE 가 한글 라벨을 만들 필요가 없습니다. 반대로 `AccidentHistoryStatus`·`AnalysisStageType` 은 **한글 라벨을 주지 않습니다** — 화면 문구는 FE 가 정합니다. "부품을 연결하고 있어요" 같은 단계 문구도 FE 몫입니다(`MATCH` 코드에 대응).
+
+⚠️ **`AccidentHistoryStatus` 는 선언 순서가 우선순위가 아닙니다.** 예전 문서는 "뒤가 앞을 덮는다" 고 적었는데 **더 이상 사실이 아닙니다** — `ANALYSIS_FAILED` 가 `ESTIMATED` 를 이깁니다. 실제 우선순위는 §5-3 표에 있습니다.
 
 ### 3-4. 소유권 — 403 이 아니라 404
 
@@ -342,15 +353,16 @@ shooting   { recommendedCount, overlaySets: [ { vehicleType, overlaySet } ],
 - **촬영 주의사항 5개 문장은 응답에 없습니다.** 필요하면 FE 문구로 넣으세요.
 - `shots[].description` 10개 중 **2개만 기획 확정 문안**이고 8개는 백엔드가 같은 어투로 쓴 것입니다. 그대로 화면에 띄우기 전에 기획 확인을 받으세요.
 
-### 5-3. 사고 접수·이력 — 4개
+### 5-3. 사고 접수·이력 — 5개
 
-상세 계약: `Docs/Api/사고 조회 API — FE 인수인계.md` ⚠️ **목록 전용 7필드가 빠져 있습니다. 아래를 정본으로 쓰세요.**
+상세 계약: `Docs/Api/사고 조회 API — FE 인수인계.md` ⚠️ **목록 전용 8필드와 진행 상태 API 가 빠져 있습니다. 아래를 정본으로 쓰세요.**
 
 | 메서드·경로 | 성공 | 한 줄 설명 |
 | --- | --- | --- |
 | `POST /api/accidents` | 201 | 사고 접수. 등록 차량 선택 또는 즉시 입력 |
 | `GET /api/accidents/me` | 200 | 내 사고 이력 목록(페이지) |
 | `GET /api/accidents/{accidentId}` | 200 | 사고 상세 |
+| `GET /api/accidents/{accidentId}/analysis` | 200 | **분석 진행 상태** (2026-09-12 추가, `-496`) |
 | `PUT /api/accidents/{accidentId}/actual-cost` | 200 | 실제 수리비 기록 |
 
 #### `POST /api/accidents` 두 분기
@@ -371,16 +383,17 @@ await api.post('/api/accidents', {
 
 #### 목록·상세는 **응답 타입이 다릅니다**
 
-공통 10필드는 같고, **목록에만 7필드가 더 있습니다.**
+공통 10필드는 같고, **목록에만 8필드가 더 있습니다.**
 
 ```
 공통 10개 (상세·목록 모두)
 accidentId · vehicleId · vehicleInputType · modelId · manufacturer
 modelName · vehicleType · carClass · modelYear · createdAt
 
-목록 전용 7개 (GET /api/accidents/me 에만)
+목록 전용 8개 (GET /api/accidents/me 에만)
 status · imageCount · thumbnailUrl · thumbnailExpiresAt
-estimatedCostMin · estimatedCostMedian · estimatedCostMax
+estimateId · estimatedCostMin · estimatedCostMedian · estimatedCostMax
+         ↑ 2026-09-12 추가 (-498)
 ```
 
 ```json
@@ -396,6 +409,7 @@ estimatedCostMin · estimatedCostMedian · estimatedCostMax
         "imageCount": 8,
         "thumbnailUrl": "https://a307-service.s3.ap-northeast-2.amazonaws.com/...",
         "thumbnailExpiresAt": "2026-09-11T04:22:33.412Z",
+        "estimateId": null,
         "estimatedCostMin": null,
         "estimatedCostMedian": null,
         "estimatedCostMax": null
@@ -408,11 +422,28 @@ estimatedCostMin · estimatedCostMedian · estimatedCostMax
 
 | 필드 | 설명 |
 | --- | --- |
-| `status` | 저장 컬럼이 아니라 **유도값** — 이미지 0장이면 `RECEIVED`, 이미지가 있고 견적이 없으면 `IMAGES_UPLOADED`, 견적이 있으면 `ESTIMATED`, 실제 수리비가 있으면 `REPAIR_RECORDED`. 뒤가 앞을 덮습니다 |
+| `status` | 저장 컬럼이 아니라 **유도값**. 우선순위는 아래 별도 표 |
 | `imageCount` | **완료 통보를 못 받은 이미지도 셉니다** — 사용자가 올린 장수 |
 | `thumbnailUrl` | 가장 먼저 올린 이미지의 `THUMBNAIL` presigned GET. **DB 에 저장하지 않고 응답마다 서명**합니다 |
 | `thumbnailExpiresAt` | 이 시각이 지나면 URL 이 깨집니다. 목록을 다시 받으세요 |
+| `estimateId` | **리포트·PDF 로 가는 입구**입니다 — `GET /api/estimates/{estimateId}/report`, `POST /api/estimates/{estimateId}/pdf`. `null` 이면 **받을 PDF 가 없다는 뜻이므로 버튼을 끄세요.** `estimatedCost*` 와 **같은 견적 행**에서 나오므로 목록 금액과 리포트 금액이 어긋나지 않습니다. **현재 항상 `null`** — `estimatedCost*` 와 같은 이유(§15) |
 | `estimatedCost*` | **현재 항상 `null`** — §15 |
+
+**`status` 우선순위 — 위가 이깁니다.** ⚠️ **선언 순서대로가 아닙니다.**
+
+| 순 | 값 | 조건 |
+| --- | --- | --- |
+| 1 | `ANALYSIS_FAILED` | **가장 최근** 분석 작업이 `FAILED` |
+| 2 | `ANALYZING` | 가장 최근 작업이 `QUEUED` 또는 `PROCESSING` |
+| 3 | `ESTIMATED` | 산정된 견적이 있다 |
+| 4 | `IMAGES_UPLOADED` | 이미지가 한 장이라도 있다 |
+| 5 | `RECEIVED` | 그 외 |
+
+- **실패·진행 중이 견적을 이깁니다.** 예전 견적으로 `견적 완료` 를 덮으면 방금 건 재분석이 실패한 사실이 화면에서 사라지기 때문입니다.
+- **그래도 금액은 지우지 않습니다.** `ANALYSIS_FAILED`·`ANALYZING` 이어도 이전 견적의 `estimateId`·`estimatedCost*` 는 그대로 내려옵니다 — 화면이 "분석 실패 + 이전 견적" 을 함께 보여 줄 수 있습니다.
+- **이미지가 0장이어도 분석 작업이 있으면 분석 상태가 이깁니다.**
+- 재분석으로 작업이 여러 개면 **가장 최근 작업**만 봅니다.
+- `REPAIR_RECORDED` 는 **아직 나오지 않습니다.** 값은 계약에 있지만 유도하지 않습니다(실제 수리비가 목록 투영에 없습니다).
 
 #### 화면 구현 주의사항
 
@@ -421,6 +452,62 @@ estimatedCostMin · estimatedCostMedian · estimatedCostMax
 - **`status` 에 한글 라벨이 없습니다.** 배지 문구는 FE 가 정합니다.
 - `thumbnailUrl` 이 `null` 인 경우는 셋입니다 — 이미지가 없거나, `RESIZED`/`ORIGINAL` 만 있거나, 서명에 실패했거나. **그 건만 `null` 이고 목록 전체는 정상 응답합니다.** 빈 이미지 자리를 그릴 준비를 하세요.
 - `estimatedCost*` 가 `null` 일 때 **"0원" 으로 표시하면 안 됩니다.** "산정 전" 으로 처리하세요.
+- **PDF 버튼 판정은 `estimateId !== null` 하나로 하세요.** 목록에서 리포트로 가려고 `GET /api/accidents/{id}/estimates` 를 행마다 한 번 더 부를 필요가 없습니다(2026-09-12 이전에는 그래야 했습니다).
+- ⚠️ **산정 불가 견적(`is_estimable=false`)만 있는 사고는 `estimateId` 가 `null` 입니다.** 리포트 자체는 만들 수 있지만 목록에서는 그 입구를 주지 않습니다 — 금액과 같은 행에서 뽑기 때문입니다. **기획 확인 대기 항목**입니다.
+
+#### `GET /api/accidents/{accidentId}/analysis` — 분석 진행 상태 (2026-09-12 추가)
+
+`분석 중` 화면의 "N/4 단계" 를 그리는 API 입니다.
+
+```json
+{
+  "data": {
+    "jobId": 42,
+    "status": "PROCESSING",
+    "failureReason": null,
+    "startedAt": "2026-09-05T01:00:00Z",
+    "finishedAt": null,
+    "totalStages": 4,
+    "doneStages": 2,
+    "currentStage": "MATCH",
+    "stages": [
+      { "stage": "PREPROCESS", "status": "DONE",    "detail": null, "startedAt": "...", "finishedAt": "..." },
+      { "stage": "DETECT",     "status": "DONE",    "detail": null, "startedAt": "...", "finishedAt": "..." },
+      { "stage": "MATCH",      "status": "RUNNING", "detail": null, "startedAt": "...", "finishedAt": null }
+    ]
+  }
+}
+```
+
+| 필드 | 설명 |
+| --- | --- |
+| `jobId`·`status` | 분석을 **아직 요청하지 않았으면 둘 다 `null`** 입니다 |
+| `totalStages` | **항상 4** 입니다. 작업이 없어도 4 입니다 — 단계 종류 수이지 행 수가 아닙니다 |
+| `doneStages` | `DONE` 인 단계 수. **`RUNNING`·`FAILED` 는 세지 않습니다** |
+| `currentStage` | `RUNNING` 인 단계. 없으면 `null`(대기 중이거나 이미 끝났다는 뜻) |
+| `stages` | **진행 순서로 정렬**돼 있습니다. **행이 없는 단계는 배열에 없습니다** — 그래서 길이가 4보다 작을 수 있습니다 |
+| `detail` | 파이프라인이 넣은 부가 설명. **서버가 만들지 않아 대개 `null`** 입니다 |
+
+**🔴 진행률 퍼센트와 남은 시간을 서버가 주지 않습니다. 기다리지 마세요.**
+
+- 퍼센트를 담을 열이 DB 에 없고, 남은 시간을 추정할 근거(단계별 평균 소요)도 저장하지 않습니다.
+- 서버가 아는 것은 **단계 수**뿐입니다. `doneStages / totalStages` 로 환산하면 **0 · 25 · 50 · 75 · 100%** 만 나옵니다. **시안의 68% 같은 중간값은 나오지 않습니다.**
+- 부드러운 진행 바가 필요하면 FE 가 단계 사이를 시간 기반으로 보간해야 합니다. **그 값은 서버 사실이 아닙니다.**
+
+**🔴 한글 단계 문구도 주지 않습니다.** `currentStage` 는 `"MATCH"` 같은 코드입니다. "부품을 연결하고 있어요" 는 FE 가 코드별로 정하세요.
+
+**소요 시간**은 `finishedAt - startedAt` 으로 **FE 가 계산**합니다. 리포트 화면의 "분석 소요 27초" 가 이것입니다. 서버가 초 단위 정수를 주지 않는 이유는 표기("27초" vs "0분 27초")가 바뀔 때마다 배포가 필요해지기 때문입니다.
+
+**상태 코드**
+
+| 상황 | 응답 |
+| --- | --- |
+| 정상 | 200 |
+| **분석을 아직 요청하지 않은 사고** | **200** — `jobId`·`status` 가 `null`, `stages: []`, `doneStages: 0`, `totalStages: 4`. **404 가 아닙니다** |
+| 남의 사고 · 없는 사고 | **둘 다 404** (§3-4) |
+| 비로그인 | 401 (§4-3 — 본문 없음) |
+
+**⚠️ 지금은 실제로 항상 빈 상태입니다.** 단계 행을 만드는 코드가 아직 없습니다(비동기 분석 파이프라인 `-155` 범위). **계약만 열려 있습니다** — 폴링을 붙여도 당분간 `stages: []` 만 옵니다. 폴링은 §7-3 의 unmount 규칙을 그대로 따르세요.
 
 #### `PUT /api/accidents/{accidentId}/actual-cost`
 
