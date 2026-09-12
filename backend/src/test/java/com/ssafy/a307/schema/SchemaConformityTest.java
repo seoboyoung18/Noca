@@ -75,7 +75,6 @@ class SchemaConformityTest {
      */
     private static final Set<String> KNOWN_MISSING_TABLES = new TreeSet<>(Set.of(
             "ANALYSIS_IMAGE_RESULT",
-            "ANALYSIS_STAGE",
             "BATCH_JOB_EXECUTION",
             "DATA_VALIDATION_ERROR",
             "EMBEDDING_MODEL_VERSION",
@@ -183,7 +182,7 @@ class SchemaConformityTest {
     class Coverage {
 
         @Test
-        @DisplayName("정본 32테이블 중 22개가 H2 에 있고 누락 10개의 목록이 고정되어 있다")
+        @DisplayName("정본 32테이블 중 23개가 H2 에 있고 누락 9개의 목록이 고정되어 있다")
         void missingTablesAreKnown() {
             Set<String> missing = new TreeSet<>(canonical().keySet());
             missing.removeAll(h2().keySet());
@@ -191,8 +190,9 @@ class SchemaConformityTest {
             // 관리자 기능이 정본에 3개(repair_code · repair_method_rule · estimate_validation_rule)를
             // 더했고, 그 셋과 audit_log 까지 4개를 H2 로 옮겼다. audit_log 는 엔티티가 생겨
             // 더 이상 누락일 수 없다 — 없으면 컨텍스트가 뜨지 않는다.
+            // prompt58 이 analysis_stage 에 엔티티를 붙이며 한 개를 더 옮겼다(22 → 23).
             assertThat(canonical()).hasSize(32);
-            assertThat(h2()).hasSize(22);
+            assertThat(h2()).hasSize(23);
             assertThat(missing)
                     .as("정본에 테이블이 늘었거나 H2 로 옮겼다면 KNOWN_MISSING_TABLES 와 머리말을 함께 고칠 것")
                     .isEqualTo(KNOWN_MISSING_TABLES);
@@ -201,7 +201,7 @@ class SchemaConformityTest {
         @Test
         @DisplayName("@Entity 가 붙은 테이블은 전부 H2 에 있다 — 그래서 validate 가 통과한다")
         void everyMappedTableExists() {
-            // 누락 10개 중 어느 것에도 엔티티가 없다는 사실을 고정한다.
+            // 누락 9개 중 어느 것에도 엔티티가 없다는 사실을 고정한다.
             // 엔티티가 생기는 순간 H2 로 옮겨야 하고, 안 옮기면 그 테스트가 컨텍스트부터 뜨지 않는다.
             assertThat(KNOWN_MISSING_TABLES)
                     .doesNotContain("ACCIDENT", "ACCIDENT_IMAGE", "ACCIDENT_IMAGE_ASSET",
@@ -211,7 +211,7 @@ class SchemaConformityTest {
                             "ESTIMATE_VALIDATION_QUESTION", "REPAIR_COST_STAT",
                             "PART_CODE", "PART_NAME_MAPPING",
                             "AUDIT_LOG", "REPAIR_CODE", "REPAIR_METHOD_RULE",
-                            "ESTIMATE_VALIDATION_RULE");
+                            "ESTIMATE_VALIDATION_RULE", "ANALYSIS_STAGE");
         }
     }
 
