@@ -5,6 +5,7 @@ from build_case_split_manifests import choose_balanced, dataset_split
 
 class CaseSplitManifestTest(unittest.TestCase):
     def test_dataset_split_marks_cross_split_case_as_mixed(self):
+        self.assertEqual(dataset_split("train/damage"), "TRAIN_ONLY")
         self.assertEqual(dataset_split("train/damage_part"), "TRAIN_ONLY")
         self.assertEqual(dataset_split("validation/damage_part"), "VALIDATION_ONLY")
         self.assertEqual(
@@ -15,7 +16,7 @@ class CaseSplitManifestTest(unittest.TestCase):
     def test_choose_balanced_is_deterministic(self):
         rows = [
             {
-                "case_id": f"{source.lower()[:2]}-{index:07d}",
+                "case_id": f"{'as' if source == 'AIHUB_AS' else 'sc'}-{index + 10 * ('CityCar Compact Mid-size Full-size'.split().index(car_class)):07d}",
                 "source": source,
                 "car_class": car_class,
                 "part_codes": "FRONT_BUMPER" if index % 2 else "REAR_BUMPER",

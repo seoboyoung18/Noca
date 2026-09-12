@@ -28,12 +28,19 @@ def source_for_case(case_id: str) -> str:
     return SOURCE_BY_PREFIX[case_id[:2].lower()]
 
 
-def sample_keys(readiness_csv: Path, sample_cases: int) -> list[tuple[str, str]]:
+def sample_keys(readiness_csv: Path, sample_cases: int,
+                case_manifest: Path | None = None) -> list[tuple[str, str]]:
     keys: list[tuple[str, str]] = []
-    with readiness_csv.open(encoding="utf-8-sig", newline="") as fp:
+    input_path = case_manifest or readiness_csv
+    with input_path.open(encoding="utf-8-sig", newline="") as fp:
         for row in csv.DictReader(fp):
             case_id = str(row.get("case_id") or "").strip()
-            if CASE_RE.fullmatch(case_id) and truth(row.get("is_final_searchable_case")):
+            is_expected = (
+                str(row.get("purpose") or "").strip() == "DEV"
+                if case_manifest
+                else truth(row.get("is_final_searchable_case"))
+            )
+            if CASE_RE.fullmatch(case_id) and is_expected:
                 keys.append((source_for_case(case_id), case_id))
                 if len(keys) == sample_cases:
                     break
@@ -49,6 +56,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dsn", required=True)
     parser.add_argument("--readiness-csv", type=Path, required=True)
+    parser.add_argument(
+        "--case-manifest", type=Path,
+        help="DEV/DEMO/EVAL 사례 단위 manifest. 지정하면 purpose=DEV 사례를 검증",
+    )
     parser.add_argument("--sample-cases", type=int, default=1000)
     parser.add_argument("--expected-raw-cases", type=int, default=125006)
     parser.add_argument("--before-case-count", type=int)
@@ -57,7 +68,11 @@ def main() -> None:
     if args.sample_cases < 1:
         parser.error("--sample-cases must be positive")
 
-    expected = sample_keys(args.readiness_csv.resolve(), args.sample_cases)
+    expected = sample_keys(
+        args.readiness_csv.resolve(),
+        args.sample_cases,
+        args.case_manifest.resolve() if args.case_manifest else None,
+    )
     if len(expected) != args.sample_cases:
         raise SystemExit(
             f"readiness에서 표본을 충분히 찾지 못했습니다: {len(expected)}/{args.sample_cases}"
@@ -170,8 +185,17 @@ def main() -> None:
             checks["invalid_repair_case_storage_keys"] = scalar(
                 cur,
                 """
-                SELECT count(*) FROM repair_case_image
-                 WHERE storage_key !~ '^repair-cases/[0-9]+/images/[0-9]+/original\\.jpg$'
+                SELECT count(*)
+                  FROM repair_case_image AS image
+                  JOIN repair_case AS repair ON repair.case_id = image.case_id
+                 WHERE image.storage_key !~
+                       '^repair-cases/(AIHUB_AS|AIHUB_SC)/(as|sc)-[0-9]+/[0-9]+/original[.]jpg$'
+                    OR image.storage_key <> format(
+                       'repair-cases/%s/%s/%s/original.jpg',
+                       repair.source,
+                       repair.external_ref,
+                       substring(image.source_image_ref FROM '([0-9]+)_[^/]+$')
+                    )
                 """,
             )
             checks["raw_without_repair_case"] = scalar(

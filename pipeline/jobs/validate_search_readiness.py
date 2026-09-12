@@ -1,12 +1,12 @@
-"""Search-readiness validation: polygon/bbox geometry + standard part_code linkage.
+"""Search-readiness validation: DAMAGE_PART geometry and same-image part pairing.
 
 Extends the fast key-scan join result (case_id_linkage.csv) with a second pass
-that actually parses each damage_part label JSON to check:
-  - at least one damage annotation has valid geometry (bbox or segmentation)
-  - at least one part_code can be resolved for that case, either from a
-    damage_part 'part' annotation or from its 'repair' field
-    ("<part>:<work>[,<work>]"), both normalized through
-    standardization/catalog.py + normalizer.py (the project's own contract).
+that parses DAMAGE and DAMAGE_PART labels to check:
+  - at least one DAMAGE_PART annotation has valid damage geometry
+  - a DAMAGE_PART damage annotation has zero, one, or multiple same-image part matches
+  - DAMAGE images are counted only as optional visual references
+  - when estimate root and mapping workbook are supplied, whether an estimate
+    item resolves to a standard part_code for the same case.
 
 Only cases that were already is_searchable_case_candidate=True in the prior
 category_id integrity run are considered "final" candidates; this pass adds
@@ -23,11 +23,10 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 검색 사례 readiness는 서비스 검색 모델과 동일한 damage_part 계열만 대상으로
-# 판정한다. DAMAGE 계열은 별도 YOLO 목적의 화각·포함 영역을 가지므로 검색
-# 코퍼스에 섞지 않는다.
 GROUPS = (
+    ("TRAIN", "DAMAGE", "1.Training/1.원천데이터/TS_damage/damage", "1.Training/2.라벨링데이터/TL_damage/damage"),
     ("TRAIN", "DAMAGE_PART", "1.Training/1.원천데이터/TS_damage_part/damage_part", "1.Training/2.라벨링데이터/TL_damage_part/damage_part"),
+    ("VALIDATION", "DAMAGE", "2.Validation/1.원천데이터/VS_damage/damage", "2.Validation/2.라벨링데이터/VL_damage/damage"),
     ("VALIDATION", "DAMAGE_PART", "2.Validation/1.원천데이터/VS_damage_part/damage_part", "2.Validation/2.라벨링데이터/VL_damage_part/damage_part"),
 )
 
@@ -87,6 +86,10 @@ def main() -> None:
     parser.add_argument("--subset-root", type=Path, required=True)
     parser.add_argument("--linkage-csv", type=Path, required=True, help="prior case_id_linkage.csv")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--estimate-root", type=Path,
+                        help="견적 JSON 디렉터리. 지정하면 사례 부품 후보를 실제 매핑한다")
+    parser.add_argument("--mapping-workbook", type=Path,
+                        help="부품명 전체 매핑 워크북. --estimate-root와 함께 지정한다")
     parser.add_argument("--catalog-path", type=Path, default=Path(__file__).resolve().parents[1],
                         help="path to the standardization/ package parent (default: pipeline/)")
     parser.add_argument("--only-group", default=None, help="e.g. TRAIN:DAMAGE_PART — run a single group and dump a partial file instead of the final report")
@@ -95,10 +98,20 @@ def main() -> None:
     parser.add_argument("--merge-only", action="store_true", help="skip scanning; merge existing group_partial_*.json files with the linkage csv into the final report")
     args = parser.parse_args()
 
-    sys.path.insert(0, str(args.catalog_path.resolve()))
-    from standardization import PARTS, normalize_repair_label, NormalizationError  # noqa: E402
+    if bool(args.estimate_root) != bool(args.mapping_workbook):
+        parser.error("--estimate-root와 --mapping-workbook은 함께 지정해야 합니다")
 
-    part_by_raw = {values[0].casefold(): code for code, values in PARTS.items()}
+    sys.path.insert(0, str(args.catalog_path.resolve()))
+    from standardization.damage_part_pairing import damage_part_roi_rows
+    estimate_mapping: dict[str, str] = {}
+    if args.mapping_workbook:
+        import pandas as pd
+        frame = pd.read_excel(args.mapping_workbook, sheet_name="부품명 전체 매핑", header=3)
+        estimate_mapping = {
+            str(raw).strip(): str(code).strip()
+            for raw, code, status in frame[["기존 이름", "표준 코드", "매핑 상태"]].itertuples(index=False, name=None)
+            if status in {"MAPPED", "MAPPED_EXTENDED"} and str(raw).strip() and str(code).strip()
+        }
 
     root = args.subset_root.resolve()
     output = args.output_dir.resolve()
@@ -119,11 +132,11 @@ def main() -> None:
         if not groups_to_scan:
             raise SystemExit(f"unknown --only-group {args.only_group!r}")
 
-    case_geometry_ok: set[str] = set()
-    case_part_ok: set[str] = set()
-    case_part_source: dict[str, Counter] = defaultdict(Counter)
+    case_damage_part_geometry_ok: set[str] = set()
+    case_damage_part_context: set[str] = set()
     case_label_counts: Counter[str] = Counter()
     case_orphan_counts: Counter[str] = Counter()
+    case_stats: dict[str, Counter[str]] = defaultdict(Counter)
     parse_errors = 0
     processed = 0
     group_counts: dict[str, Counter] = defaultdict(Counter)
@@ -133,6 +146,13 @@ def main() -> None:
             return path.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeError):
             return None
+
+    def read_paths_in_batches(paths: list[Path], batch_size: int = 4096):
+        """Read label files in bounded batches for large Windows mounts."""
+        with ThreadPoolExecutor(max_workers=64) as executor:
+            for start in range(0, len(paths), batch_size):
+                batch = paths[start:start + batch_size]
+                yield from zip(batch, executor.map(read_text_safe, batch))
 
     if not args.merge_only:
       for split, label_type, _source_rel, label_rel in groups_to_scan:
@@ -149,9 +169,10 @@ def main() -> None:
             print(f"[{group_name}] {len(label_paths)} files (shard {args.shard_index}/{args.shard_count})", flush=True)
         else:
             print(f"[{group_name}] {len(label_paths)} files", flush=True)
-        with ThreadPoolExecutor(max_workers=64) as executor:
-            raw_texts = list(executor.map(read_text_safe, label_paths, chunksize=64))
-        for label_path, raw_text in zip(label_paths, raw_texts):
+        # Keep only one bounded batch of completed reads in memory. The previous
+        # list(executor.map(...)) retained every raw JSON in a 300k-file group
+        # before parsing, which made full readiness unnecessarily memory-heavy.
+        for label_path, raw_text in read_paths_in_batches(label_paths):
             processed += 1
             if processed % 50000 == 0:
                 print(f"processed={processed}", flush=True)
@@ -176,52 +197,56 @@ def main() -> None:
             source_path = root / _source_rel / Path(file_name).name
             if not source_path.is_file():
                 case_orphan_counts[case_id] += 1
-            for ann in data.get("annotations") or []:
-                geom_ok = valid_bbox(ann.get("bbox"), width, height) or valid_segmentation(ann.get("segmentation"))
-                if geom_ok and ann.get("damage"):
-                    case_geometry_ok.add(case_id)
-
-                part_raw = ann.get("part")
-                if part_raw and str(part_raw).strip().casefold() in part_by_raw:
-                    if geom_ok:
-                        case_part_ok.add(case_id)
-                        case_part_source[case_id]["damage_part_annotation"] += 1
-
-                repair = ann.get("repair")
-                repair_items = repair if isinstance(repair, list) else ([repair] if repair else [])
-                for item in repair_items:
-                    if not isinstance(item, str):
-                        continue
-                    try:
-                        normalize_repair_label(item)
-                    except NormalizationError:
-                        continue
-                    if geom_ok:
-                        case_part_ok.add(case_id)
-                        case_part_source[case_id]["repair_field"] += 1
+            if label_type == "DAMAGE_PART":
+                case_damage_part_context.add(case_id)
+                case_stats[case_id]["damage_part_image_count"] += 1
+                rows = damage_part_roi_rows(data)
+                if rows:
+                    case_damage_part_geometry_ok.add(case_id)
+                for row in rows:
+                    case_stats[case_id]["damage_part_damage_count"] += 1
+                    status = row["match_status"]
+                    if status == "PAIRED":
+                        case_stats[case_id]["paired_roi_count"] += 1
+                        case_stats[case_id]["strict_searchable_roi_count"] += 1
+                    elif status == "AMBIGUOUS":
+                        case_stats[case_id]["ambiguous_part_match_count"] += 1
+                        case_stats[case_id]["vector_only_roi_count"] += 1
+                    else:
+                        case_stats[case_id]["unpaired_damage_count"] += 1
+                        case_stats[case_id]["vector_only_roi_count"] += 1
+            elif label_type == "DAMAGE":
+                case_stats[case_id]["damage_reference_image_count"] += 1
 
     if args.only_group:
         partial = {
             "group": args.only_group,
-            "case_geometry_ok": sorted(case_geometry_ok),
-            "case_part_ok": sorted(case_part_ok),
-            "case_part_source": {k: dict(v) for k, v in case_part_source.items()},
+            "case_damage_part_geometry_ok": sorted(case_damage_part_geometry_ok),
+            "case_damage_part_context": sorted(case_damage_part_context),
+            "case_stats": {case_id: dict(stats) for case_id, stats in case_stats.items()},
+            "case_label_counts": dict(case_label_counts),
+            "case_orphan_counts": dict(case_orphan_counts),
             "processed": processed,
             "parse_errors": parse_errors,
             "group_counts": {k: dict(v) for k, v in group_counts.items()},
         }
         safe_name = args.only_group.replace(":", "_").lower()
         (output / f"group_partial_{safe_name}__shard{args.shard_index}of{args.shard_count}.json").write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
-        print(f"partial written for {args.only_group}: processed={processed} geometry_ok={len(case_geometry_ok)} part_ok={len(case_part_ok)}")
+        print(
+            f"partial written for {args.only_group}: "
+            f"processed={processed} geometry_ok={len(case_damage_part_geometry_ok)}"
+        )
         return
 
     if args.merge_only:
         for partial_path in sorted(output.glob("group_partial_*.json")):
             partial = json.loads(partial_path.read_text(encoding="utf-8"))
-            case_geometry_ok.update(partial["case_geometry_ok"])
-            case_part_ok.update(partial["case_part_ok"])
-            for cid, counts in partial["case_part_source"].items():
-                case_part_source[cid].update(counts)
+            case_damage_part_geometry_ok.update(partial["case_damage_part_geometry_ok"])
+            case_damage_part_context.update(partial.get("case_damage_part_context", []))
+            for case_id, stats in partial.get("case_stats", {}).items():
+                case_stats[case_id].update(stats)
+            case_label_counts.update(partial.get("case_label_counts", {}))
+            case_orphan_counts.update(partial.get("case_orphan_counts", {}))
             processed += partial["processed"]
             parse_errors += partial["parse_errors"]
             for g, counts in partial["group_counts"].items():
@@ -232,8 +257,11 @@ def main() -> None:
 
     fields = [
         "case_id", "has_estimate", "source_image_count", "label_file_count", "orphan_label_count",
-        "is_searchable_case_candidate", "has_valid_damage_geometry", "has_valid_part_code",
-        "part_code_source", "is_final_searchable_case",
+        "damage_part_image_count", "damage_part_damage_count", "damage_reference_image_count",
+        "paired_roi_count", "unpaired_damage_count", "ambiguous_part_match_count",
+        "strict_searchable_roi_count", "vector_only_roi_count",
+        "is_searchable_case_candidate", "has_damage_geometry", "has_estimate_part_candidate",
+        "has_damage_part_context", "is_final_searchable_case",
     ]
     final_count = 0
     fail_reasons = Counter()
@@ -242,28 +270,47 @@ def main() -> None:
         writer.writeheader()
         for case_id, row in sorted(candidates.items()):
             is_candidate = row["is_searchable_case_candidate"] in ("True", "true", "1")
-            geom_ok = case_id in case_geometry_ok
-            part_ok = case_id in case_part_ok
-            is_final = is_candidate and geom_ok and part_ok
+            geom_ok = case_id in case_damage_part_geometry_ok
+            estimate_candidate = False
+            if args.estimate_root:
+                estimate_path = args.estimate_root / f"{case_id}.json"
+                try:
+                    estimate = json.loads(estimate_path.read_text(encoding="utf-8-sig"))
+                    estimate_candidate = any(
+                        str(item.get("작업항목 및 부품명") or "").strip() in estimate_mapping
+                        for item in (estimate.get("수리내역") or []) if isinstance(item, dict)
+                    )
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    estimate_candidate = False
+            is_final = is_candidate and geom_ok
             if is_final:
                 final_count += 1
             elif is_candidate:
-                if not geom_ok and not part_ok:
-                    fail_reasons["no_valid_geometry_and_no_part_code"] += 1
-                elif not geom_ok:
+                if not geom_ok:
                     fail_reasons["no_valid_geometry"] += 1
-                else:
-                    fail_reasons["no_valid_part_code"] += 1
             writer.writerow({
                 "case_id": case_id, "has_estimate": row["has_estimate"],
                 "source_image_count": case_label_counts.get(case_id, 0),
                 "label_file_count": case_label_counts.get(case_id, 0),
                 "orphan_label_count": case_orphan_counts.get(case_id, 0),
+                "damage_part_image_count": case_stats[case_id].get("damage_part_image_count", 0),
+                "damage_part_damage_count": case_stats[case_id].get("damage_part_damage_count", 0),
+                "damage_reference_image_count": case_stats[case_id].get("damage_reference_image_count", 0),
+                "paired_roi_count": case_stats[case_id].get("paired_roi_count", 0),
+                "unpaired_damage_count": case_stats[case_id].get("unpaired_damage_count", 0),
+                "ambiguous_part_match_count": case_stats[case_id].get("ambiguous_part_match_count", 0),
+                "strict_searchable_roi_count": case_stats[case_id].get("strict_searchable_roi_count", 0),
+                "vector_only_roi_count": case_stats[case_id].get("vector_only_roi_count", 0),
                 "is_searchable_case_candidate": is_candidate,
-                "has_valid_damage_geometry": geom_ok, "has_valid_part_code": part_ok,
-                "part_code_source": "|".join(sorted(case_part_source[case_id])) if case_id in case_part_source else "",
+                "has_damage_geometry": geom_ok,
+                "has_estimate_part_candidate": estimate_candidate,
+                "has_damage_part_context": case_id in case_damage_part_context,
                 "is_final_searchable_case": is_final,
             })
+
+    aggregate_stats: Counter[str] = Counter()
+    for stats in case_stats.values():
+        aggregate_stats.update(stats)
 
     summary = {
         "batch_job_execution": {
@@ -279,13 +326,22 @@ def main() -> None:
             "parse_errors": parse_errors,
             "label_files_processed": processed,
             "fail_reasons_among_prior_candidates": dict(sorted(fail_reasons.items())),
+            "damage_part_image_count": aggregate_stats.get("damage_part_image_count", 0),
+            "damage_part_damage_count": aggregate_stats.get("damage_part_damage_count", 0),
+            "damage_reference_image_count": aggregate_stats.get("damage_reference_image_count", 0),
+            "paired_roi_count": aggregate_stats.get("paired_roi_count", 0),
+            "unpaired_damage_count": aggregate_stats.get("unpaired_damage_count", 0),
+            "ambiguous_part_match_count": aggregate_stats.get("ambiguous_part_match_count", 0),
+            "strict_searchable_roi_count": aggregate_stats.get("strict_searchable_roi_count", 0),
+            "vector_only_roi_count": aggregate_stats.get("vector_only_roi_count", 0),
         },
         "group_summary": {k: dict(v) for k, v in sorted(group_counts.items())},
         "rules": {
-            "image_source_scope": "DAMAGE_PART label groups only; DAMAGE groups are excluded because their YOLO framing differs",
-            "has_valid_damage_geometry": "at least one damage annotation with non-null damage code and a valid bbox (positive w/h, inside image) or a valid polygon (area > 0)",
-            "has_valid_part_code": "at least one annotation whose part label (damage_part 'part' field) or repair label ('<part>:<work>') resolves via standardization/catalog.py PARTS, paired with valid geometry",
-            "is_final_searchable_case": "is_searchable_case_candidate AND has_valid_damage_geometry AND has_valid_part_code",
+            "image_source_scope": "DAMAGE_PART is the canonical ROI source; DAMAGE is optional reference only",
+            "has_damage_geometry": "at least one DAMAGE_PART annotation with non-null damage code and valid bbox or polygon",
+            "part_pairing": "same-image geometry overlap only; one match is strict, zero or multiple are not direct pairs",
+            "has_estimate_part_candidate": "an estimate item name resolves through the mapping workbook; not required for ROI indexing",
+            "is_final_searchable_case": "is_searchable_case_candidate AND has_damage_geometry",
         },
     }
     (output / "search_readiness_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

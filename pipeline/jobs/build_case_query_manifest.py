@@ -15,8 +15,8 @@ from pathlib import Path
 CASE_RE = re.compile(r"^(?:as|sc)-\d+$", re.IGNORECASE)
 LABEL_RE = re.compile(r"_(?P<case>(?:as|sc)-\d+)\.json$", re.IGNORECASE)
 LABEL_DIRS = (
-    Path("1.Training/2.라벨링데이터/TL_damage_part/damage_part"),
-    Path("2.Validation/2.라벨링데이터/VL_damage_part/damage_part"),
+    Path("1.Training/2.라벨링데이터/TL_damage/damage"),
+    Path("2.Validation/2.라벨링데이터/VL_damage/damage"),
 )
 
 
@@ -76,6 +76,7 @@ def main() -> None:
                     raise SystemExit(f"원본 이미지가 없습니다: {image_path}")
                 rows.append({
                     "case_id": case_id,
+                    "image_type": "DAMAGE",
                     "source_image_ref": image_path.relative_to(dataset_root).as_posix(),
                     "label_ref": label_path.relative_to(subset_root).as_posix(),
                     "image_file_name": image_path.name,
@@ -92,7 +93,7 @@ def main() -> None:
     with output.open("w", encoding="utf-8", newline="") as fp:
         writer = csv.DictWriter(
             fp,
-            fieldnames=["case_id", "source_image_ref", "label_ref", "image_file_name"],
+            fieldnames=["case_id", "image_type", "source_image_ref", "label_ref", "image_file_name"],
         )
         writer.writeheader()
         writer.writerows(rows)

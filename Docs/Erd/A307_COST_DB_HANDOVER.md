@@ -2,6 +2,8 @@
 
 기준일: 2026-09-10 · 작성: 김경연(데이터 파이프라인)
 
+코드 대조 갱신: `develop` `4a0836d`. 전수 적재·표본 실측 건수는 기존 실행 기록이며 이번 문서 갱신에서 DB를 재조회하지 않았다. 전체 현황은 [파이프라인 진행 현황](../Pipeline/STATUS.md)을 본다.
+
 원천 견적 데이터는 전수 보존이 끝났다. 이 문서는 **그 위에서 `repair_case_item`을
 만드는 사람이 알아야 할 것**만 모았다. 검색 쪽(`repair_case`·`repair_case_image`)은
 `A307_SEARCH_LOAD_SCOPE.md`를 본다.
@@ -37,9 +39,9 @@ payload 최상위 키는 `차량정보` / `수리비 정산정보` / `수리내�
 `loaded_at`은 "원문을 **처음** 확보한 시점"이다. 적재기가 `ON CONFLICT DO NOTHING`이라
 재실행해도 갱신되지 않는다. 원천이 실제로 바뀌면 새 배포본이므로 조용히 덮지 않는다.
 
-### 행 검증 CLI — 브랜치에만 있음
+### 행 검증 CLI — develop에 있음, 적재 배치 미연결
 
-`feature/S15P21A307-416-be-estimate-validation-rules` (Draft MR). develop에는 없다.
+`82a2cf4` (`S15P21A307-416`)의 규칙 모듈·CLI·테스트가 현재 develop에 있다. 별도 브랜치에만 있다는 이전 설명은 더 이상 맞지 않는다.
 
 ```bash
 python pipeline/jobs/validate_estimate_rules.py \
@@ -60,9 +62,10 @@ python pipeline/jobs/validate_estimate_rules.py \
 | `not_approved_status` | 불인정 상태 |
 | `cost_column_reconciliation` | 비용 컬럼 정합 |
 | `ancillary_part_code` | 부대비용 행의 부품 코드 |
-| `contract_work_code` | 계약 작업 코드 6종 검사 |
+| `contract_work_code` | 옛 002 계약의 작업 코드 6종 검사. 최신 004/기준 DDL과 불일치 |
 
 **주의 — `--mapping-json`을 넘기지 않으면 `part_code`가 전부 `NULL`로 나온다.**
+현재 `load_mapping()`은 `map_estimate_labels.py`의 `rows` 포함 JSON을 일반 딕셔너리로 잘못 읽는다. 수정 전 사용할 수 있는 입력은 `{"원본 부품명": "FRONT_BUMPER"}` 형태의 평면 문자열 매핑이다. SQL seed를 그대로 `--mapping-json`에 넘길 수는 없다.
 넘긴 경우에만 매핑을 적용하도록 되어 있다. 매핑 원본은 `part_name_mapping`
 seed(15,308건, DB 적재 완료)와 `pipeline/jobs/generate_part_name_mapping_seed.py`다.
 
@@ -132,8 +135,12 @@ AS는 별도 불변식이다 — as-0000011에서 작업 행 합계 3,945,120원
 지금은 독립 CLI라 적재 배치에 붙어 있지 않다. `data_validation_error` 적재와
 `batch_job_execution.summary` 집계가 연결 대상이다.
 
-**단위 테스트 10건은 develop 기준으로 통과한다.** 다만 `CONTRACT_WORK_CODES` 6종과
-현재 `ESTIMATE_WORKS`의 교집합을 테스트가 전부 훑는지는 확인하지 않았다.
+**행 검증 단위 테스트 10개는 통과하지만 다음 문제는 남아 있다.**
+
+- `CONTRACT_WORK_CODES`가 6종으로 고정돼 최신 DDL이 허용하는 부분 오버홀 3종과 `ADJUSTMENT`를 계약 밖으로 분류한다.
+- 비용 성분 합 120, 독립 합계 999인 입력에서 `item_cost_mismatch`와 `cost_reconciliation=PASSED`가 동시에 반환된다. 오류가 있으면 실패 상태를 반환하도록 수정해야 한다.
+- 원천에 독립 `item_total`이 없으면 비용 합 검증은 `item_total_not_independent`로 제외된다. 행 단위 테스트 통과를 헤더 정산 검증 완료로 해석하지 않는다.
+- CLI는 오류가 있어도 현재 비정상 종료코드를 설정하지 않는다. 배치에 연결하기 전 오류 집계·실패 판정·DB 로그 저장을 함께 정해야 한다.
 
 ## 5. 확인해 주세요
 

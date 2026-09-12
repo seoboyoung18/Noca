@@ -246,6 +246,8 @@ CREATE TABLE repair_case (
 CREATE TABLE repair_case_item (
     case_item_id  BIGSERIAL   PRIMARY KEY,
     case_id       BIGINT      NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
+    -- 원천 견적 배열 순번. 재실행 시 같은 항목을 upsert하는 멱등 키다.
+    source_item_key VARCHAR(100) NOT NULL,
     -- ANCILLARY 행은 부품이 아니라 부대 비용이라 표준 부품 코드가 없다.
     -- 검색 대상 행 종류(WORK/PART_PRICE/REFERENCE_PRICE)는 ck_rci_part_code로 NOT NULL을 유지한다.
     part_code     VARCHAR(50) REFERENCES part_code(part_code) ON DELETE RESTRICT,
@@ -276,6 +278,7 @@ CREATE TABLE repair_case_item (
     post_adjustment_part_cost  INTEGER,
     post_adjustment_labor_cost INTEGER,
     item_total    INTEGER,
+    CONSTRAINT uk_rci_source_item UNIQUE (case_id, source_item_key),
     CONSTRAINT ck_rci_line_type CHECK (line_type IN ('WORK','PART_PRICE','REFERENCE_PRICE','ANCILLARY')),
     CONSTRAINT ck_rci_assessment CHECK (
         assessment_status IS NULL OR assessment_status IN ('APPROVED','NOT_APPROVED')
@@ -331,33 +334,81 @@ CREATE TABLE data_validation_error (
 );
 
 CREATE TABLE repair_case_image (
-    case_image_id    BIGSERIAL    PRIMARY KEY,
-    case_id          BIGINT       NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
-    source_image_ref VARCHAR(255) NOT NULL,
-    storage_key      VARCHAR(500) NOT NULL,
-    blur_key         VARCHAR(500),
-    angle_tag        VARCHAR(20),
-    quality_status   VARCHAR(20),
-    is_searchable    BOOLEAN      NOT NULL DEFAULT TRUE,
-    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT uk_rci_src UNIQUE (source_image_ref)
+    case_image_id        BIGSERIAL    PRIMARY KEY,
+    case_id              BIGINT       NOT NULL REFERENCES repair_case(case_id) ON DELETE CASCADE,
+    source_image_ref     VARCHAR(255) NOT NULL,
+    -- AI-Hub: repair-cases/{source}/{external_ref}/{source_image_id}/{variant}.{ext}
+    -- source_image_id는 원본 파일명 숫자 접두를 보존하며 DB PK와 무관하다.
+    storage_key          VARCHAR(500) NOT NULL,
+    blur_key             VARCHAR(500),
+    angle_tag            VARCHAR(20),
+    -- DAMAGE_PART는 주 검색 ROI 원본, DAMAGE는 선택적 시각 참고 이미지다.
+    image_type           VARCHAR(20)  NOT NULL,
+    -- AI-Hub의 물리 split. 서비스 DEV/DEMO/EVAL subset과 다른 축이다.
+    source_dataset_split VARCHAR(20),
+    quality_status       VARCHAR(20),
+    is_searchable        BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rci_src            UNIQUE (source_image_ref),
+    CONSTRAINT ck_rcimg_type         CHECK (image_type IN ('DAMAGE', 'DAMAGE_PART')),
+    CONSTRAINT ck_rcimg_source_split CHECK (source_dataset_split IS NULL
+                                            OR source_dataset_split IN ('TRAIN', 'VALIDATION'))
 );
 
--- ─── 9. 임베딩 (고속 증가) ───────────────────────────────────
+-- ─── 9. 검색 feature·임베딩 (고속 증가) ──────────────────────
+CREATE TABLE feature_pipeline_version (
+    pipeline_version_id BIGSERIAL   PRIMARY KEY,
+    pipeline_name       VARCHAR(100) NOT NULL,
+    version             VARCHAR(50)  NOT NULL,
+    pair_rule_version   VARCHAR(50)  NOT NULL,
+    pair_threshold      NUMERIC(3,2) NOT NULL,
+    roi_padding_ratio   NUMERIC(3,2),
+    params              JSONB,
+    is_active           BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uk_fpv UNIQUE (pipeline_name, version)
+);
+
+CREATE TABLE repair_case_damage_feature (
+    damage_feature_id   BIGSERIAL   PRIMARY KEY,
+    case_image_id       BIGINT      NOT NULL REFERENCES repair_case_image(case_image_id) ON DELETE CASCADE,
+    pipeline_version_id BIGINT      NOT NULL REFERENCES feature_pipeline_version(pipeline_version_id) ON DELETE RESTRICT,
+    roi_index            SMALLINT    NOT NULL,
+    damage_type          VARCHAR(20) NOT NULL,
+    damage_polygon       JSONB       NOT NULL,
+    roi_box              JSONB       NOT NULL,
+    part_code            VARCHAR(50) REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    pair_status          VARCHAR(20) NOT NULL,
+    quality_status       VARCHAR(20) NOT NULL,
+    confidence           NUMERIC(5,4),
+    is_searchable        BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rcdf UNIQUE (case_image_id, pipeline_version_id, roi_index),
+    CONSTRAINT ck_rcdf_type CHECK (damage_type IN ('SCRATCHED','SEPARATED','CRUSHED','BREAKAGE')),
+    CONSTRAINT ck_rcdf_pair CHECK (pair_status IN ('PAIRED','UNPAIRED','AMBIGUOUS'))
+);
+
 CREATE TABLE repair_case_roi_embedding (
     roi_embedding_id BIGSERIAL    PRIMARY KEY,
     case_image_id    BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id)          ON DELETE CASCADE,
     model_version_id BIGINT       NOT NULL REFERENCES embedding_model_version(model_version_id) ON DELETE RESTRICT,
-    part_code        VARCHAR(50)  NOT NULL REFERENCES part_code(part_code)                      ON DELETE RESTRICT,
-    damage_type      VARCHAR(20)  NOT NULL,
-    roi_index        SMALLINT     NOT NULL,
-    damage_polygon   JSONB        NOT NULL,
+    damage_feature_id BIGINT      NOT NULL REFERENCES repair_case_damage_feature(damage_feature_id) ON DELETE CASCADE,
     confidence       NUMERIC(5,4),
     embedding        vector(768)  NOT NULL,
-    is_searchable    BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT uk_roi      UNIQUE (case_image_id, model_version_id, roi_index),
-    CONSTRAINT ck_roi_type CHECK (damage_type IN ('Scratched','Separated','Crushed','Breakage'))
+    CONSTRAINT uk_roi UNIQUE (damage_feature_id, model_version_id)
+);
+
+-- damage_part 이미지에 직접 라벨된 부품 영역. 같은 이미지의 damage ROI와 명확히
+-- 매칭할 때만 ROI part_code로 연결한다.
+CREATE TABLE repair_case_image_part_annotation (
+    case_image_part_annotation_id BIGSERIAL    PRIMARY KEY,
+    case_image_id                 BIGINT       NOT NULL REFERENCES repair_case_image(case_image_id) ON DELETE CASCADE,
+    part_code                     VARCHAR(50)  NOT NULL REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    source_annotation_ref         VARCHAR(255) NOT NULL,
+    part_polygon                  JSONB,
+    created_at                    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rcipa_source UNIQUE (case_image_id, source_annotation_ref)
 );
 
 CREATE TABLE repair_cost_stat (
@@ -636,13 +687,21 @@ CREATE INDEX ix_rc_class          ON repair_case (car_class);
 CREATE INDEX ix_rc_model          ON repair_case (model_id) WHERE model_id IS NOT NULL;
 CREATE INDEX ix_rcimg_case        ON repair_case_image (case_id);
 
--- ── 임베딩 ──
-CREATE INDEX ix_roi_filter        ON repair_case_roi_embedding (part_code, damage_type)
+-- ── 검색 feature·임베딩 ──
+CREATE INDEX ix_rcdf_damage       ON repair_case_damage_feature (damage_type, pipeline_version_id)
     WHERE is_searchable;
+CREATE INDEX ix_rcdf_part         ON repair_case_damage_feature (part_code, damage_type)
+    WHERE is_searchable;
+CREATE INDEX ix_rcdf_image        ON repair_case_damage_feature (case_image_id);
+CREATE UNIQUE INDEX ux_fpv_active ON feature_pipeline_version (is_active)
+    WHERE is_active;
+CREATE UNIQUE INDEX ux_emv_active ON embedding_model_version (is_active)
+    WHERE is_active;
 -- 주의: 대량 적재 전에 만들면 INSERT 가 느려집니다 (실측 11.4만건 65초).
 --       초기 backfill 은 인덱스 없이 적재한 뒤 이 문을 실행하세요.
 CREATE INDEX ix_roi_hnsw          ON repair_case_roi_embedding
     USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX ix_rcipa_image       ON repair_case_image_part_annotation (case_image_id);
 
 -- ── 견적서 검증 ──
 CREATE INDEX ix_ev_member         ON estimate_validation (member_id, created_at DESC);
