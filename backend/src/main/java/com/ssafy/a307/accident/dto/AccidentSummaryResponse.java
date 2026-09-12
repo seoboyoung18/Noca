@@ -23,6 +23,13 @@ import java.time.Instant;
  *                            사용자가 올린 수이지 서버 처리 상태가 아니다
  * @param thumbnailUrl        가장 먼저 올린 이미지의 썸네일 조회 URL. 이미지가 없거나 아직
  *                            전처리 전이거나 서명에 실패하면 {@code null}
+ * @param estimateId          최신 견적의 id. <b>리포트·PDF 로 가는 입구다</b> —
+ *                            {@code GET /api/estimates/{estimateId}/report} ·
+ *                            {@code POST /api/estimates/{estimateId}/pdf}.
+ *                            <b>{@code null} 이면 받을 PDF 가 없다는 뜻이므로 화면은 버튼을 끈다.</b>
+ *                            0 이나 -1 같은 마법값을 쓰지 않는다.
+ *                            {@code estimatedCost*} 와 <b>같은 견적 행</b>에서 나온다 —
+ *                            목록에 보이던 금액과 열리는 리포트의 금액이 어긋나지 않는다
  * @param estimatedCostMedian 예상 수리비 중앙값. <b>견적이 없으면 {@code null} 이고, 지금은 항상
  *                            그렇다</b> — {@code estimate} 를 만드는 운영 코드가 아직 없다
  *                            ({@code S15P21A307-50} 비용 산정). 계약을 먼저 열어 두어
@@ -44,6 +51,7 @@ public record AccidentSummaryResponse(
         int imageCount,
         String thumbnailUrl,
         Instant thumbnailExpiresAt,
+        Long estimateId,
         Integer estimatedCostMin,
         Integer estimatedCostMedian,
         Integer estimatedCostMax
@@ -69,7 +77,7 @@ public record AccidentSummaryResponse(
             Instant createdAt) {
         this(accidentId, vehicleId, vehicleInputType, modelId, manufacturer, modelName,
                 vehicleType, carClass, modelYear, createdAt,
-                AccidentHistoryStatus.RECEIVED, 0, null, null, null, null, null);
+                AccidentHistoryStatus.RECEIVED, 0, null, null, null, null, null, null);
     }
 
     public AccidentSummaryResponse withDetails(
@@ -77,6 +85,7 @@ public record AccidentSummaryResponse(
             int imageCount,
             String thumbnailUrl,
             Instant thumbnailExpiresAt,
+            Long estimateId,
             Integer estimatedCostMin,
             Integer estimatedCostMedian,
             Integer estimatedCostMax) {
@@ -84,6 +93,6 @@ public record AccidentSummaryResponse(
                 accidentId, vehicleId, vehicleInputType, modelId, manufacturer, modelName,
                 vehicleType, carClass, modelYear, createdAt,
                 status, imageCount, thumbnailUrl, thumbnailExpiresAt,
-                estimatedCostMin, estimatedCostMedian, estimatedCostMax);
+                estimateId, estimatedCostMin, estimatedCostMedian, estimatedCostMax);
     }
 }

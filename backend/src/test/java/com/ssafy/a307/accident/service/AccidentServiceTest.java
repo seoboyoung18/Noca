@@ -809,6 +809,136 @@ class AccidentServiceTest {
         }
 
         @Test
+        @DisplayName("분석이 돌고 있으면 ANALYZING 이다 — QUEUED 와 PROCESSING 을 나누지 않는다")
+        void analyzingWhileJobIsRunning() {
+            long queued = openAccident();
+            insertJob(queued, "QUEUED");
+            long processing = openAccident();
+            insertJob(processing, "PROCESSING");
+            flushAndClear();
+
+            assertThat(accidentService.findMinePaged(ME, 0, 20).accidents())
+                    .extracting(AccidentSummaryResponse::status)
+                    .containsOnly(AccidentHistoryStatus.ANALYZING);
+        }
+
+        @Test
+        @DisplayName("분석이 실패했으면 ANALYSIS_FAILED 다")
+        void analysisFailed() {
+            long accidentId = openAccident();
+            insertImage(accidentId, "front.jpg");
+            insertJob(accidentId, "FAILED");
+            flushAndClear();
+
+            assertThat(onlyAccident().status()).isEqualTo(AccidentHistoryStatus.ANALYSIS_FAILED);
+        }
+
+        @Test
+        @DisplayName("이미지가 0장이어도 작업이 있으면 분석 상태가 이긴다")
+        void analysisStatusBeatsImageCount() {
+            long accidentId = openAccident();
+            insertJob(accidentId, "PROCESSING");
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.imageCount()).isZero();
+            assertThat(summary.status()).isEqualTo(AccidentHistoryStatus.ANALYZING);
+        }
+
+        @Test
+        @DisplayName("견적이 있어도 최신 재분석이 실패했으면 ANALYSIS_FAILED 다 — 실패가 묻히면 안 된다")
+        void failedReanalysisBeatsOldEstimate() {
+            long accidentId = openAccident();
+            long estimatedJob = insertEstimate(accidentId, 1, true, 800_000, 1_000_000, 1_300_000);
+            backdateJob(estimatedJob, Instant.parse("2026-09-01T00:00:00Z"));
+            insertJob(accidentId, "FAILED");
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.status()).isEqualTo(AccidentHistoryStatus.ANALYSIS_FAILED);
+            // 실패했다고 예전 견적의 금액까지 지우지는 않는다 — 화면이 둘을 함께 보여줄 수 있다.
+            assertThat(summary.estimatedCostMedian()).isEqualTo(1_000_000);
+        }
+
+        @Test
+        @DisplayName("재분석 중이어도 예전 견적의 금액은 그대로 남는다")
+        void reanalysisKeepsPreviousAmounts() {
+            long accidentId = openAccident();
+            long estimatedJob = insertEstimate(accidentId, 1, true, 800_000, 1_000_000, 1_300_000);
+            backdateJob(estimatedJob, Instant.parse("2026-09-01T00:00:00Z"));
+            insertJob(accidentId, "PROCESSING");
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.status()).isEqualTo(AccidentHistoryStatus.ANALYZING);
+            assertThat(summary.estimatedCostMedian()).isEqualTo(1_000_000);
+            assertThat(summary.estimateId()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("분석이 끝나고 견적이 있으면 ESTIMATED 다")
+        void completedJobWithEstimateIsEstimated() {
+            long accidentId = openAccident();
+            insertEstimate(accidentId, 1, true, 800_000, 1_000_000, 1_300_000);
+            flushAndClear();
+
+            assertThat(onlyAccident().status()).isEqualTo(AccidentHistoryStatus.ESTIMATED);
+        }
+
+        @Test
+        @DisplayName("estimateId 를 준다 — PDF 진입 경로다")
+        void exposesEstimateId() {
+            long accidentId = openAccident();
+            long jobId = insertEstimate(accidentId, 1, true, 800_000, 1_000_000, 1_300_000);
+            flushAndClear();
+
+            Long expected = jdbcTemplate.queryForObject(
+                    "select estimate_id from estimate where job_id = ?", Long.class, jobId);
+            assertThat(onlyAccident().estimateId()).isEqualTo(expected);
+        }
+
+        @Test
+        @DisplayName("견적이 없으면 estimateId 는 null 이다 — 0 이나 -1 같은 마법값을 쓰지 않는다")
+        void estimateIdIsNullWithoutEstimate() {
+            openAccident();
+
+            assertThat(onlyAccident().estimateId()).isNull();
+        }
+
+        @Test
+        @DisplayName("estimateId 는 금액과 같은 견적 행을 가리킨다")
+        void estimateIdMatchesTheAmountRow() {
+            long accidentId = openAccident();
+            long oldJob = insertEstimate(accidentId, 1, true, 100, 200, 300);
+            backdateEstimate(oldJob, Instant.parse("2026-09-01T00:00:00Z"));
+            long newJob = insertEstimate(accidentId, 1, true, 900_000, 1_100_000, 1_400_000);
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+            Long latest = jdbcTemplate.queryForObject(
+                    "select estimate_id from estimate where job_id = ?", Long.class, newJob);
+
+            assertThat(summary.estimatedCostMedian()).isEqualTo(1_100_000);
+            assertThat(summary.estimateId()).isEqualTo(latest);
+        }
+
+        @Test
+        @DisplayName("산정 불가 견적뿐이면 estimateId 도 null 이다 — 금액과 같은 행에서 뽑기 때문이다")
+        void nonEstimableGivesNoEstimateId() {
+            long accidentId = openAccident();
+            insertEstimate(accidentId, 1, false, null, null, null);
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.estimateId()).isNull();
+            assertThat(summary.estimatedCostMedian()).isNull();
+        }
+
+        @Test
         @DisplayName("페이지 크기와 무관하게 추가 쿼리가 3개다 — 건마다 조회하지 않는다")
         void enrichmentDoesNotScaleWithPageSize() {
             VehicleResponse vehicle = vehicleService.create(ME, new VehicleCreateRequest(avante, 2020));
@@ -966,6 +1096,20 @@ class AccidentServiceTest {
     /** 최신 견적 판정이 created_at 을 먼저 보므로, 오래된 견적을 만들려면 시각을 뒤로 옮긴다. */
     private void backdateEstimate(long jobId, Instant createdAt) {
         jdbcTemplate.update("update estimate set created_at = ? where job_id = ?",
+                OffsetDateTime.ofInstant(createdAt, ZoneOffset.UTC), jobId);
+    }
+
+    /** 견적 없는 분석 작업 한 건. 상태 배지가 {@code analysis_job.status} 를 보는지 확인할 때 쓴다. */
+    private long insertJob(long accidentId, String status) {
+        jdbcTemplate.update(
+                "insert into analysis_job (accident_id, status) values (?, ?)", accidentId, status);
+        return jdbcTemplate.queryForObject(
+                "select max(job_id) from analysis_job where accident_id = ?", Long.class, accidentId);
+    }
+
+    /** 최신 작업 판정이 created_at 을 먼저 보므로, 오래된 작업을 만들려면 시각을 뒤로 옮긴다. */
+    private void backdateJob(long jobId, Instant createdAt) {
+        jdbcTemplate.update("update analysis_job set created_at = ? where job_id = ?",
                 OffsetDateTime.ofInstant(createdAt, ZoneOffset.UTC), jobId);
     }
 }

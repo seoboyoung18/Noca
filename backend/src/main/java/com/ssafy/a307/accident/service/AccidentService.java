@@ -13,6 +13,7 @@ import com.ssafy.a307.accident.entity.VehicleInputType;
 import com.ssafy.a307.accident.image.AccidentImageDownloadUrls;
 import com.ssafy.a307.accident.image.AccidentImageStoragePort;
 import com.ssafy.a307.accident.repository.AccidentRepository;
+import com.ssafy.a307.analysis.entity.AnalysisJobStatus;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.vehicle.entity.Vehicle;
@@ -131,10 +132,14 @@ public class AccidentService {
     }
 
     /**
-     * 목록 전용 값(썸네일·상태·예상 비용)을 채운다(Task 225).
+     * 목록 전용 값(썸네일·상태·견적)을 채운다(Task 225 · prompt58).
      *
      * <p><b>페이지 크기와 무관하게 추가 쿼리가 3개다.</b> 건마다 조회하면 20건 페이지에 60번이
      * 더 나간다. 페이지를 먼저 자르고 그 id 들로만 한 번씩 모아 온다.
+     *
+     * <p>분석 작업 상태가 추가됐지만 <b>쿼리 수는 그대로 3개다.</b> 견적 보완 쿼리가 이미
+     * {@code analysis_job} 을 지나가므로 거기에 합류시켰다
+     * ({@code AccidentRepository#findAnalysisByAccidentIds}).
      *
      * <p>썸네일 URL 서명은 순수 계산이라 네트워크를 타지 않는다 — 20건이면 20번 서명하지만
      * 왕복은 0이다. 오브젝트가 실제로 있는지는 확인하지 않는다. 확인하려면 건마다
@@ -155,12 +160,12 @@ public class AccidentService {
         accidentRepository.findThumbnailKeysByAccidentIds(ids)
                 .forEach(v -> thumbnailKeys.put(v.getAccidentId(), v.getS3Key()));
 
-        Map<Long, AccidentRepository.AccidentEstimateView> estimates = new HashMap<>();
-        accidentRepository.findLatestEstimatesByAccidentIds(ids)
-                .forEach(v -> estimates.put(v.getAccidentId(), v));
+        Map<Long, AccidentRepository.AccidentAnalysisView> analyses = new HashMap<>();
+        accidentRepository.findAnalysisByAccidentIds(ids)
+                .forEach(v -> analyses.put(v.getAccidentId(), v));
 
         return page.stream()
-                .map(summary -> withDetails(summary, imageCounts, thumbnailKeys, estimates))
+                .map(summary -> withDetails(summary, imageCounts, thumbnailKeys, analyses))
                 .toList();
     }
 
@@ -168,38 +173,62 @@ public class AccidentService {
             AccidentSummaryResponse summary,
             Map<Long, Long> imageCounts,
             Map<Long, String> thumbnailKeys,
-            Map<Long, AccidentRepository.AccidentEstimateView> estimates) {
+            Map<Long, AccidentRepository.AccidentAnalysisView> analyses) {
 
         Long accidentId = summary.accidentId();
         int imageCount = imageCounts.getOrDefault(accidentId, 0L).intValue();
-        AccidentRepository.AccidentEstimateView estimate = estimates.get(accidentId);
+        AccidentRepository.AccidentAnalysisView analysis = analyses.get(accidentId);
 
         Optional<AccidentImageStoragePort.PresignedDownload> thumbnail =
                 downloadUrls.presign(thumbnailKeys.get(accidentId));
 
         return summary.withDetails(
-                statusOf(accidentId, imageCount, estimate != null),
+                statusOf(imageCount, analysis),
                 imageCount,
                 thumbnail.map(d -> d.url().toString()).orElse(null),
                 thumbnail.map(AccidentImageStoragePort.PresignedDownload::expiresAt).orElse(null),
-                estimate == null ? null : estimate.getTotalMin(),
-                estimate == null ? null : estimate.getTotalMedian(),
-                estimate == null ? null : estimate.getTotalMax());
+                analysis == null ? null : analysis.getEstimateId(),
+                analysis == null ? null : analysis.getTotalMin(),
+                analysis == null ? null : analysis.getTotalMedian(),
+                analysis == null ? null : analysis.getTotalMax());
     }
 
     /**
      * 상태 유도 규칙. {@link AccidentHistoryStatus} 가 저장 컬럼이 아니라 유도값이라 규칙을
-     * 여기 한 곳에만 둔다 — 기획이 상태 축을 확정하면 이 메서드만 바꾼다.
+     * <b>여기 한 곳에만</b> 둔다 — 기획이 상태 축을 확정하면 이 메서드만 바꾼다.
      *
-     * <p>실제 수리비 기록 여부는 이미 읽어 온 페이지에 없어 별도로 보지 않는다. 대신
+     * <p>우선순위와 그 근거는 {@link AccidentHistoryStatus} javadoc 에 있다. 요약하면
+     * <b>실패 → 진행 중 → 견적 → 이미지 → 접수</b> 이고, 분석 상태가 견적을 이기는 이유는
+     * 재분석의 실패·진행이 예전 견적에 가려지면 사용자가 지금 보는 금액이 최신인지 알 수 없기
+     * 때문이다.
+     *
+     * <p>재분석으로 작업이 여러 개면 <b>가장 최근 작업</b>만 본다. 어느 것이 최근인지는 쿼리가
+     * 정하고({@code created_at desc, job_id desc}) 진행 상태 API 와 같은 정렬이다.
+     *
+     * <p>{@code analysis_job} 이 없으면 예전과 똑같이 이미지 장수만 본다 — 기존 4값의 의미를
+     * 바꾸지 않았다.
+     *
+     * <p>실제 수리비 기록 여부는 이미 읽어 온 페이지에 없어 별도로 보지 않는다.
      * {@code actual_repair_cost} 를 투영에 넣지 않은 이유가 있다 — 그 값은 금액이라 목록에
-     * 노출할지 기획 결정이 필요하고, 상태만 필요하면 존재 여부로 충분하다. 지금은
-     * 견적 유무까지만 판정하고 {@link AccidentHistoryStatus#REPAIR_RECORDED} 는
-     * 실제 수리비를 투영에 포함하는 후속에서 쓴다.
+     * 노출할지 기획 결정이 필요하다. 그래서 {@link AccidentHistoryStatus#REPAIR_RECORDED} 는
+     * 아직 유도하지 않는다.
+     *
+     * @param analysis 최신 분석 작업 + 최신 견적. 분석을 요청한 적이 없으면 {@code null}
      */
-    private AccidentHistoryStatus statusOf(Long accidentId, int imageCount, boolean hasEstimate) {
-        if (hasEstimate) {
-            return AccidentHistoryStatus.ESTIMATED;
+    private AccidentHistoryStatus statusOf(
+            int imageCount, AccidentRepository.AccidentAnalysisView analysis) {
+
+        if (analysis != null) {
+            AnalysisJobStatus jobStatus = AnalysisJobStatus.valueOf(analysis.getJobStatus());
+            if (jobStatus == AnalysisJobStatus.FAILED) {
+                return AccidentHistoryStatus.ANALYSIS_FAILED;
+            }
+            if (jobStatus == AnalysisJobStatus.QUEUED || jobStatus == AnalysisJobStatus.PROCESSING) {
+                return AccidentHistoryStatus.ANALYZING;
+            }
+            if (analysis.getEstimateId() != null) {
+                return AccidentHistoryStatus.ESTIMATED;
+            }
         }
         return imageCount > 0 ? AccidentHistoryStatus.IMAGES_UPLOADED : AccidentHistoryStatus.RECEIVED;
     }
