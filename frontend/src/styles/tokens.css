@@ -1,0 +1,61 @@
+:root {
+  color-scheme: light only;
+
+  /* Brand (violet) scale */
+  --color-brand-50: #edebff;
+  --color-brand-100: #d9d4fc;
+  --color-brand-200: #b9aff8;
+  --color-brand-300: #9284f1;
+  --color-brand-400: #6f5dea;
+  --color-brand-500: #4e36e4;
+  --color-brand-600: #3822c3;
+  --color-brand-700: #2e1d9a;
+  --color-brand-800: #241872;
+  --color-brand-tint: rgba(78, 54, 228, 0.08);
+
+  /* Neutral / border */
+  --color-border: #e5e8eb;
+
+  /* Semantic */
+  --color-warning: #b7791f;
+  --color-danger: #d93f45;
+  --color-success: #0f8b5f;
+
+  /* Text / surface */
+  --color-text: #191f28;
+  --color-text-secondary: #4e5968;
+  --color-text-sub: #8b95a1;
+  --color-bg: #ffffff;
+  --color-bg-subtle: #f9fafb;
+  --color-disabled-bg: #f2f4f6;
+  --color-disabled-text: #b0b8c1;
+  --color-divider-strong: #d1d6db;
+
+  /* Radius */
+  --radius-button: 12px;
+  --radius-card: 12px;
+
+  /* Sizing */
+  --size-button-height: 52px;
+  --size-header-height: 52px;
+
+  /* Font */
+  --font-family-base: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+
+  /* ROI overlay (AI 손상 인식 박스 전용 색 — 브랜드 스케일과 별도) */
+  --color-roi: #00e5a0;
+  --color-roi-tint: rgba(0, 229, 160, 0.12);
+
+  /* OAuth brand colors (fixed by provider guidelines — do not theme with brand scale) */
+  --color-kakao-bg: #fee500;
+  --color-kakao-text: #191919;
+  --color-google-blue: #4285f4;
+  --color-google-green: #34a853;
+  --color-google-yellow: #fbbc05;
+  --color-google-red: #ea4335;
+}
