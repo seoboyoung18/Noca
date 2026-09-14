@@ -45,6 +45,9 @@ public class AnalysisJob {
     /** {@code model_version VARCHAR(50)}. */
     public static final int MAX_MODEL_VERSION_LENGTH = 50;
 
+    /** {@code request_id VARCHAR(64)}. 계약 예시는 12자리 hex 다. */
+    public static final int MAX_REQUEST_ID_LENGTH = 64;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "job_id")
@@ -66,6 +69,19 @@ public class AnalysisJob {
 
     @Column(name = "model_version", length = MAX_MODEL_VERSION_LENGTH)
     private String modelVersion;
+
+    /**
+     * AI callback 멱등 키. 같은 값이 다시 오면 저장을 건너뛴다(S15P21A307-157).
+     *
+     * <p>작업당 하나다. 재분석으로 새 값이 발급되면 덮어쓰고, 그러면 이전 시도의 늦은 callback 은
+     * 값이 달라 거부된다 — 철 지난 결과가 최신 견적을 덮는 것보다 낫다.
+     */
+    @Column(name = "request_id", length = MAX_REQUEST_ID_LENGTH)
+    private String requestId;
+
+    /** AI 가 분석에 쓴 버전 조합 식별자. FK 가 아니라 값 보존용이다. */
+    @Column(name = "pipeline_version_id")
+    private Long pipelineVersionId;
 
     @Column(name = "started_at")
     private Instant startedAt;
@@ -95,5 +111,68 @@ public class AnalysisJob {
             throw new IllegalArgumentException("now 는 필수입니다.");
         }
         return new AnalysisJob(accident, now);
+    }
+
+    // ── 상태 전이 (S15P21A307-157) ─────────────────────────────────────────
+    //
+    // 재원님이 적재 계층(S15P21A307-218)에서 이 메서드들을 일부러 두지 않았다 —
+    // "두 곳에서 상태를 옮기면 어느 쪽이 옳은지 알 수 없게 된다". 작업의 수명은 이
+    // 스토리가 관리하므로 여기에 둔다. 전이는 이 세 메서드로만 일어난다.
+
+    /**
+     * AI 에 요청을 보냈다. {@code QUEUED → PROCESSING} 이며 이때 멱등 키가 정해진다.
+     *
+     * <p>분석 요청(S15P21A307-156)이 부른다. 여기서 {@code requestId} 를 심어 두어야
+     * callback 이 "내가 보낸 요청의 답" 인지 대조할 수 있다.
+     */
+    public void markProcessing(String requestId, Instant now) {
+        if (requestId == null || requestId.isBlank()) {
+            throw new IllegalArgumentException("requestId 는 필수입니다.");
+        }
+        this.status = AnalysisJobStatus.PROCESSING;
+        this.requestId = requestId.strip();
+        this.startedAt = now;
+    }
+
+    /**
+     * 결과를 받아 끝냈다. {@code PROCESSING → COMPLETED}.
+     *
+     * <p>{@code modelVersion} 은 넘치면 잘라 넣는다 — 버전 문자열이 길다는 이유로 분석 결과
+     * 전체를 버리는 것은 균형이 맞지 않는다. {@code failure_reason} 과 달리 이 값은 분류가
+     * 아니라 기록이다.
+     */
+    public void markCompleted(String modelVersion, Long pipelineVersionId, Instant now) {
+        this.status = AnalysisJobStatus.COMPLETED;
+        this.modelVersion = truncate(modelVersion, MAX_MODEL_VERSION_LENGTH);
+        this.pipelineVersionId = pipelineVersionId;
+        this.finishedAt = now;
+    }
+
+    /**
+     * 실패 callback 을 받았다. {@code PROCESSING → FAILED}.
+     *
+     * <p>{@code retry_count} 를 여기서 올리지 않는다. 재시도는 사용자가 누르는 별도 경로
+     * (S15P21A307-161)이고, 실패를 기록하는 것과 다시 시도하는 것은 다른 결정이다.
+     */
+    public void markFailed(String failureReason, String modelVersion,
+                           Long pipelineVersionId, Instant now) {
+        this.status = AnalysisJobStatus.FAILED;
+        this.failureReason = truncate(failureReason, MAX_FAILURE_REASON_LENGTH);
+        this.modelVersion = truncate(modelVersion, MAX_MODEL_VERSION_LENGTH);
+        this.pipelineVersionId = pipelineVersionId;
+        this.finishedAt = now;
+    }
+
+    /** 이미 끝난 작업인가. 멱등 판정에 쓴다 — 끝난 작업에 결과가 또 오면 저장하지 않는다. */
+    public boolean finished() {
+        return status == AnalysisJobStatus.COMPLETED || status == AnalysisJobStatus.FAILED;
+    }
+
+    private static String truncate(String value, int max) {
+        if (value == null) {
+            return null;
+        }
+        String stripped = value.strip();
+        return stripped.length() <= max ? stripped : stripped.substring(0, max);
     }
 }
