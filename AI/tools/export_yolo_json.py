@@ -1,4 +1,4 @@
-"""damage, damage_part 모델을 순차 실행해 표준 JSON 형식으로 추론 결과 저장.
+"""damage·part 모델을 순차 실행해 raw YOLO JSON 형식으로 추론 결과 저장.
 
 - 좌표: 원본 이미지 기준 픽셀 좌표 (xyxy, polygon 모두)
 - 모델별 결과는 ./추론결과/<타임스탬프>/<damage|damage_part>/ 아래에
@@ -11,21 +11,21 @@ from pathlib import Path
 from ultralytics import YOLO
 
 ROOT = Path(__file__).resolve().parent.parent
-IMG_DIR = ROOT / "추론이미지"
-OUT_ROOT = ROOT / "추론결과"
+IMG_DIR = ROOT / "samples" / "input"
+OUT_ROOT = ROOT / "artifacts" / "raw-yolo"
 
 MODELS = [
     {
         "key": "damage",
-        "weights": ROOT / "damage_best(60ep).pt",
+        "weights": ROOT / "models" / "damage" / "damage_best-60ep.pt",
         "name": "vehicle-damage-segmentation",
         "version": "60ep",
         "prefix": "damage",
     },
     {
         "key": "damage_part",
-        "weights": ROOT / "damage_part_best(35ep).pt",
-        "name": "vehicle-part-segmentation",
+        "weights": ROOT / "models" / "part" / "damage_part_best-35ep.pt",
+        "name": "vehicle-part-segmentation-legacy",
         "version": "35ep",
         "prefix": "part",
     },

@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+
+from ..adapters.ultralytics_yolo import ModelRunError
+from ..core.config import Settings
+from ..core.security import require_internal_token
+from ..infrastructure.image_fetcher import ImageFetchError
+from ..schemas.contracts import AnalyzeRequest, EstimateRequest, InferenceRequest, SearchRequest
+from ..services.inference_service import InferenceService
+from ..services.embedding_service import QueryEmbeddingError
+from ..services.search_service import SearchService
+from ..infrastructure.vector_repository import VectorSearchError
+
+
+def build_router(settings: Settings, inference_service: InferenceService,
+                 search_service: SearchService) -> APIRouter:
+    router = APIRouter()
+
+    def authenticated(token: str | None = Header(default=None, alias="X-Internal-Token")) -> None:
+        require_internal_token(settings, token)
+
+    @router.get("/health")
+    def health() -> dict[str, bool | str]:
+        return {
+            "status": "ok",
+            "modelsLoaded": False,
+            "dbReachable": False,
+            "configured": settings.has_required_runtime_config,
+            "embeddingConfigured": bool(settings.database_url),
+            "partWeightsPresent": settings.part_weights.is_file(),
+            "damageWeightsPresent": settings.damage_weights.is_file(),
+        }
+
+    @router.post("/inference", dependencies=[Depends(authenticated)])
+    async def inference(request: InferenceRequest) -> dict:
+        if settings.pipeline_version_id <= 0:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail={"code": "PIPELINE_NOT_CONFIGURED"})
+        try:
+            return await inference_service.infer(request.images)
+        except ImageFetchError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "IMAGE_FETCH_FAILED"}) from exc
+        except ModelRunError as exc:
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"code": "MODEL_ERROR"}) from exc
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "INVALID_MODEL_OUTPUT"}) from exc
+
+    @router.post("/search", dependencies=[Depends(authenticated)])
+    async def search(request: SearchRequest) -> dict:
+        if settings.pipeline_version_id <= 0:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail={"code": "PIPELINE_NOT_CONFIGURED"})
+        try:
+            return await search_service.search(request)
+        except ImageFetchError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "IMAGE_FETCH_FAILED"}) from exc
+        except QueryEmbeddingError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "INVALID_SEARCH_ROI"}) from exc
+        except VectorSearchError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail={"code": "VECTOR_SEARCH_UNAVAILABLE"}) from exc
+
+    @router.post("/estimate", dependencies=[Depends(authenticated)])
+    async def estimate(_: EstimateRequest) -> dict:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail={"code": "ESTIMATE_GATEWAY_NOT_IMPLEMENTED"})
+
+    @router.post("/analyze", dependencies=[Depends(authenticated)], status_code=status.HTTP_501_NOT_IMPLEMENTED)
+    async def analyze(_: AnalyzeRequest) -> dict:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail={"code": "ANALYSIS_ORCHESTRATOR_NOT_IMPLEMENTED"})
+
+    return router

@@ -1,0 +1,5 @@
+# Install with: pip install -r AI/requirements.txt -r AI/server/requirements.txt
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+psycopg[binary]==3.2.6
+transformers==5.17.0

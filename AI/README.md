@@ -1,58 +1,62 @@
-# 차량 파손 세그멘테이션 (YOLO26-seg)
+# 차량 파손 AI
 
-차량 손상 유형(damage)과 손상 부위(damage_part)를 각각 인식하는 두 개의 YOLO26 세그멘테이션 모델을 학습·추론하는 프로젝트.
+손상 유형 모델, 부품 모델, 학습 도구와 AI 서버를 한 디렉터리에서 관리한다. 외부 HTTP
+경계는 `server/`뿐이며, 서버 내부의 추론·검색·견적 모듈은 HTTP로 서로 호출하지 않는다.
 
-## 1. 실행 순서 (터미널)
-
-```bash
-# 0. 가상환경 활성화 + 의존성 설치
-venv\Scripts\activate
-pip install -r requirements.txt
-
-# 1. 데이터셋 생성 (모델별로 각각 실행)
-python scripts/prepare_dataset.py --model damage
-python scripts/prepare_dataset.py --model damage_part
-
-# 2. 학습 (모델별로 각각 실행)
-python scripts/train.py --model damage
-python scripts/train.py --model damage_part
-
-# 3-a. 추론 - 시각화 이미지만 필요할 때
-python scripts/infer.py
-
-# 3-b. 추론 - 표준 JSON 결과가 필요할 때 (damage, damage_part 순차 실행)
-python scripts/infer_json.py
+```text
+AI/
+├─ models/                         학습 완료·초기 가중치
+│  ├─ damage/damage_best-60ep.pt   손상 segmentation 모델
+│  ├─ part/damage_part_best-35ep.pt 기존 부품 segmentation 가중치
+│  └─ base/yolo26n-seg.pt          학습 초기 가중치
+├─ training/                       데이터셋 준비·학습 스크립트
+├─ tools/                          서버와 독립적인 로컬 추론·raw JSON 확인 도구
+├─ server/                         FastAPI AI 서버
+│  └─ app/
+│     ├─ api/                      /analyze · /inference · /search · /estimate · /health
+│     ├─ services/                 추론 → 검색 → 견적의 일반 함수
+│     ├─ adapters/                 Ultralytics → raw JSON → canonical inference adapter
+│     ├─ infrastructure/           이미지 다운로드·DB/벡터 gateway
+│     ├─ schemas/                  HTTP DTO
+│     └─ core/                     설정·인증·공유 도메인 규칙 import
+├─ artifacts/                      학습·로컬 추론 산출물 (Git 제외)
+└─ samples/                        로컬 smoke test 입력 이미지 (Git 제외)
 ```
 
-- `prepare_dataset.py`는 `train.py`보다 먼저 실행해야 한다 (학습에 필요한 `datasets/<model>/` 생성).
-- `infer.py`, `infer_json.py`는 각각 독립 실행 가능하며 학습된 가중치(`.pt`)가 이미 있어야 한다.
+## 모델 역할
 
-## 2. 데이터 인풋/아웃풋
+| 모델 | 서버 계약 | 현재 가중치 상태 |
+| --- | --- | --- |
+| damage | segmentation | `damage_best-60ep.pt` 사용 가능 |
+| part | detection | 현재 `damage_part_best-35ep.pt`는 segmentation 가중치. 서버는 bbox만 읽어 로컬 smoke test에서는 detect 형식으로 adapter에 전달하지만, 운영 전 detection 모델로 교체한다. |
 
-| 스크립트 | 인풋 | 아웃풋 |
-|---|---|---|
-| `prepare_dataset.py` | `160. 차량파손 이미지 데이터/01.데이터/` 아래 원천 이미지 zip + 라벨링 JSON zip | `datasets/<model>/images,labels/{train,val}` (YOLO seg txt 라벨) + `datasets/<model>/<model>.yaml` |
-| `train.py` | `datasets/<model>/<model>.yaml` + 초기 가중치(`yolo26s-seg.pt`) | `runs/<model>/train/weights/best.pt` 등 학습 산출물 (가중치, 로그, plot) |
-| `infer.py` | `추론이미지/*.jpg` + `best(30ep).pt` | `추론결과/<타임스탬프>/` 시각화 이미지 |
-| `infer_json.py` | `추론이미지/*.jpg` + `damage_best(60ep).pt`, `damage_part_best(35ep).pt` | `추론결과/<타임스탬프>/{damage,damage_part}/<image_id>.json` (bbox + polygon) + `classes.json` |
+두 모델의 raw 출력은 [YOLO 출력 형식](../Docs/AI/YOLO%20출력%20형식.md), FastAPI 외부
+계약은 [AI 서버 API 명세](../Docs/AI/AI%20서버%20API%20명세.md)를 기준으로 한다.
 
-- `damage` 클래스(4개): `datasets/damage/damage.yaml` 참고 (Breakage, Crushed, Scratched, Separated)
-- `damage_part` 클래스(32개): `datasets/damage_part/damage_part.yaml` 참고 (차량 부위별 명칭)
+## 학습·로컬 추론
 
-## 3. 아키텍처
+```powershell
+# 학습 데이터 생성
+python AI/training/prepare_dataset.py --model damage
+python AI/training/prepare_dataset.py --model damage_part
 
-```
-160. 차량파손 이미지 데이터 (원천 zip + 라벨 JSON zip)
-        │  scripts/prepare_dataset.py
-        ▼
-datasets/damage/, datasets/damage_part/  (YOLO seg 포맷)
-        │  scripts/train.py (ultralytics YOLO26-seg)
-        ▼
-runs/damage/train/weights/best.pt, runs/damage_part/train/weights/best.pt
-        │
-        ├─ scripts/infer.py       → 추론결과/<타임스탬프>/ (시각화 이미지)
-        └─ scripts/infer_json.py  → 추론결과/<타임스탬프>/{damage,damage_part}/*.json (표준 JSON)
+# 학습
+python AI/training/train.py --model damage
+
+# 서버와 무관한 시각 확인
+python AI/tools/infer_visual.py --source AI/samples/input
+
+# 두 모델 raw JSON 확인
+python AI/tools/export_yolo_json.py
 ```
 
-- 손상 유형(damage)과 손상 부위(damage_part)는 서로 다른 클래스 체계를 가진 별개 모델로 분리 학습·추론한다.
-- `infer_json.py`는 두 모델을 순차 실행해 이미지 1장당 모델별 JSON 결과(픽셀 좌표 bbox/polygon)를 남긴다.
+학습 데이터는 `datasets/`, 결과물은 `artifacts/`, smoke test 이미지는 `samples/`에 두며
+모두 Git에 올리지 않는다.
+
+## AI 서버
+
+설치·환경 변수·현재 구현 범위는 [server/README.md](server/README.md)를 따른다.
+`/inference`는 YOLO 실행과 서버 소유 `app/adapters/yolo_adapter.py`까지 연결한다.
+adapter는 batch 적재와 온라인 추론의 판정을 일치시키기 위해 공용 표준 코드·ROI 매칭 규칙을 참조한다.
+`/search`는 공용 `shared/vision/dinov2.py`의 DINOv2 ROI 임베딩과 pgvector gateway까지 연결한다. 비용 통계·비동기 callback이
+필요한 `/estimate`·`/analyze`는 gateway를 연결하기 전까지 명시적으로 `501`을 반환한다.
