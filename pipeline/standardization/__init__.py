@@ -15,6 +15,7 @@ from .normalizer import (
     normalize_inference,
     normalize_repair_label,
 )
+from .yolo_adapter import adapt_raw_yolo_outputs
 from .estimate_items import estimate_item_costs, money, normalize_estimate_item
 from .storage_keys import (
     repair_case_image_key,
@@ -68,6 +69,7 @@ __all__ = [
     "normalize_estimate_work",
     "normalize_inference",
     "normalize_repair_label",
+    "adapt_raw_yolo_outputs",
     "estimate_item_costs",
     "money",
     "normalize_estimate_item",
