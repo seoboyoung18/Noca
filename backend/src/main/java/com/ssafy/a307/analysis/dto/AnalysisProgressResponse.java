@@ -1,5 +1,6 @@
 package com.ssafy.a307.analysis.dto;
 
+import com.ssafy.a307.analysis.entity.AnalysisImageResult;
 import com.ssafy.a307.analysis.entity.AnalysisJob;
 import com.ssafy.a307.analysis.entity.AnalysisJobStatus;
 import com.ssafy.a307.analysis.entity.AnalysisStage;
@@ -49,6 +50,8 @@ import java.util.List;
  * @param stages       진행 순서({@link AnalysisStageType} 선언 순서)로 정렬돼 있다.
  *                     <b>아직 행이 없는 단계는 들어 있지 않다</b> — 파이프라인이 만들지 않았을 뿐이라
  *                     비어 있는 것을 서버가 지어내지 않는다
+ * @param excludedImages 분석에서 제외된 사진 (S15P21A307-186). 없으면 빈 배열.
+ *                       제외 판정은 <b>AI 서버가 한다</b> — 백엔드는 받은 값을 전달만 한다
  */
 public record AnalysisProgressResponse(
         Long jobId,
@@ -59,7 +62,31 @@ public record AnalysisProgressResponse(
         int totalStages,
         int doneStages,
         AnalysisStageType currentStage,
-        List<StageProgress> stages) {
+        List<StageProgress> stages,
+        List<ExcludedImage> excludedImages) {
+
+    /**
+     * 분석에서 빠진 사진 한 장 (S15P21A307-186).
+     *
+     * <p>차량이 아니거나 화면 속 차량 비율이 기준 미만이라 AI 가 제외한 것이다. 사용자가
+     * "왜 이 사진은 반영이 안 됐나" 를 알 수 있어야 하므로 목록으로 내려보낸다.
+     *
+     * <p><b>{@code reason} 은 코드다. 한글 문구가 아니다.</b> {@code NOT_VEHICLE} ·
+     * {@code RATIO_BELOW_THRESHOLD} 같은 값이 온다. 화면 문안은 FE 가 정한다 — 문구를 서버가
+     * 박으면 표현을 바꿀 때마다 배포해야 하고, 이 저장소는 한글 라벨을 서버가 만들지 않는다.
+     *
+     * <p>열거형으로 고정하지 않은 이유는 {@code CallbackError#code} 와 같다. AI 가 사유를 하나
+     * 더 만들었을 때 <b>역직렬화가 깨지면 제외 사실 자체를 잃는다.</b> 문자열로 받아 그대로 보존한다.
+     *
+     * @param reason 제외 사유 코드. AI 가 보낸 값 그대로다. 이론상 {@code null} 일 수 있다 —
+     *               컬럼이 nullable 이고 계약이 필수로 걸지 않았다
+     */
+    public record ExcludedImage(Long imageId, String reason) {
+
+        static ExcludedImage from(AnalysisImageResult result) {
+            return new ExcludedImage(result.getImageId(), result.getExclusionReason());
+        }
+    }
 
     /**
      * 단계 하나.
@@ -86,10 +113,12 @@ public record AnalysisProgressResponse(
     /** 분석을 아직 요청하지 않은 사고. 오류가 아니다. */
     public static AnalysisProgressResponse notRequested() {
         return new AnalysisProgressResponse(
-                null, null, null, null, null, AnalysisStageType.TOTAL, 0, null, List.of());
+                null, null, null, null, null, AnalysisStageType.TOTAL, 0, null,
+                List.of(), List.of());
     }
 
-    public static AnalysisProgressResponse of(AnalysisJob job, List<AnalysisStage> stages) {
+    public static AnalysisProgressResponse of(AnalysisJob job, List<AnalysisStage> stages,
+                                              List<AnalysisImageResult> excluded) {
         List<AnalysisStage> ordered = stages.stream()
                 .sorted(Comparator.comparing(stage -> stage.getStage().ordinal()))
                 .toList();
@@ -107,6 +136,12 @@ public record AnalysisProgressResponse(
                         .map(AnalysisStage::getStage)
                         .findFirst()
                         .orElse(null),
-                ordered.stream().map(StageProgress::from).toList());
+                ordered.stream().map(StageProgress::from).toList(),
+                // 이미지 순서로 고정한다. DB 가 돌려주는 순서에 기대면 화면의 목록 순서가
+                // 요청마다 달라 보일 수 있다.
+                excluded.stream()
+                        .sorted(Comparator.comparing(AnalysisImageResult::getImageId))
+                        .map(ExcludedImage::from)
+                        .toList());
     }
 }

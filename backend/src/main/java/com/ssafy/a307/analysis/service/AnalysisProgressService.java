@@ -3,6 +3,7 @@ package com.ssafy.a307.analysis.service;
 import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.analysis.dto.AnalysisProgressResponse;
 import com.ssafy.a307.analysis.entity.AnalysisJob;
+import com.ssafy.a307.analysis.repository.AnalysisImageResultRepository;
 import com.ssafy.a307.analysis.repository.AnalysisJobRepository;
 import com.ssafy.a307.analysis.repository.AnalysisStageRepository;
 import com.ssafy.a307.common.exception.BusinessException;
@@ -35,6 +36,7 @@ public class AnalysisProgressService {
     private final AccidentRepository accidentRepository;
     private final AnalysisJobRepository analysisJobRepository;
     private final AnalysisStageRepository analysisStageRepository;
+    private final AnalysisImageResultRepository analysisImageResultRepository;
 
     @Transactional(readOnly = true)
     public AnalysisProgressResponse progress(Long memberId, Long accidentId) {
@@ -46,9 +48,13 @@ public class AnalysisProgressService {
                 .findByAccidentIdAndMemberId(accidentId, memberId).stream()
                 .findFirst();
 
+        // 제외된 사진은 작업이 있을 때만 조회한다. 작업이 없으면 결과 행도 없으므로 빈 쿼리를
+        // 한 번 더 날릴 이유가 없다.
         return latest
                 .map(job -> AnalysisProgressResponse.of(
-                        job, analysisStageRepository.findByJobId(job.getJobId())))
+                        job,
+                        analysisStageRepository.findByJobId(job.getJobId()),
+                        analysisImageResultRepository.findByJobIdAndExcludedTrue(job.getJobId())))
                 .orElseGet(AnalysisProgressResponse::notRequested);
     }
 }

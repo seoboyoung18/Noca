@@ -162,10 +162,15 @@ class AnalysisProgressServiceTest {
         void exposesNoPercentField() {
             // 계약을 기록해 두는 테스트다. 필드를 추가하면 여기서 먼저 깨져,
             // 근거 없는 값을 내보내려는 변경이 조용히 지나가지 않는다.
+            //
+            // excludedImages 는 S15P21A307-186 에서 더했다. 이 목록에 넣어도 되는 이유는
+            // 저장된 값(analysis_image_result.is_excluded · exclusion_reason)을 그대로
+            // 전달할 뿐 서버가 만들어 낸 수치가 아니기 때문이다.
+            // 퍼센트와 남은 시간은 여전히 없고, 앞으로도 없어야 한다.
             assertThat(AnalysisProgressResponse.class.getRecordComponents())
                     .extracting(java.lang.reflect.RecordComponent::getName)
                     .containsExactly("jobId", "status", "failureReason", "startedAt", "finishedAt",
-                            "totalStages", "doneStages", "currentStage", "stages");
+                            "totalStages", "doneStages", "currentStage", "stages", "excludedImages");
         }
 
         @Test

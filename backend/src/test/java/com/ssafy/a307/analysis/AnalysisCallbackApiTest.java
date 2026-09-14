@@ -188,6 +188,74 @@ class AnalysisCallbackApiTest {
     }
 
     @Test
+    @DisplayName("사진이 전부 제외되면 COMPLETED 가 아니라 FAILED 다 (S15P21A307-187)")
+    void allImagesExcludedMovesJobToFailed() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replace("\"excluded\":false,\"exclusionReason\":null",
+                        "\"excluded\":true,\"exclusionReason\":\"NOT_VEHICLE\"");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("FAILED");
+        assertThat(column("failure_reason")).isEqualTo("ALL_IMAGES_EXCLUDED");
+
+        // 상태만 실패이고 행은 남는다. 화면이 "이 사진은 왜 빠졌나" 를 보여 줘야 한다.
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from analysis_image_result where job_id = ? and is_excluded",
+                Integer.class, JOB_ID))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("일부만 제외되면 실패가 아니다 — 남은 사진으로 분석이 성립한다")
+    void partialExclusionStillCompletes() throws Exception {
+        // setUp 은 501 한 장만 넣는다. 두 번째 사진은 여기서 넣는다 —
+        // analysis_image_result.image_id 가 accident_image 를 참조하므로 없는 id 를 보내면
+        // FK 위반으로 409 가 되고, 제외 판정과 무관한 이유로 테스트가 깨진다.
+        // tearDown 의 accident_image 정리가 이 행도 같이 지운다.
+        jdbcTemplate.update("""
+                insert into accident_image (image_id, accident_id, original_filename, angle_code)
+                values (502, 98301, 'front-right.jpg', 'FRONT_RIGHT')
+                """);
+
+        // 한 장은 살고 한 장은 제외된 본문. 이미지 배열만 통째로 갈아 끼운다 —
+        // 부분 치환으로 배열 원소를 늘리면 본문 서식이 조금만 바뀌어도 조용히 안 맞는다.
+        String body = successBody(JOB_ID, REQUEST_ID).replaceAll(
+                "(?s)\"imageResults\":\\[.*\\]\n",
+                "\"imageResults\":["
+                        + "{\"imageId\":501,\"width\":1600,\"height\":1200,"
+                        + "\"excluded\":false,\"exclusionReason\":null,\"detections\":[]},"
+                        + "{\"imageId\":502,\"width\":1600,\"height\":1200,"
+                        + "\"excluded\":true,\"exclusionReason\":\"RATIO_BELOW_THRESHOLD\","
+                        + "\"detections\":[]}]\n");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("COMPLETED");
+        assertThat(column("failure_reason")).isNull();
+    }
+
+    @Test
+    @DisplayName("imageResults 가 빈 배열이면 전부 제외와 다르다 — 실패로 보지 않는다")
+    void emptyImageResultsIsNotTreatedAsAllExcluded() throws Exception {
+        // 원인이 다르다. 전부 제외는 사용자가 차를 안 찍은 것이고, 빈 배열은 AI 가 이미지별
+        // 결과를 보내지 않은 것이다. 묶으면 상류 문제인데 "다시 찍으세요" 라고 잘못 안내한다.
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replaceAll("(?s)\"imageResults\":\\[.*\\]\n", "\"imageResults\":[]\n");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("COMPLETED");
+        assertThat(column("failure_reason")).isNull();
+    }
+
+    @Test
     @DisplayName("retry_count 를 올리지 않는다 — 실패 기록과 재시도는 다른 결정이다")
     void failureDoesNotBumpRetryCount() throws Exception {
         String body = """

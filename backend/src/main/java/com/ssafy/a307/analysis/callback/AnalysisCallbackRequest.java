@@ -89,6 +89,26 @@ public record AnalysisCallbackRequest(
     }
 
     /**
+     * 보낸 사진이 <b>전부</b> 분석에서 제외됐는가 (S15P21A307-187).
+     *
+     * <p>이때는 쓸 수 있는 사진이 하나도 남지 않으므로 작업을 {@code COMPLETED} 가 아니라
+     * {@code FAILED} 로 끝낸다. 일부만 제외된 경우는 해당하지 않는다 — 남은 사진으로 분석이 성립한다.
+     *
+     * <h2>빈 배열은 여기에 해당하지 않는다</h2>
+     *
+     * <p>{@code imageResults} 는 위 생성자에서 {@code null} 이면 빈 리스트로 정규화되고
+     * {@code @NotEmpty} 도 걸려 있지 않다. 즉 <b>빈 배열은 계약 위반이 아니다.</b>
+     *
+     * <p>그래서 "전부 제외" 와 "아무것도 안 옴" 을 같이 묶지 않는다. 원인이 다르기 때문이다 —
+     * 전자는 사용자가 차를 찍지 않은 것이고, 후자는 AI 가 이미지별 결과를 보내지 않은 것이다.
+     * 묶으면 <b>상류 문제인데 사용자에게 "다시 찍으세요" 라고 잘못 안내한다.</b>
+     */
+    public boolean allImagesExcluded() {
+        return !imageResults.isEmpty()
+                && imageResults.stream().allMatch(CallbackImageResult::excluded);
+    }
+
+    /**
      * 산정된 견적인가.
      *
      * <p>{@code estimable} 이 true 라도 실패 callback 이면 견적을 만들지 않는다 — 실패 본문의
