@@ -149,9 +149,14 @@ normalize_estimate_work("1/2OH")
 `coordinate_space`는 `PIXEL_XY` 또는 `NORMALIZED_XY`다. 생략하면 AI-Hub 원천 라벨과 같은 픽셀 좌표로 해석한다. 표준 출력은 항상 픽셀 좌표이며, `geometry.segmentation`에 `polygons`, `area_px`, 이미지 대비 `area_ratio`가 포함된다. 모델이 confidence를 아직 제공하지 않으면 두 값은 `null`이다.
 
 ```python
-from standardization import normalize_inference, normalize_repair_label
+from standardization import adapt_raw_yolo_outputs, normalize_repair_label
 
-normalized = normalize_inference(yolo_output)
+normalized = adapt_raw_yolo_outputs(
+    part_raw, damage_raw,
+    image_id=501,
+    part_class_map={0: "Front bumper"},
+    damage_class_map={0: "Scratched"},
+)
 repair = normalize_repair_label("Front bumper:coating,exchange")
 ```
 

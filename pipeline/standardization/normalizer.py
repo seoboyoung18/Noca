@@ -109,15 +109,39 @@ def _confidence(value: Any, field: str) -> float | None:
 
 def normalize_detection(raw: dict[str, Any], width: int, height: int,
                         default_coordinate_space: str = "PIXEL_XY") -> dict[str, Any]:
-    part_raw = str(raw.get("part", "")).strip()
+    part_value = raw.get("part")
+    part_raw = str(part_value or "").strip()
     damage_raw = str(raw.get("damage", "")).strip()
+    if not damage_raw:
+        raise NormalizationError("damage label is required")
     try:
-        part_code = PART_BY_RAW[part_raw.casefold()]
         damage_code = DAMAGE_BY_RAW[damage_raw.casefold()]
     except KeyError as exc:
         raise NormalizationError(f"unknown label: {exc.args[0]!r}") from exc
 
-    part_en, part_ko, group, side = PARTS[part_code]
+    part_code = None
+    part_output = None
+    if part_raw:
+        try:
+            part_code = PART_BY_RAW[part_raw.casefold()]
+        except KeyError as exc:
+            raise NormalizationError(f"unknown label: {exc.args[0]!r}") from exc
+        part_en, part_ko, group, side = PARTS[part_code]
+        part_output = {
+            "code": part_code, "name_en": part_en, "name_ko": part_ko,
+            "group": group, "side": side, "raw_label": part_raw,
+        }
+
+    pair_status = str(raw.get("part_match_status") or (
+        "PAIRED" if part_code else "UNPAIRED"
+    )).upper()
+    if pair_status not in {"PAIRED", "UNPAIRED", "AMBIGUOUS"}:
+        raise NormalizationError("part_match_status must be PAIRED, UNPAIRED, or AMBIGUOUS")
+    if pair_status == "PAIRED" and not part_code:
+        raise NormalizationError("PAIRED detection must contain part")
+    if pair_status != "PAIRED" and part_code:
+        raise NormalizationError("only PAIRED detection may contain part")
+
     damage_en, damage_ko = DAMAGES[damage_code]
     coordinate_space = str(raw.get("coordinate_space", default_coordinate_space)).upper()
     if coordinate_space not in {"PIXEL_XY", "NORMALIZED_XY"}:
@@ -128,8 +152,7 @@ def normalize_detection(raw: dict[str, Any], width: int, height: int,
         for code in DEFAULT_WORK_BY_DAMAGE[damage_code]
     ]
     result = {
-        "part": {"code": part_code, "name_en": part_en, "name_ko": part_ko,
-                 "group": group, "side": side, "raw_label": part_raw},
+        "part": part_output,
         "damage": {"code": damage_code, "name_en": damage_en,
                    "name_ko": damage_ko, "raw_label": damage_raw},
         "geometry": {
@@ -148,6 +171,8 @@ def normalize_detection(raw: dict[str, Any], width: int, height: int,
         "work_candidates": works,
         "work_decision": "CANDIDATE",
         "work_rule_version": "damage-default-v1",
+        "pair_status": pair_status,
+        "searchability": "STRICT" if pair_status == "PAIRED" else "VECTOR_ONLY",
     }
     if raw.get("detection_id") is not None:
         result["detection_id"] = str(raw["detection_id"])
@@ -163,7 +188,7 @@ def normalize_inference(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(detections, list):
         raise NormalizationError("detections must be an array")
     return {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "image": {"id": image.get("id"), "width": width, "height": height},
         "detections": [
             normalize_detection(item, width, height, payload.get("coordinate_space", "PIXEL_XY"))

@@ -46,6 +46,34 @@ class NormalizerTest(unittest.TestCase):
         self.assertEqual(geometry["bbox"]["width"], 80)
         self.assertAlmostEqual(geometry["segmentation"]["area_px"], 400)
 
+    def test_vector_only_detection_keeps_damage_without_part(self):
+        actual = normalize_inference({
+            "image": {"id": "sample.jpg", "width": 800, "height": 600},
+            "detections": [{
+                "part": None, "damage": "Scratched",
+                "bbox": [230, 314, 347, 141],
+                "polygons": [[[230, 314], [577, 314], [577, 455], [230, 455]]],
+                "damage_confidence": .87,
+                "part_match_status": "UNPAIRED",
+            }],
+        })
+        detection = actual["detections"][0]
+        self.assertIsNone(detection["part"])
+        self.assertEqual(detection["pair_status"], "UNPAIRED")
+        self.assertEqual(detection["searchability"], "VECTOR_ONLY")
+
+    def test_nonpaired_detection_cannot_claim_a_part(self):
+        with self.assertRaises(NormalizationError):
+            normalize_inference({
+                "image": {"id": "sample.jpg", "width": 800, "height": 600},
+                "detections": [{
+                    "part": "Front bumper", "damage": "Scratched",
+                    "bbox": [230, 314, 347, 141],
+                    "polygons": [[[230, 314], [577, 314], [577, 455], [230, 455]]],
+                    "part_match_status": "AMBIGUOUS",
+                }],
+            })
+
     def test_repair_label_deduplicates(self):
         actual = normalize_repair_label("Front bumper:exchange,coating,exchange")
         self.assertEqual(actual["work_codes"], ["EXCHANGE", "COATING"])

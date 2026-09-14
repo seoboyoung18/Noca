@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bareun-gyeonjeok.example/schemas/inference-standardized-1.1.0.json",
+  "$id": "https://bareun-gyeonjeok.example/schemas/inference-standardized-1.2.0.json",
   "title": "Standardized vehicle damage inference",
   "description": "Downstream canonical output after the Notion-defined raw YOLO model contract has been validated and model outputs have been paired.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "image", "detections"],
   "properties": {
-    "schema_version": {"const": "1.1.0"},
+    "schema_version": {"const": "1.2.0"},
     "image": {
       "type": "object",
       "additionalProperties": false,
@@ -45,19 +45,24 @@
     "detection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["part", "damage", "geometry", "confidence", "work_candidates", "work_decision", "work_rule_version"],
+      "required": ["part", "damage", "geometry", "confidence", "work_candidates", "work_decision", "work_rule_version", "pair_status", "searchability"],
       "properties": {
         "detection_id": {"type": "string", "minLength": 1},
         "part": {
-          "allOf": [{"$ref": "#/$defs/namedCode"}],
-          "type": "object",
-          "required": ["code", "name_en", "name_ko", "group", "side", "raw_label"],
-          "properties": {
-            "code": {"type": "string"}, "name_en": {"type": "string"}, "name_ko": {"type": "string"},
-            "group": {"enum": ["BODY_PANEL", "BUMPER", "GLASS", "LAMP", "MIRROR", "WHEEL", "UNDERBODY"]},
-            "side": {"enum": ["LEFT", "RIGHT", "CENTER"]},
-            "raw_label": {"type": "string"}
-          }
+          "oneOf": [
+            {"type": "null"},
+            {
+              "allOf": [{"$ref": "#/$defs/namedCode"}],
+              "type": "object",
+              "required": ["code", "name_en", "name_ko", "group", "side", "raw_label"],
+              "properties": {
+                "code": {"type": "string"}, "name_en": {"type": "string"}, "name_ko": {"type": "string"},
+                "group": {"enum": ["BODY_PANEL", "BUMPER", "GLASS", "LAMP", "MIRROR", "WHEEL", "UNDERBODY"]},
+                "side": {"enum": ["LEFT", "RIGHT", "CENTER"]},
+                "raw_label": {"type": "string"}
+              }
+            }
+          ]
         },
         "damage": {
           "allOf": [{"$ref": "#/$defs/namedCode"}],
@@ -106,7 +111,9 @@
         },
         "work_candidates": {"type": "array", "items": {"$ref": "#/$defs/namedCode"}, "uniqueItems": true},
         "work_decision": {"const": "CANDIDATE"},
-        "work_rule_version": {"type": "string", "minLength": 1}
+        "work_rule_version": {"type": "string", "minLength": 1},
+        "pair_status": {"enum": ["PAIRED", "UNPAIRED", "AMBIGUOUS"]},
+        "searchability": {"enum": ["STRICT", "VECTOR_ONLY", "EXCLUDED"]}
       }
     }
   }

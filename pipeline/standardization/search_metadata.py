@@ -162,7 +162,9 @@ def build_search_metadata(
         part = detection.get("part") or {}
         damage = detection.get("damage") or {}
         part_code = part.get("code")
-        part_match_status = part.get("match_status")
+        part_match_status = (
+            detection.get("pair_status") or part.get("match_status")
+        )
         damage_type = damage.get("code")
         detection_id = str(detection.get("detection_id") or f"detection-{index:04d}")
         segmentation = geometry.get("segmentation") or {}
