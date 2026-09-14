@@ -743,6 +743,98 @@ CREATE TABLE repair_checklist_item (
     CONSTRAINT ck_rcli_checked CHECK (checked_at IS NULL OR is_checked = TRUE)
 );
 
+-- ─── 12-2. 정비소 확인 질문 (S15P21A307-510) ──────────────────
+-- 정비소 상담 때 물어볼 질문 목록이다 (S15P21A307-476 · -477). 사고 분석 결과와 예상 견적만으로
+-- 만든다 — 견적서 업로드가 전제가 아니다.
+--
+-- 왜 estimate_validation_question 을 쓰지 않는가. 저 테이블은 validation_id 가 NOT NULL 이라
+-- 견적서를 올려 검증한 경우에만 행이 생긴다. -476 은 견적서 없이도 되는 기능이라 붙을 자리가
+-- 없다. 저 테이블은 견적서 검증 전용으로 그대로 둔다 — 한 줄도 고치지 않았다.
+--
+-- 구조는 바로 위 정비 체크리스트(S15P21A307-509)를 그대로 따랐다. 두 기능이 사고 건에 하나씩
+-- 붙고 · 생성 상태가 있고 · 재생성되고 · 항목이 딸린다는 점에서 같아서, 다르게 지으면 나중에
+-- 읽는 사람이 왜 다른지 찾느라 시간을 쓴다(-510 본문). 머리·항목 두 단 구조와 상태값 네 개는
+-- 글자까지 같다. 다른 점은 아래 두 곳뿐이고 각각 주석을 달아 뒀다 — 공통 마스터가 없다는 것과,
+-- 항목이 근거(어느 부품·판정에서 나왔는지)를 들고 있다는 것이다.
+--
+-- member_id 를 두지 않는 이유도 같다 — accident → vehicle → member 로 도달 가능한 이행적
+-- 종속이고, 직접 보관하면 사고 주인과 질문 목록 주인이 어긋나도 DB 가 막지 못한다.
+--
+-- 공통 질문 마스터를 두지 않는다. 체크리스트는 -462 가 문안 6종을 본문에 확정해 줘서
+-- repair_checklist_common_item 이 생겼지만, 질문 쪽에는 그런 확정 문안이 어느 티켓에도 없다.
+-- -476 의 예시 두 줄은 "형태를 가늠하는 데만 쓴다" 고 못박혀 있어 시드가 아니다. 없는 마스터를
+-- 지어내지 않는다 — 나중에 확정되면 그때 체크리스트와 같은 형태로 더하면 된다.
+
+-- 질문 목록 머리. 사고 한 건에 하나다.
+CREATE TABLE repair_question (
+    question_id    BIGSERIAL   PRIMARY KEY,
+    accident_id    BIGINT      NOT NULL REFERENCES accident(accident_id) ON DELETE CASCADE,
+    -- 상태 어휘와 CHECK 네 개는 repair_checklist 와 글자까지 같다. 화면이 말하는 대기·완료·실패는
+    -- QUEUED+PROCESSING · COMPLETED · FAILED 로 대응한다.
+    status         VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
+    -- 재생성은 "기존 질문 교체" 라서 머리를 새로 만들지 않고 이 값만 올린다.
+    generation_no  SMALLINT    NOT NULL DEFAULT 1,
+    failure_reason VARCHAR(200),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at   TIMESTAMPTZ,
+    regenerated_at TIMESTAMPTZ,
+    CONSTRAINT uk_rq_accident   UNIQUE (accident_id),
+    CONSTRAINT ck_rq_status     CHECK (status IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
+    CONSTRAINT ck_rq_done       CHECK (completed_at IS NULL OR status IN ('COMPLETED','FAILED')),
+    CONSTRAINT ck_rq_generation CHECK (generation_no >= 1),
+    CONSTRAINT ck_rq_regen      CHECK (regenerated_at IS NULL OR generation_no > 1)
+);
+
+-- 질문 항목.
+CREATE TABLE repair_question_item (
+    item_id       BIGSERIAL    PRIMARY KEY,
+    question_id   BIGINT       NOT NULL REFERENCES repair_question(question_id) ON DELETE CASCADE,
+    -- repair_checklist_item 은 'AI','COMMON','USER' 인데 여기는 COMMON 이 빠진 두 값이다.
+    -- 참조할 공통 문안 마스터가 없으니 COMMON 은 FK 없는 유령 값이 된다(위 주석).
+    -- AI 하나만 두면 NOT NULL 컬럼이 상수가 되지만, 그렇다고 컬럼을 지우면 재생성 때
+    -- "지워도 되는 행" 과 "지우면 안 되는 행" 을 가를 축이 사라진다 — generation_no 가
+    -- 이미 재생성을 전제하므로 그 축은 스키마 단계에서 필요하다.
+    -- ⚠ 현재 USER 행을 만드는 경로는 없다. -476 은 생성·복사만 요구하고 사용자 추가는
+    --   어느 티켓에도 없다. 그 기능이 생기면 여기에 붙고, 끝내 안 생기면 쓰이지 않는 값으로 남는다.
+    source        VARCHAR(20)  NOT NULL,
+    -- 그대로 복사해 쓰는 완성된 문장이다 — -476 이 개별 복사와 전체 복사를 요구하므로 조각으로
+    -- 쪼개 두고 화면에서 조립하게 만들지 않는다. 길이는 repair_checklist_item.content ·
+    -- estimate_validation_question.question_text 와 같은 500 이다.
+    content       VARCHAR(500) NOT NULL,
+    -- ── 근거: 어느 부품·판정에서 나온 질문인가 (-510 본문 "질문 항목 … 근거") ──
+    -- damaged_part 를 FK 로 가리키지 않는다. 저 테이블은 job_id 에 매여 있어 사고 한 건을
+    -- 재분석하면 다른 job 의 행이 되고, 질문 목록은 job 이 아니라 사고에 하나씩 붙기 때문이다.
+    -- ON DELETE CASCADE 도 걸려 있어 job 이 지워지면 질문까지 따라 사라진다. 그래서 값을
+    -- 복사해 둔다 — content 를 완성된 문장으로 복사해 두는 것과 같은 이유다.
+    --
+    -- part_code 는 마스터 FK 로 남긴다. 질문을 부품 코드로 되짚을 수 있어야 하고, 마스터에
+    -- 없는 코드가 들어오는 것도 막아야 한다. ON DELETE RESTRICT 인 이유는 하나다 —
+    -- 부품이 마스터에서 빠졌다고 사용자가 받아 둔 질문이 같이 사라지면 안 된다(-510 본문).
+    -- damaged_part.part_code · repair_checklist_item.common_code 도 같은 RESTRICT 이고,
+    -- 관리자 API 에는 애초에 부품 삭제 경로가 없다(is_active 토글뿐). 실제로 걸릴 일이 없는
+    -- 방어막이지만, 걸릴 때는 삭제를 막는 쪽이 맞다.
+    part_code     VARCHAR(50)  REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    -- 생성 시점의 part_code.name_ko 사본. 마스터가 이름을 고쳐도 이미 만들어진 질문 문안
+    -- ("리어 도어는 …") 과 근거 표시가 어긋나지 않는다 — accident 의 snapshot_* 과 같은 방식이다.
+    snapshot_part_name VARCHAR(50),
+    -- damaged_part 의 두 판정을 그대로 복사한다. 값 목록도 ck_dp_damage · ck_dp_method 와 같다.
+    -- 셋 다 NULL 이면 부품에 매이지 않은 질문이다 ("순정 외 부품 사용 시 금액 차이는 …").
+    damage_type   VARCHAR(20),
+    repair_method VARCHAR(20),
+    display_order SMALLINT     NOT NULL DEFAULT 0,
+    -- updated_at 이 없다. 체크리스트 항목은 완료 체크·메모로 바뀌지만 질문 항목을 고치는 기능은
+    -- 없다 — 재생성은 행을 갈아 끼운다. 쓰이지 않을 컬럼을 now() 로 채워 두지 않는다.
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT ck_rqi_source CHECK (source IN ('AI','USER')),
+    CONSTRAINT ck_rqi_damage CHECK (damage_type   IN ('Scratched','Separated','Crushed','Breakage')),
+    CONSTRAINT ck_rqi_method CHECK (repair_method IN ('coating','sheet_metal','exchange','repair')),
+    -- 근거는 통째로 있거나 통째로 없다. 부품 없이 판정만 남은 행은 어느 부품 이야기인지
+    -- 알 수 없고, 코드만 있고 이름 사본이 없으면 마스터가 바뀔 때 화면이 과거를 재현하지 못한다.
+    CONSTRAINT ck_rqi_basis  CHECK ((part_code IS NULL) = (snapshot_part_name IS NULL)),
+    CONSTRAINT ck_rqi_part   CHECK (part_code IS NOT NULL
+                                 OR (damage_type IS NULL AND repair_method IS NULL))
+);
+
 -- ============================================================
 -- 13. 인덱스
 -- ============================================================
@@ -839,3 +931,9 @@ CREATE UNIQUE INDEX ux_er_inflight  ON estimate_report (estimate_id)
 -- 항목 목록은 늘 한 체크리스트 것을 정렬해 읽고, 진행률(완료/전체)도 같은 범위를 센다.
 CREATE INDEX ix_rcli_checklist    ON repair_checklist_item (checklist_id, display_order);
 -- ix_rcl_accident 제거: uk_rcl_accident 가 그대로 커버한다
+
+-- ── 정비소 확인 질문 ──
+-- 질문 목록은 늘 한 사고 것을 정렬해 읽는다. 체크리스트의 ix_rcli_checklist 와 같은 형태다.
+CREATE INDEX ix_rqi_question      ON repair_question_item (question_id, display_order);
+-- ix_rq_accident 제거: uk_rq_accident 가 그대로 커버한다
+-- ix_rqi_part 제거: 부품 코드로 질문을 거슬러 찾는 화면이 아직 없다. 생기면 그때 만든다
