@@ -671,6 +671,78 @@ CREATE TABLE audit_log (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
+-- ─── 12-1. 정비 체크리스트 (S15P21A307-509) ──────────────────
+-- 정비소 방문 전·중에 쓰는 체크리스트다. 사고 현장 체크리스트(S15P21A307-121,
+-- backend/src/main/resources/checklist.json)와 이름만 겹치고 다른 기능이다 — 저쪽은 정적
+-- 12항목·무인증·저장 없음, 이쪽은 사고별 AI 생성·인증 필요·DB 저장·사용자 편집이다.
+-- 헷갈리기 쉬워 repair_ 접두어로 갈라 둔다.
+--
+-- member_id 를 두지 않는다. accident → vehicle → member 로 도달 가능한 이행적 종속이고,
+-- accident 가 같은 이유로 member_id 를 두지 않았다(위 4장 주석). 직접 보관하면 사고 주인과
+-- 체크리스트 주인이 어긋나도 DB 가 막지 못한다.
+
+-- 공통 확인 항목 마스터 (S15P21A307-462 · -463). 파손 부위와 무관하게 모든 체크리스트에
+-- 들어가는 6종이다. 문안은 -462 본문에 확정돼 있어 백엔드가 창작하지 않는다.
+-- 형태는 estimate_notice 를 그대로 따랐다 — 성격이 같은 문구 마스터이고, 관리자 API 없이
+-- psql UPDATE 로 고친다. 동시 편집 경로가 없어 version(낙관적 잠금)도 두지 않는다.
+-- 시드 6행은 Docs/Erd/migrations/2026-09-14-repair-checklist.sql 이 넣는다.
+CREATE TABLE repair_checklist_common_item (
+    code          VARCHAR(30)  PRIMARY KEY,
+    message       VARCHAR(500) NOT NULL,
+    display_order SMALLINT     NOT NULL DEFAULT 0,
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+-- 체크리스트 머리. 사고 한 건에 하나다 (S15P21A307-459 "체크리스트는 사고 건에 연결된다").
+CREATE TABLE repair_checklist (
+    checklist_id   BIGSERIAL   PRIMARY KEY,
+    accident_id    BIGINT      NOT NULL REFERENCES accident(accident_id) ON DELETE CASCADE,
+    -- 생성 상태 (S15P21A307-460 · -461). 화면이 말하는 대기·완료·실패는 여기서
+    -- QUEUED+PROCESSING · COMPLETED · FAILED 로 대응한다. 네 값 표기는 analysis_job ·
+    -- estimate_report · estimate_validation 과 같은 형태를 따른 것이다.
+    status         VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
+    -- 재생성 추적 (S15P21A307-486). 재생성은 "기존 항목 교체" 라서 머리를 새로 만들지 않는다.
+    -- 몇 번째 생성분인지는 이 값으로만 남는다.
+    generation_no  SMALLINT    NOT NULL DEFAULT 1,
+    failure_reason VARCHAR(200),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at   TIMESTAMPTZ,
+    regenerated_at TIMESTAMPTZ,
+    CONSTRAINT uk_rcl_accident   UNIQUE (accident_id),
+    CONSTRAINT ck_rcl_status     CHECK (status IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
+    CONSTRAINT ck_rcl_done       CHECK (completed_at IS NULL OR status IN ('COMPLETED','FAILED')),
+    CONSTRAINT ck_rcl_generation CHECK (generation_no >= 1),
+    CONSTRAINT ck_rcl_regen      CHECK (regenerated_at IS NULL OR generation_no > 1)
+);
+
+-- 체크리스트 항목. AI 생성 · 공통 · 사용자 추가 셋이 한 목록에 섞인다.
+CREATE TABLE repair_checklist_item (
+    item_id       BIGSERIAL    PRIMARY KEY,
+    checklist_id  BIGINT       NOT NULL REFERENCES repair_checklist(checklist_id) ON DELETE CASCADE,
+    source        VARCHAR(20)  NOT NULL,
+    -- 공통 항목일 때만 채운다. 문안은 content 에 복사해 두므로 마스터 문구가 나중에 바뀌어도
+    -- 이미 만들어진 체크리스트는 그대로 남는다 — accident 의 스냅샷 컬럼과 같은 방식이다.
+    common_code   VARCHAR(30)  REFERENCES repair_checklist_common_item(code) ON DELETE RESTRICT,
+    content       VARCHAR(500) NOT NULL,
+    is_checked    BOOLEAN      NOT NULL DEFAULT FALSE,
+    -- 메모 (S15P21A307-482 · -483). 두 제목이 메모를 말하고 -482 스토리 문장만 빠뜨렸다.
+    -- 스키마라서 안전한 쪽을 택했다 — 안 쓰면 NULL 로 두면 되지만, 없는 컬럼은 나중에
+    -- 마이그레이션을 또 요구한다.
+    memo          VARCHAR(500),
+    display_order SMALLINT     NOT NULL DEFAULT 0,
+    checked_at    TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    -- 같은 공통 항목이 한 체크리스트에 두 번 들어가지 않는다. NULL 은 서로 충돌하지 않으므로
+    -- AI · 사용자 항목은 몇 개든 들어간다.
+    CONSTRAINT uk_rcli_common  UNIQUE (checklist_id, common_code),
+    CONSTRAINT ck_rcli_source  CHECK (source IN ('AI','COMMON','USER')),
+    CONSTRAINT ck_rcli_link    CHECK ((source =  'COMMON' AND common_code IS NOT NULL)
+                                   OR (source <> 'COMMON' AND common_code IS NULL)),
+    CONSTRAINT ck_rcli_checked CHECK (checked_at IS NULL OR is_checked = TRUE)
+);
+
 -- ============================================================
 -- 13. 인덱스
 -- ============================================================
@@ -762,3 +834,8 @@ CREATE UNIQUE INDEX ux_aj_request   ON analysis_job (request_id)
     WHERE request_id IS NOT NULL;
 CREATE UNIQUE INDEX ux_er_inflight  ON estimate_report (estimate_id)
     WHERE status IN ('QUEUED','PROCESSING');
+
+-- ── 정비 체크리스트 ──
+-- 항목 목록은 늘 한 체크리스트 것을 정렬해 읽고, 진행률(완료/전체)도 같은 범위를 센다.
+CREATE INDEX ix_rcli_checklist    ON repair_checklist_item (checklist_id, display_order);
+-- ix_rcl_accident 제거: uk_rcl_accident 가 그대로 커버한다

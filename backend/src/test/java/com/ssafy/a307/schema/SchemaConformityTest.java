@@ -187,7 +187,7 @@ class SchemaConformityTest {
     class Coverage {
 
         @Test
-        @DisplayName("정본 36테이블 중 25개가 H2 에 있고 누락 11개의 목록이 고정되어 있다")
+        @DisplayName("정본 39테이블 중 28개가 H2 에 있고 누락 11개의 목록이 고정되어 있다")
         void missingTablesAreKnown() {
             Set<String> missing = new TreeSet<>(canonical().keySet());
             missing.removeAll(h2().keySet());
@@ -205,9 +205,14 @@ class SchemaConformityTest {
             // S15P21A307-157 이 analysis_image_result 에 엔티티를 붙이며 H2 로 옮겼다(24 → 25,
             // 누락 12 → 11). 엔티티가 생기면 옮겨야 한다 — 안 옮기면 컨텍스트부터 뜨지 않는다.
             //
+            // S15P21A307-509 가 정비 체크리스트 3종을 양쪽에 더했다(36/25 → 39/28). 누락은 11 그대로다.
+            // 아직 엔티티는 없지만 -460·-461·-463·-483 이 곧 붙이므로 처음부터 H2 에 뒀다 —
+            // 나중에 옮기면 그 사이에 KNOWN_MISSING_TABLES 를 거쳐야 하고, 거기 들어간 테이블은
+            // 엔티티가 생기는 순간 기동 실패로만 드러난다.
+            //
             // 새 테이블이 한쪽에만 들어가면 여기서 깨진다. 그것이 이 테스트의 목적이다.
-            assertThat(canonical()).hasSize(36);
-            assertThat(h2()).hasSize(25);
+            assertThat(canonical()).hasSize(39);
+            assertThat(h2()).hasSize(28);
             assertThat(missing)
                     .as("정본에 테이블이 늘었거나 H2 로 옮겼다면 KNOWN_MISSING_TABLES 와 머리말을 함께 고칠 것")
                     .isEqualTo(KNOWN_MISSING_TABLES);
@@ -216,8 +221,10 @@ class SchemaConformityTest {
         @Test
         @DisplayName("@Entity 가 붙은 테이블은 전부 H2 에 있다 — 그래서 validate 가 통과한다")
         void everyMappedTableExists() {
-            // 누락 9개 중 어느 것에도 엔티티가 없다는 사실을 고정한다.
+            // 누락 11개 중 어느 것에도 엔티티가 없다는 사실을 고정한다.
             // 엔티티가 생기는 순간 H2 로 옮겨야 하고, 안 옮기면 그 테스트가 컨텍스트부터 뜨지 않는다.
+            // 정비 체크리스트 3종은 엔티티보다 스키마가 먼저 들어왔다(S15P21A307-509). 이미 H2 에
+            // 있으므로 누락일 수 없고, 누락 목록에 넣어 이 테스트를 통과시키려 해서도 안 된다.
             assertThat(KNOWN_MISSING_TABLES)
                     .doesNotContain("ACCIDENT", "ACCIDENT_IMAGE", "ACCIDENT_IMAGE_ASSET",
                             "VEHICLE", "VEHICLE_MODEL", "MEMBER", "TERMS_AGREEMENT",
@@ -227,7 +234,9 @@ class SchemaConformityTest {
                             "PART_CODE", "PART_NAME_MAPPING",
                             "AUDIT_LOG", "REPAIR_CODE", "REPAIR_METHOD_RULE",
                             "ESTIMATE_VALIDATION_RULE", "ANALYSIS_STAGE",
-                            "ESTIMATE_NOTICE", "ANALYSIS_IMAGE_RESULT");
+                            "ESTIMATE_NOTICE", "ANALYSIS_IMAGE_RESULT",
+                            "REPAIR_CHECKLIST", "REPAIR_CHECKLIST_ITEM",
+                            "REPAIR_CHECKLIST_COMMON_ITEM");
         }
     }
 
