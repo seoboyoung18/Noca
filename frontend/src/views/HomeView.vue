@@ -4,9 +4,11 @@ import Screen from '../components/Screen.vue'
 import LogoMark from '../components/LogoMark.vue'
 import Avatar from '../components/Avatar.vue'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const store = useAppStore()
+const auth = useAuthStore()
 </script>
 
 <template>
@@ -18,7 +20,7 @@ const store = useAppStore()
         <button class="me" aria-label="마이페이지" @click="router.push('/my')"><Avatar /></button>
       </div>
 
-      <p class="hello">안녕하세요, 김싸피님</p>
+      <p class="hello">안녕하세요, {{ auth.nickname || '김싸피' }}님</p>
       <h1 class="h1" style="margin-top:8px">사고가 났나요?</h1>
 
       <button class="cta" @click="router.push('/claim/vehicle')">
