@@ -10,6 +10,7 @@ import com.ssafy.a307.analysis.repository.DamagedPartRepository;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.estimate.domain.FallbackStage;
+import com.ssafy.a307.estimate.domain.LowConfidenceRule;
 import com.ssafy.a307.estimate.domain.RefCondition;
 import com.ssafy.a307.estimate.entity.ConfidenceGrade;
 import com.ssafy.a307.estimate.entity.Estimate;
@@ -55,6 +56,7 @@ public class AnalysisResultPersister {
     private final EstimateItemRepository estimateItemRepository;
     private final EstimateVersioningService versioningService;
     private final PartCodeRepository partCodeRepository;
+    private final LowConfidenceRule lowConfidenceRule;
     private final ObjectMapper objectMapper;
 
     /**
@@ -156,16 +158,22 @@ public class AnalysisResultPersister {
             if (part == null) {
                 continue;   // 위에서 중복으로 버린 항목이다. 이미 로그를 남겼다
             }
+            // 완화 단계는 근거 스냅샷과 신뢰도 판정이 같은 값을 봐야 한다. 두 번 파싱하면
+            // 한쪽만 고쳤을 때 화면의 근거와 경고가 어긋난다.
+            FallbackStage stage = fallbackStage(item.fallbackStage());
             rows.add(EstimateItem.of(
                     estimate.getEstimateId(), part.getDamagedPartId(),
                     item.repairMethod(), item.standardHq(),
                     item.partCost(), item.laborCost(), item.paintMaterialCost(),
                     item.itemTotal(), item.refCaseCount(),
-                    refCondition(item, request)));
+                    refCondition(item, request, stage),
+                    lowConfidenceRule.isLowConfidence(item.refCaseCount(), stage)));
         }
         estimateItemRepository.saveAll(rows);
-        log.info("견적 저장. jobId={} estimateId={} version={} items={}",
-                request.jobId(), estimate.getEstimateId(), estimate.getVersion(), rows.size());
+        long lowConfidenceCount = rows.stream().filter(EstimateItem::isLowConfidence).count();
+        log.info("견적 저장. jobId={} estimateId={} version={} items={} lowConfidence={}",
+                request.jobId(), estimate.getEstimateId(), estimate.getVersion(),
+                rows.size(), lowConfidenceCount);
     }
 
     /**
@@ -222,9 +230,10 @@ public class AnalysisResultPersister {
      * <p>직렬화에 실패해도 저장을 멈추지 않는다. 근거 한 줄 때문에 금액을 통째로 잃는 것보다
      * 근거가 비어 있는 편이 낫다 — 읽는 쪽({@code RefConditionReader})이 같은 판단을 한다.
      */
-    private String refCondition(CallbackItem item, AnalysisCallbackRequest request) {
+    private String refCondition(CallbackItem item, AnalysisCallbackRequest request,
+                                FallbackStage stage) {
         RefCondition condition = new RefCondition(
-                fallbackStage(item.fallbackStage()),
+                stage,
                 item.costDistribution() == null ? null : new RefCondition.CostDistribution(
                         item.costDistribution().p25(),
                         item.costDistribution().median(),

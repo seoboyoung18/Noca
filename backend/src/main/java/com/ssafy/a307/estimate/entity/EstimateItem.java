@@ -91,12 +91,12 @@ public class EstimateItem {
     private String refCondition;
 
     /**
-     * 참조 사례가 적거나 조건을 완화해 산정했다는 표시.
+     * 참조 사례가 적거나 조건을 완화해 산정했다는 표시. 화면은 이 항목에 경고를 붙인다.
      *
-     * <p><b>지금은 항상 false 다.</b> 파생 규칙과 임계값은 S15P21A307-291·-205 의 몫이고,
-     * 여기서 임계값을 코드에 박으면 그 티켓의 요구가 그 자리에서 깨진다. AI 는 이 값을
-     * 보내지 않는다 — 계약 {@code items[]} 에 해당 필드가 없고, 파생에 필요한 재료
-     * ({@code fallbackStage}·{@code refCaseCount})만 온다.
+     * <p><b>AI 가 주는 값이 아니라 우리가 파생한 값이다.</b> 계약 {@code items[]} 에 이 필드가
+     * 없고 파생에 필요한 재료({@code fallbackStage}·{@code refCaseCount})만 온다. 판정 기준은
+     * {@link com.ssafy.a307.estimate.domain.LowConfidenceRule} 이 갖는다(S15P21A307-291·-205) —
+     * 여기서 임계값을 코드에 박으면 "설정값 외부화" 가 그 자리에서 깨진다.
      */
     @Column(name = "is_low_confidence", nullable = false)
     private boolean lowConfidence;
@@ -104,7 +104,8 @@ public class EstimateItem {
     private EstimateItem(Long estimateId, Long damagedPartId, String repairMethod,
                          BigDecimal standardHq, Integer partCostMedian, Integer laborCostMedian,
                          Integer paintMaterialCost, Integer itemMin, Integer itemMedian,
-                         Integer itemMax, Integer refCaseCount, String refCondition) {
+                         Integer itemMax, Integer refCaseCount, String refCondition,
+                         boolean lowConfidence) {
         this.estimateId = estimateId;
         this.damagedPartId = damagedPartId;
         this.repairMethod = repairMethod;
@@ -117,7 +118,7 @@ public class EstimateItem {
         this.itemMax = itemMax;
         this.refCaseCount = refCaseCount;
         this.refCondition = refCondition;
-        this.lowConfidence = false;
+        this.lowConfidence = lowConfidence;
     }
 
     /**
@@ -127,11 +128,14 @@ public class EstimateItem {
      * 항목 단위 min·max 는 오지 않는다. 세 컬럼이 모두 {@code NOT NULL} 이라 같은 값을 넣는다 —
      * 없는 범위를 지어내는 것보다 "범위가 좁혀지지 않았다" 가 사실에 가깝다. 총액 범위는
      * {@code estimate.total_min/max} 가 따로 갖는다.
+     *
+     * @param lowConfidence {@link com.ssafy.a307.estimate.domain.LowConfidenceRule} 이 판정한 값
      */
     public static EstimateItem of(Long estimateId, Long damagedPartId, String repairMethod,
                                   BigDecimal standardHq, Integer partCostMedian,
                                   Integer laborCostMedian, Integer paintMaterialCost,
-                                  Integer itemTotal, Integer refCaseCount, String refCondition) {
+                                  Integer itemTotal, Integer refCaseCount, String refCondition,
+                                  boolean lowConfidence) {
         if (estimateId == null || damagedPartId == null) {
             throw new IllegalArgumentException("estimateId · damagedPartId 는 필수입니다.");
         }
@@ -146,6 +150,7 @@ public class EstimateItem {
                 partCostMedian, laborCostMedian, paintMaterialCost,
                 itemTotal, itemTotal, itemTotal,
                 refCaseCount == null ? 0 : refCaseCount,
-                refCondition == null || refCondition.isBlank() ? EMPTY_REF_CONDITION : refCondition);
+                refCondition == null || refCondition.isBlank() ? EMPTY_REF_CONDITION : refCondition,
+                lowConfidence);
     }
 }
