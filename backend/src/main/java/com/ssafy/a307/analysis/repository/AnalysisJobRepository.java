@@ -55,4 +55,17 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, Long> 
             """)
     List<AnalysisJob> findByAccidentIdAndMemberId(@Param("accidentId") Long accidentId,
                                                   @Param("memberId") Long memberId);
+
+    /**
+     * 사고의 작업을 최신 순으로. <b>소유자 조건이 없다</b> — 호출자가 이미 소유를 확인한
+     * 비동기 경로 전용이다({@code S15P21A307-460} 체크리스트 생성 워커).
+     *
+     * <p>워커는 요청한 사용자의 세션을 들고 있지 않다. 소유 판정은 접수 시점에
+     * {@code RepairChecklistRequestService} 가 끝냈고, 워커는 자기가 선점한 체크리스트에 달린
+     * 사고만 본다. <b>HTTP 경로에서 이 메서드를 부르지 말 것</b> — 남의 사고가 그대로 열린다.
+     *
+     * <p>{@code jobId} 2차 정렬 키는 {@link #findByAccidentIdAndMemberId} 와 맞춘 것이다.
+     * {@code created_at} 이 같은 건이 있을 때 순서가 흔들리지 않게 한다.
+     */
+    List<AnalysisJob> findByAccident_AccidentIdOrderByCreatedAtDescJobIdDesc(Long accidentId);
 }
