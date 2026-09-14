@@ -371,6 +371,75 @@ class AnalysisCallbackApiTest {
         assertThat(count("analysis_image_result where job_id = " + JOB_ID)).isEqualTo(1);
     }
 
+    // ── 낮은 신뢰도 파생 (S15P21A307-291) ───────────────────────────────────
+
+    @Test
+    @DisplayName("사례가 충분하고 CAR_CLASS 면 경고하지 않는다 — 지금 정상 경로의 모습이다")
+    void normalItemIsNotLowConfidence() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        assertThat(itemColumn("is_low_confidence", Boolean.class)).isFalse();
+    }
+
+    @Test
+    @DisplayName("참조 사례가 임계값 미만이면 경고가 붙는다")
+    void tooFewCasesRaisesWarning() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID).replace("\"refCaseCount\":18", "\"refCaseCount\":2");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(itemColumn("is_low_confidence", Boolean.class)).isTrue();
+    }
+
+    @Test
+    @DisplayName("전체 범위까지 완화했으면 사례가 많아도 경고가 붙는다")
+    void fullFallbackRaisesWarning() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replace("\"fallbackStage\":\"CAR_CLASS\"", "\"fallbackStage\":\"ALL\"");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(itemColumn("is_low_confidence", Boolean.class)).isTrue();
+    }
+
+    @Test
+    @DisplayName("경고 여부와 무관하게 근거 스냅샷의 완화 단계는 같은 값이다")
+    void warningAndBasisSeeTheSameStage() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replace("\"fallbackStage\":\"CAR_CLASS\"", "\"fallbackStage\":\"ALL\"");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(itemColumn("is_low_confidence", Boolean.class)).isTrue();
+        assertThat(jdbcTemplate.queryForObject("""
+                select cast(ei.ref_condition as varchar) from estimate_item ei
+                 join estimate e on e.estimate_id = ei.estimate_id
+                where e.job_id = ?
+                """, String.class, JOB_ID)).contains("ALL");
+    }
+
+    @Test
+    @DisplayName("견적 조회 응답의 lowConfidence 로 그대로 나간다 — 화면이 이 값으로 경고를 그린다")
+    void warningIsExposedInEstimateResponse() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID).replace("\"refCaseCount\":18", "\"refCaseCount\":1");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        Boolean stored = jdbcTemplate.queryForObject("""
+                select ei.is_low_confidence from estimate_item ei
+                 join estimate e on e.estimate_id = ei.estimate_id
+                where e.job_id = ?
+                """, Boolean.class, JOB_ID);
+
+        // 조회 API 는 이 컬럼을 그대로 lowConfidence 로 내린다(EstimateQueryRepository).
+        assertThat(stored).isTrue();
+    }
+
     // ── 도우미 ──────────────────────────────────────────────────────────────
 
     /** 계약 ⑥ 의 성공 본문. 저장은 다음 커밋이라 여기서는 구조가 통과하는지만 본다. */

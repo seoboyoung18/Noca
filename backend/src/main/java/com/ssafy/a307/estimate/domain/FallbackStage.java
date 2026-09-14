@@ -12,6 +12,10 @@ package com.ssafy.a307.estimate.domain;
  * 가 이미 같은 구분을 등급 쪽에서 설명하고 있다 — 완화 없음이 HIGH, 한 단계가 MEDIUM,
  * 전체까지가 LOW 다. 둘을 한 자리에 합치지 않은 것은 등급이 사례 건수도 함께 보기 때문이다.
  *
+ * <p><b>선언 순서가 곧 "얼마나 넓혔나" 다.</b> {@link LowConfidenceRule} 이 {@code ordinal} 로
+ * "이 단계 이상 넓혔는가" 를 판정한다(S15P21A307-291). 값을 중간에 끼워 넣으면 그 판정이
+ * 조용히 바뀐다 — 새 단계는 넓어지는 방향의 제자리에 넣어야 한다.
+ *
  * <p><b>사고 스냅샷이 항상 있으므로 1단계는 언제나 시도된다.</b> {@code accident.snapshot_model_id}
  * 가 {@code NOT NULL} 이라 "차량 정보가 없어 처음부터 넓게 찾았다"는 경우는 없다.
  */
