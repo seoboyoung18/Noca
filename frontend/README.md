@@ -16,6 +16,33 @@ npm run dev
 - PC 브라우저: http://localhost:5173 → 좌측 화면 목록(개발용) + 360×800 폰 프레임
 - 모바일(같은 Wi-Fi): 터미널에 표시되는 `Network:` 주소로 접속 → 전체 화면 레이아웃
 
+## 환경 변수
+
+`.env.example` 을 `.env.local` 로 복사해 채웁니다.
+
+| 키 | 용도 |
+|---|---|
+| `VITE_API_BASE_URL` | 백엔드 주소 (기본 `http://localhost:8080`). 소셜 로그인 진입과 모든 API 호출의 기준 |
+| `VITE_KAKAO_JS_KEY` | 카카오 지도 JavaScript 키 (아래 지도 설정 참고) |
+| `VITE_AUTH_GUARD` | `off` 로 두면 로그인 가드를 끄고 백엔드 없이 모든 화면을 볼 수 있음 (개발용) |
+
+## 로그인 (카카오 · 구글)
+
+토큰이 아니라 **서버 세션**입니다. 백엔드가 소셜 인증을 처리하고 `SESSION` HttpOnly 쿠키를 내려주며, 이후 모든 API 는 `withCredentials` 로 그 쿠키를 싣습니다 (`src/lib/api.js`).
+
+```
+로그인 버튼 → {API}/oauth2/authorization/kakao → 카카오 동의 → {API}/login/oauth2/code/kakao
+  ├ 기존 회원  → FE /        (스플래시가 GET /api/auth/me 로 확인 후 홈으로)
+  ├ 신규 회원  → FE /signup  (→ /terms 약관 동의 → POST /api/auth/signup → 홈)
+  └ 실패       → FE /login?error=access_denied|withdrawn|invalid_response|server_error
+```
+
+- 가입 닉네임은 소셜 닉네임(12자 초과 시 절단)을 그대로 보내고, 서버가 거절(400)할 때만 약관 화면에 입력란이 나타납니다.
+- 보호 화면은 라우터 가드(`meta.auth`)가 세션을 확인해 비로그인은 `/login`, 가입 대기는 `/terms` 로 보냅니다. 401 · 403 `SIGNUP_REQUIRED` 응답도 `src/main.js` 에서 같은 규칙으로 처리합니다.
+- 로그아웃은 마이페이지에서 `POST /api/auth/logout` 을 호출합니다.
+
+백엔드 준비 사항: Redis·PostgreSQL 실행, `KAKAO_CLIENT_ID`·`KAKAO_CLIENT_SECRET` 설정, 카카오 콘솔 Redirect URI 에 `http://localhost:8080/login/oauth2/code/kakao` 등록. `FRONTEND_BASE_URL` 기본값이 `http://localhost:5173` 이라 로컬 CORS 는 추가 설정이 없습니다.
+
 ## 카카오 지도 API 설정 (주변 정비소 화면)
 
 1. https://developers.kakao.com → 내 애플리케이션 → 애플리케이션 추가

@@ -6,12 +6,15 @@ import AppHeader from '../components/AppHeader.vue'
 import BottomSheet from '../components/BottomSheet.vue'
 import Avatar from '../components/Avatar.vue'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const store = useAppStore()
+const auth = useAuthStore()
 const sh = reactive({ avatar: false, logout: false, notice: false })
 function setAvatar(v) { store.hasAvatar = v; sh.avatar = false }
-function logout() { sh.logout = false; store.agreed = false; router.push('/landing') }
+// POST /api/auth/logout (204) 로 서버 세션을 끊은 뒤 랜딩으로
+async function logout() { sh.logout = false; store.agreed = false; await auth.logout(); router.replace('/landing') }
 </script>
 
 <template>
@@ -26,7 +29,7 @@ function logout() { sh.logout = false; store.agreed = false; router.push('/landi
           </button>
         </Avatar>
         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px">
-          <span style="font-size:20px;font-weight:700">김싸피</span>
+          <span style="font-size:20px;font-weight:700">{{ auth.nickname || '김싸피' }}</span>
           <span class="kakao">
             <svg width="11" height="11" viewBox="0 0 12 12" fill="#191F28" aria-hidden="true"><path d="M6 1.5C3.2 1.5 1 3.3 1 5.5c0 1.4.9 2.6 2.3 3.3L2.8 11l2.4-1.6c.3 0 .5.1.8.1 2.8 0 5-1.8 5-4S8.8 1.5 6 1.5z"/></svg>카카오 로그인
           </span>
