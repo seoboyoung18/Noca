@@ -144,8 +144,10 @@ class RepairCaseDetailApiTest {
         long caseId = insertCase("AIHUB_AS", 100_000, null);
         insertWork(caseId, PART_A, "교환", "EXCHANGE", 100_000);
         jdbcTemplate.update(
-                "insert into repair_case_item (case_id, part_code, line_type, reference_part_price, item_total)"
-                        + " values (?, ?, 'REFERENCE_PRICE', 900000, 900000)", caseId, PART_A);
+                "insert into repair_case_item (case_id, source_item_key, part_code, line_type,"
+                        + " reference_part_price, item_total)"
+                        + " values (?, ?, ?, 'REFERENCE_PRICE', 900000, 900000)",
+                caseId, itemKey(), PART_A);
 
         mockMvc.perform(get("/api/repair-cases/{id}", caseId).session(session))
                 .andExpect(status().isOk())
@@ -163,8 +165,10 @@ class RepairCaseDetailApiTest {
         long caseId = insertCase("AIHUB_SC", null, 130_000);
         insertWork(caseId, PART_A, "교환", "EXCHANGE", 100_000);
         jdbcTemplate.update(
-                "insert into repair_case_item (case_id, part_code, line_type, assessment_status, item_total)"
-                        + " values (?, ?, 'WORK', 'NOT_APPROVED', 30000)", caseId, PART_A);
+                "insert into repair_case_item (case_id, source_item_key, part_code, line_type,"
+                        + " assessment_status, item_total)"
+                        + " values (?, ?, ?, 'WORK', 'NOT_APPROVED', 30000)",
+                caseId, itemKey(), PART_A);
 
         mockMvc.perform(get("/api/repair-cases/{id}", caseId).session(session))
                 .andExpect(status().isOk())
@@ -182,8 +186,10 @@ class RepairCaseDetailApiTest {
         long caseId = insertCase("AIHUB_SC", null, 140_000);
         insertWork(caseId, PART_A, "교환", "EXCHANGE", 100_000);
         jdbcTemplate.update(
-                "insert into repair_case_item (case_id, raw_item_name, line_type, work_type, work_code, item_total)"
-                        + " values (?, '견인비', 'ANCILLARY', '견인', 'TOWING', 40000)", caseId);
+                "insert into repair_case_item (case_id, source_item_key, raw_item_name, line_type,"
+                        + " work_type, work_code, item_total)"
+                        + " values (?, ?, '견인비', 'ANCILLARY', '견인', 'TOWING', 40000)",
+                caseId, itemKey());
 
         mockMvc.perform(get("/api/repair-cases/{id}", caseId).session(session))
                 .andExpect(status().isOk())
@@ -279,18 +285,29 @@ class RepairCaseDetailApiTest {
                 "select case_id from repair_case where external_ref = ?", Long.class, ref);
     }
 
+    /**
+     * {@code repair_case_item.source_item_key} 는 NOT NULL 이고 {@code uk_rci_source_item
+     * (case_id, source_item_key)} 로 묶여 있다 — 원천 견적 배열 순번이자 재적재 멱등 키다
+     * (S15P21A307-232). 테스트에는 대응하는 원천이 없으므로 호출마다 겹치지 않는 값을 만든다.
+     */
+    private static String itemKey() {
+        return "test-" + System.nanoTime();
+    }
+
     private void insertWork(long caseId, String partCode, String workType, String workCode, int itemTotal) {
         jdbcTemplate.update(
-                "insert into repair_case_item (case_id, part_code, line_type, work_type, work_code, hq,"
-                        + " labor_cost, item_total) values (?, ?, 'WORK', ?, ?, 1.50, ?, ?)",
-                caseId, partCode, workType, workCode, itemTotal, itemTotal);
+                "insert into repair_case_item (case_id, source_item_key, part_code, line_type,"
+                        + " work_type, work_code, hq, labor_cost, item_total)"
+                        + " values (?, ?, ?, 'WORK', ?, ?, 1.50, ?, ?)",
+                caseId, itemKey(), partCode, workType, workCode, itemTotal, itemTotal);
     }
 
     private String insertImage(long caseId, String name, boolean searchable) {
         String key = "repair-cases/" + caseId + "/images/" + name + "/original.jpg";
         jdbcTemplate.update(
-                "insert into repair_case_image (case_id, source_image_ref, storage_key, is_searchable)"
-                        + " values (?, ?, ?, ?)",
+                "insert into repair_case_image (case_id, source_image_ref, storage_key,"
+                        + " image_type, is_searchable)"
+                        + " values (?, ?, ?, 'DAMAGE_PART', ?)",
                 caseId, "TEST-" + System.nanoTime() + ".jpg", key, searchable);
         return key;
     }

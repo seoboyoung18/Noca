@@ -185,8 +185,9 @@ class SimilarCaseApiTest {
     void referencePriceIsExcluded() throws Exception {
         long caseId = insertCase("현대", "아반떼", (short) 2021, 300_000);
         jdbcTemplate.update(
-                "insert into repair_case_item (case_id, part_code, line_type, item_total)"
-                        + " values (?, 'FRONT_BUMPER', 'REFERENCE_PRICE', 900000)", caseId);
+                "insert into repair_case_item (case_id, source_item_key, part_code, line_type,"
+                        + " item_total) values (?, ?, 'FRONT_BUMPER', 'REFERENCE_PRICE', 900000)",
+                caseId, itemKey());
 
         Fixture f = insertEstimateItem("{\"referencedCaseIds\":[" + caseId + "]}");
 
@@ -281,6 +282,15 @@ class SimilarCaseApiTest {
         return new Fixture(estimateId, estimateItemId);
     }
 
+    /**
+     * {@code repair_case_item.source_item_key} 는 NOT NULL 이고 {@code uk_rci_source_item
+     * (case_id, source_item_key)} 로 묶여 있다 — 원천 견적 배열 순번이자 재적재 멱등 키다
+     * (S15P21A307-232). 테스트에는 대응하는 원천이 없으므로 호출마다 겹치지 않는 값을 만든다.
+     */
+    private static String itemKey() {
+        return "test-" + System.nanoTime();
+    }
+
     private void insertPartCode() {
         jdbcTemplate.update(
                 "insert into part_code (part_code, name_ko, layout_zone, display_order, is_active)"
@@ -314,11 +324,12 @@ class SimilarCaseApiTest {
                 "select case_id from repair_case where external_ref = ?", Long.class, ref);
 
         jdbcTemplate.update(
-                "insert into repair_case_item (case_id, part_code, line_type, work_code, item_total)"
-                        + " values (?, 'FRONT_BUMPER', 'WORK', 'EXCHANGE', ?)", caseId, itemTotal);
+                "insert into repair_case_item (case_id, source_item_key, part_code, line_type,"
+                        + " work_code, item_total) values (?, ?, 'FRONT_BUMPER', 'WORK', 'EXCHANGE', ?)",
+                caseId, itemKey(), itemTotal);
         jdbcTemplate.update(
-                "insert into repair_case_image (case_id, source_image_ref, storage_key, is_searchable)"
-                        + " values (?, ?, ?, true)",
+                "insert into repair_case_image (case_id, source_image_ref, storage_key,"
+                        + " image_type, is_searchable) values (?, ?, ?, 'DAMAGE_PART', true)",
                 caseId, ref + ".jpg", "repair-cases/" + caseId + "/images/1/original.jpg");
 
         return caseId;
