@@ -57,10 +57,22 @@ public class Estimate {
     /**
      * 산정 가능 여부. 참조할 유사 사례가 모자라면 금액을 내지 않고 사유만 남긴다 —
      * 근거 없는 숫자를 보여 주는 것보다 "산정 불가"가 정직하다(S15P21A307-256).
+     *
+     * <p><b>판단은 AI 가 한다.</b> callback 의 {@code estimable} 을 그대로 옮긴다
+     * (S15P21A307-157). 백엔드가 사례 수를 세어 다시 판정하지 않는다 — 두 곳이 판단하면
+     * AI 가 "산정했다" 고 보낸 견적을 우리가 "불가" 로 뒤집을 수 있다.
      */
     @Column(name = "is_estimable", nullable = false)
     private boolean estimable;
 
+    /**
+     * 산정하지 못한 이유. 계약이 값을 고정했다 —
+     * {@code PART_NOT_RESOLVED} · {@code INSUFFICIENT_CASES} · {@code null}
+     * (AI 연동 계약 2차 수정본, 2026-09-12).
+     *
+     * <p>CHECK 제약을 걸지 않았다. 계약이 아직 "협의 후 확정" 상태라 값이 늘 수 있고,
+     * 그때마다 마이그레이션을 따라 붙이는 것보다 수신 계층이 검증하는 편이 낫다.
+     */
     @Column(name = "non_estimable_reason", length = 100)
     private String nonEstimableReason;
 

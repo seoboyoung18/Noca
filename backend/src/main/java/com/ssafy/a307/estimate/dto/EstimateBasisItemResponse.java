@@ -17,11 +17,12 @@ import com.ssafy.a307.estimate.repository.EstimateQueryRepository.EstimateBasisI
  *                       비어 있어도 이 값은 있다
  * @param basisAvailable 근거 스냅샷이 있는지. <b>{@code false} 면 화면은 "근거 없음"을 명시해야
  *                       한다</b> — 명세서 51행이 "근거가 부족한 항목은 그 사실이 명시된다"고
- *                       요구한다. 산정 로직(S15P21A307-256·257)이 들어오기 전에는 항상
+ *                       요구한다. AI 가 근거를 보내지 않았거나 산정하지 못한 견적이면
  *                       {@code false} 다
  * @param narrative      한 줄 근거 문구(S15P21A307-284). 참조한 사례가 없으면 {@code null} 이다
  * @param fallbackStage  조건을 어디까지 넓혔는지. 이 값이 낮은 신뢰도 경고의 근거가 된다
- *                       (S15P21A307-291, 이번 범위 아님)
+ *                       (S15P21A307-291). 같은 값을 {@code LowConfidenceRule} 이 함께 본다 —
+ *                       근거와 경고가 어긋나지 않도록 한 번만 파싱해 양쪽에 넘긴다
  */
 public record EstimateBasisItemResponse(
         Long estimateItemId,
