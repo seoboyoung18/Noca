@@ -63,15 +63,32 @@ class AnalysisCallbackApiTest {
                 insert into analysis_job (job_id, accident_id, status)
                 values (?, 98301, 'PROCESSING')
                 """, JOB_ID);
+        jdbcTemplate.update("""
+                insert into part_code (part_code, name_ko, layout_zone, display_order, is_active)
+                values ('REAR_BUMPER', '뒤 범퍼', 'REAR', 2, true)
+                """);
+        jdbcTemplate.update("""
+                insert into accident_image (image_id, accident_id, original_filename, angle_code)
+                values (501, 98301, 'rear-left.jpg', 'REAR_LEFT')
+                """);
     }
 
     @AfterEach
     void tearDown() {
+        jdbcTemplate.update("""
+                delete from estimate_item where estimate_id in
+                    (select estimate_id from estimate where job_id = ?)
+                """, JOB_ID);
+        jdbcTemplate.update("delete from estimate where job_id = ?", JOB_ID);
+        jdbcTemplate.update("delete from analysis_image_result where job_id = ?", JOB_ID);
+        jdbcTemplate.update("delete from damaged_part where job_id = ?", JOB_ID);
         jdbcTemplate.update("delete from analysis_job where job_id = ?", JOB_ID);
+        jdbcTemplate.update("delete from accident_image where accident_id = 98301");
         jdbcTemplate.update("delete from accident where accident_id = 98301");
         jdbcTemplate.update("delete from vehicle where vehicle_id = 98301");
         jdbcTemplate.update("delete from vehicle_model where model_id = 98301");
         jdbcTemplate.update("delete from member where member_id = ?", MEMBER_ID);
+        jdbcTemplate.update("delete from part_code where part_code = 'REAR_BUMPER'");
     }
 
     // ── 은닉 ────────────────────────────────────────────────────────────────
@@ -218,6 +235,142 @@ class AnalysisCallbackApiTest {
         assertThat(column("request_id")).isEqualTo(REQUEST_ID);
     }
 
+    // ── 결과 저장 ───────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("부품·견적·항목·이미지 결과가 한 번에 저장된다")
+    void resultIsPersisted() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        assertThat(count("damaged_part where job_id = " + JOB_ID)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select repair_method from damaged_part where job_id = ?", String.class, JOB_ID))
+                .isEqualTo("coating");
+
+        assertThat(count("estimate where job_id = " + JOB_ID)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select total_median from estimate where job_id = ?", Integer.class, JOB_ID))
+                .isEqualTo(550_000);
+        assertThat(jdbcTemplate.queryForObject(
+                "select confidence_grade from estimate where job_id = ?", String.class, JOB_ID))
+                .isEqualTo("MEDIUM");
+
+        assertThat(count("analysis_image_result where job_id = " + JOB_ID)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("항목 금액과 도장 재료비가 그대로 남는다 — partCost 는 null 을 지키고 0 으로 바꾸지 않는다")
+    void itemAmountsArePreserved() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        assertThat(itemColumn("item_median", Integer.class)).isEqualTo(335_500);
+        assertThat(itemColumn("labor_cost_median", Integer.class)).isEqualTo(250_000);
+        assertThat(itemColumn("paint_material_cost", Integer.class)).isEqualTo(85_500);
+        assertThat(itemColumn("part_cost_median", Integer.class)).isNull();
+        assertThat(itemColumn("ref_case_count", Integer.class)).isEqualTo(18);
+    }
+
+    @Test
+    @DisplayName("근거 스냅샷에 참조 사례 ID 와 완화 단계가 남는다 — 유사 사례 조회(-236)가 이 값을 쓴다")
+    void refConditionIsStored() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        String refCondition = jdbcTemplate.queryForObject("""
+                select cast(ei.ref_condition as varchar) from estimate_item ei
+                 join estimate e on e.estimate_id = ei.estimate_id
+                where e.job_id = ?
+                """, String.class, JOB_ID);
+
+        assertThat(refCondition)
+                .contains("121381").contains("121414")
+                .contains("CAR_CLASS")
+                .contains("2021");
+    }
+
+    @Test
+    @DisplayName("detections 원문이 그대로 보존된다 — pairStatus·searchability 를 덜어내지 않는다")
+    void detectionsArePreservedVerbatim() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        String detections = jdbcTemplate.queryForObject(
+                "select cast(detections as varchar) from analysis_image_result where job_id = ?",
+                String.class, JOB_ID);
+
+        assertThat(detections)
+                .contains("pairStatus").contains("PAIRED")
+                .contains("searchability").contains("STRICT")
+                .contains("501:damage:damage-001")
+                .contains("areaRatio");
+    }
+
+    @Test
+    @DisplayName("산정 불가여도 견적 행과 이미지 결과는 남는다 — 화면이 '분석 중' 과 구분해야 한다")
+    void nonEstimableStillLeavesRows() throws Exception {
+        String body = """
+                {
+                  "requestId":"%s","jobId":%d,"modelVersion":"m1","pipelineVersionId":3,
+                  "estimable":false,"nonEstimableReason":"INSUFFICIENT_CASES",
+                  "imageResults":[{"imageId":501,"width":1600,"height":1200,
+                                   "excluded":false,"exclusionReason":null,"detections":[]}]
+                }
+                """.formatted(REQUEST_ID, JOB_ID);
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(count("estimate where job_id = " + JOB_ID)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select is_estimable from estimate where job_id = ?", Boolean.class, JOB_ID))
+                .isFalse();
+        assertThat(jdbcTemplate.queryForObject(
+                "select non_estimable_reason from estimate where job_id = ?", String.class, JOB_ID))
+                .isEqualTo("INSUFFICIENT_CASES");
+        assertThat(count("analysis_image_result where job_id = " + JOB_ID)).isEqualTo(1);
+        assertThat(count("damaged_part where job_id = " + JOB_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("모르는 부품 코드는 400 — FK 위반으로 500 이 나기 전에 끊는다")
+    void unknownPartCodeIsRejected() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID).replace("\"REAR_BUMPER\"", "\"NO_SUCH_PART\"");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("PROCESSING");
+        assertThat(count("estimate where job_id = " + JOB_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("저장이 실패하면 상태도 되돌아간다 — 반쯤 저장된 견적을 남기지 않는다")
+    void failedPersistRollsBackStatus() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID).replace("\"repairMethod\":\"coating\"", "\"repairMethod\":null");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("PROCESSING");
+        assertThat(column("request_id")).isNull();
+        assertThat(count("damaged_part where job_id = " + JOB_ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("중복 callback 은 견적을 하나 더 만들지 않는다")
+    void duplicateDoesNotCreateSecondEstimate() throws Exception {
+        for (int attempt = 0; attempt < 4; attempt++) {
+            mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(count("estimate where job_id = " + JOB_ID)).isEqualTo(1);
+        assertThat(count("damaged_part where job_id = " + JOB_ID)).isEqualTo(1);
+        assertThat(count("analysis_image_result where job_id = " + JOB_ID)).isEqualTo(1);
+    }
+
     // ── 도우미 ──────────────────────────────────────────────────────────────
 
     /** 계약 ⑥ 의 성공 본문. 저장은 다음 커밋이라 여기서는 구조가 통과하는지만 본다. */
@@ -270,6 +423,19 @@ class AnalysisCallbackApiTest {
     private String jobStatus(long jobId) {
         return jdbcTemplate.queryForObject(
                 "select status from analysis_job where job_id = ?", String.class, jobId);
+    }
+
+    private int count(String whereClause) {
+        Integer n = jdbcTemplate.queryForObject("select count(*) from " + whereClause, Integer.class);
+        return n == null ? 0 : n;
+    }
+
+    private <T> T itemColumn(String name, Class<T> type) {
+        return jdbcTemplate.queryForObject("""
+                select ei.%s from estimate_item ei
+                 join estimate e on e.estimate_id = ei.estimate_id
+                where e.job_id = ?
+                """.formatted(name), type, JOB_ID);
     }
 
     private String column(String name) {

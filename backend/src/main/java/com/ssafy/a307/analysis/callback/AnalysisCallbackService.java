@@ -37,6 +37,7 @@ import java.util.Objects;
 public class AnalysisCallbackService {
 
     private final AnalysisJobRepository jobRepository;
+    private final AnalysisResultPersister persister;
 
     /**
      * 결과를 받는다.
@@ -96,9 +97,10 @@ public class AnalysisCallbackService {
             log.warn("분석 실패 수신. jobId={} code={} retryable={}",
                     jobId, request.error().code(), request.error().retryable());
         } else {
-            // TODO(S15P21A307-157 2/2): 결과 저장(damaged_part · estimate · estimate_item ·
-            //   analysis_image_result)을 여기에 붙인다. 지금은 작업 상태만 옮긴다 —
-            //   상태 전이와 저장을 한 커밋에 섞으면 어느 쪽이 깨졌는지 가려내기 어렵다.
+            // 저장이 먼저다. 상태를 COMPLETED 로 옮긴 뒤 저장이 실패하면 같은 트랜잭션이라
+            // 둘 다 되돌아가지만, 순서를 이렇게 두면 읽는 사람이 "완료 = 결과가 있다" 로
+            // 읽을 수 있다.
+            persister.persist(job, request);
             job.markCompleted(request.modelVersion(), request.pipelineVersionId(), now);
             log.info("분석 결과 수신. jobId={} estimable={} items={} images={}",
                     jobId, request.estimable(), request.items().size(),
