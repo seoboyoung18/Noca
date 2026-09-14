@@ -175,6 +175,12 @@ CREATE TABLE analysis_job (
     retry_count    SMALLINT    NOT NULL DEFAULT 0,
     failure_reason VARCHAR(50),
     model_version  VARCHAR(50),
+    -- AI callback 멱등성. 같은 requestId 재수신 시 견적 버전을 더 만들지 않는다.
+    -- 작업당 하나이며 재분석 시 덮어쓴다 (S15P21A307-155).
+    request_id     VARCHAR(64),
+    -- AI 가 분석에 쓴 버전 조합 식별자. model_version 문자열만으로는 되짚을 수 없다.
+    -- FK 를 걸지 않는다 — feature_pipeline_version 은 파이프라인이 따로 적재한다.
+    pipeline_version_id BIGINT,
     started_at     TIMESTAMPTZ,
     finished_at    TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -200,7 +206,12 @@ CREATE TABLE analysis_image_result (
     result_id        BIGSERIAL    PRIMARY KEY,
     job_id           BIGINT       NOT NULL REFERENCES analysis_job(job_id)     ON DELETE CASCADE,
     image_id         BIGINT       NOT NULL REFERENCES accident_image(image_id) ON DELETE CASCADE,
+    -- 오버레이 폐기(2026-09-11)로 쓰지 않는다. NULL 로 둔다.
     s3_key_overlay   VARCHAR(500),
+    -- 프론트가 원본 위에 손상 영역을 다시 그릴 좌표. AI 가 준 detections[] 를 키 이름·
+    -- 구조 그대로 넣는다(pairStatus·searchability 포함). 구조를 DDL 로 강제하지 않는다 —
+    -- 검증은 수신 계층이 한다 (S15P21A307-155).
+    detections       JSONB,
     is_excluded      BOOLEAN      NOT NULL DEFAULT FALSE,
     exclusion_reason VARCHAR(50),
     CONSTRAINT uk_air        UNIQUE (job_id, image_id),
@@ -214,7 +225,9 @@ CREATE TABLE damaged_part (
     job_id          BIGINT       NOT NULL REFERENCES analysis_job(job_id) ON DELETE CASCADE,
     part_code       VARCHAR(50)  NOT NULL REFERENCES part_code(part_code) ON DELETE RESTRICT,
     damage_type     VARCHAR(20)  NOT NULL,
-    repair_method   VARCHAR(20)  NOT NULL,
+    -- NULL 허용. 후보가 둘인 손상(Separated·Crushed·Breakage)은 심각도 파생 규칙
+    -- (S15P21A307-196)이 서기 전까지 확정할 수 없다. 값이 있을 때는 CHECK 가 네 값을 강제한다.
+    repair_method   VARCHAR(20),
     severity_score  NUMERIC(6,2),
     confidence      NUMERIC(5,4) NOT NULL,
     CONSTRAINT uk_dp        UNIQUE (job_id, part_code),
@@ -459,6 +472,9 @@ CREATE TABLE estimate_item (
     standard_hq       NUMERIC(6,2),
     part_cost_median  INTEGER,
     labor_cost_median INTEGER,
+    -- 도장 재료비. 리포트가 공임과 나눠 보여 주며 repair_case_item 과 표현을 맞춘다.
+    -- 도장이 없는 작업에는 값이 없다 — 0 으로 채우면 "도장했는데 0원" 과 구분되지 않는다.
+    paint_material_cost INTEGER,
     item_min          INTEGER     NOT NULL,
     item_median       INTEGER     NOT NULL,
     item_max          INTEGER     NOT NULL,
@@ -740,5 +756,9 @@ CREATE INDEX ix_rmr_lookup        ON repair_method_rule (damage_type, is_active,
 -- ── 멱등성 ──
 CREATE UNIQUE INDEX ux_job_inflight ON analysis_job (accident_id)
     WHERE status IN ('QUEUED','PROCESSING');
+-- 같은 requestId 의 callback 이 두 번 와도 견적 버전이 늘지 않게 한다.
+-- NULL 은 서로 충돌하지 않으므로 값이 있는 행만 겹치지 않는다 (S15P21A307-155).
+CREATE UNIQUE INDEX ux_aj_request   ON analysis_job (request_id)
+    WHERE request_id IS NOT NULL;
 CREATE UNIQUE INDEX ux_er_inflight  ON estimate_report (estimate_id)
     WHERE status IN ('QUEUED','PROCESSING');

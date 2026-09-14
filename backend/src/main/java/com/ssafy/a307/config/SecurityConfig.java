@@ -98,6 +98,16 @@ public class SecurityConfig {
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
             .authorizeHttpRequests(auth -> auth
+                // AI 서버가 부르는 결과 수신 경로. 세션이 없고 만들 수도 없으므로
+                // Security 는 통과시키고, 인증은 X-Internal-Token 으로 컨트롤러가 한다
+                // (S15P21A307-157). 토큰이 틀리면 401 이 아니라 404 로 은닉한다 —
+                // 401 은 "이 경로가 있다" 를 알려 주고, 그러면 남은 일은 토큰을 맞히는 것뿐이다.
+                //
+                // 이 경로는 배포에서 네트워크로도 막는다(EC2 사설 IP). 토큰은 네트워크가
+                // 뚫렸을 때의 마지막 문이고, 둘 중 하나만으로 충분하다고 보지 않는다.
+                .requestMatchers(HttpMethod.POST, "/internal/analysis-jobs/*/result").permitAll()
+                // 나머지 내부 경로는 계속 막는다. /inference/** 는 FastAPI 쪽 경로라
+                // 이 애플리케이션이 서비스할 일이 없다.
                 .requestMatchers("/internal/**", "/inference/**").denyAll()
                 .requestMatchers(PUBLIC_PATHS).permitAll()
                 .requestMatchers(API_DOC_PATHS).permitAll()
