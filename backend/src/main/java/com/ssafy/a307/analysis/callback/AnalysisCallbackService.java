@@ -36,6 +36,17 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class AnalysisCallbackService {
 
+    /**
+     * 보낸 사진이 전부 제외됐을 때 {@code analysis_job.failure_reason} 에 넣는 값
+     * (S15P21A307-187).
+     *
+     * <p>AI 가 보내는 {@code error.code} 와 같은 자리에 들어가지만 <b>출처가 다르다</b> —
+     * 이것은 백엔드가 판정한 값이다. 컬럼이 {@code VARCHAR(50)} 이므로 길이를 넘지 않는다.
+     *
+     * <p>한글 문안을 넣지 않는다. 사용자에게 보일 문구는 화면이 이 코드를 보고 정한다.
+     */
+    static final String ALL_IMAGES_EXCLUDED = "ALL_IMAGES_EXCLUDED";
+
     private final AnalysisJobRepository jobRepository;
     private final AnalysisResultPersister persister;
 
@@ -101,10 +112,20 @@ public class AnalysisCallbackService {
             // 둘 다 되돌아가지만, 순서를 이렇게 두면 읽는 사람이 "완료 = 결과가 있다" 로
             // 읽을 수 있다.
             persister.persist(job, request);
-            job.markCompleted(request.modelVersion(), request.pipelineVersionId(), now);
-            log.info("분석 결과 수신. jobId={} estimable={} items={} images={}",
-                    jobId, request.estimable(), request.items().size(),
-                    request.imageResults().size());
+
+            // 제외된 사진도 저장은 한다. 화면이 "이 사진은 왜 빠졌나" 를 보여 줘야 하기 때문에
+            // 행 자체는 남기고, 작업 상태만 실패로 간다.
+            if (request.allImagesExcluded()) {
+                job.markFailed(ALL_IMAGES_EXCLUDED, request.modelVersion(),
+                        request.pipelineVersionId(), now);
+                log.info("전체 이미지 제외로 분석 실패. jobId={} images={}",
+                        jobId, request.imageResults().size());
+            } else {
+                job.markCompleted(request.modelVersion(), request.pipelineVersionId(), now);
+                log.info("분석 결과 수신. jobId={} estimable={} items={} images={}",
+                        jobId, request.estimable(), request.items().size(),
+                        request.imageResults().size());
+            }
         }
 
         return new AnalysisCallbackResponse(jobId, job.getStatus().name(), false);
