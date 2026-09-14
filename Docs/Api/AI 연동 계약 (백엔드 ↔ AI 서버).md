@@ -2,11 +2,13 @@
 > 
 
 1차 수정본, 오버레이 관련해서 프론트엔드와 협의 후 확정
+2차 수정본, AI 서버 구조화 후 항목 반영
 
 | 항목 | 내용 |
 | --- | --- |
 | 작성일 | 2026-09-10 |
 | 수정일 | 2026-09-11 (김경연 — ⚠ 주요 수정 사항 : 오버레이 제거, DDL 대조, 진행 상황 폴링 삭제) |
+| 수정일 | 2026-09-12 (김경연 — ⚠ 주요 수정 사항 : 응답 계약 확정, `pairStatus`·`searchability` 반영, 오류·재시도 명세 분리) |
 | 관련 이슈 | S15P21A307-236 · -256 · -257 · -258 · -336 |
 | 역할 분담 | **AI**: 부위 검출 · 유사 사례 검색 · 견적 산정 / **백엔드**: 수신 · 저장 · 조회 · 리포트 |
 
@@ -114,12 +116,12 @@ Header: X-Internal-Token, X-Request-Id
       "paintMaterialCost": 85500,
       "itemTotal": 335500,
 
-      "detectionIds": ["d-0001", "d-0004"],
+      "detectionIds": ["501:damage:damage-001", "502:damage:damage-004"],
 
       "refCaseCount": 18,
       "referencedCaseIds": [121381, 121414],
       "costDistribution": { "p25": 300000, "median": 335500, "p75": 380000 },
-      "fallbackStage": "MODEL",
+      "fallbackStage": "CAR_CLASS",
       "repairMethodReason": {
         "candidates": ["coating", "exchange"],
         "reasonCode": "..."
@@ -136,9 +138,11 @@ Header: X-Internal-Token, X-Request-Id
       "exclusionReason": null,
       "detections": [
         {
-          "detectionId": "d-0001",
+          "detectionId": "501:damage:damage-001",
           "partCode": "REAR_BUMPER",
           "damageType": "Scratched",
+          "pairStatus": "PAIRED",
+          "searchability": "STRICT",
           "confidence": { "part": 0.9612, "damage": 0.9321 },
           "geometry": {
             "coordinateSystem": "PIXEL_XY_TOP_LEFT",
@@ -154,6 +158,9 @@ Header: X-Internal-Token, X-Request-Id
   ]
 }
 ```
+
+실패 callback 본문, HTTP 응답 코드, 재시도 및 멱등성 처리 규칙은
+[AI 서버 오류·재시도 처리 명세](AI%20서버%20오류·재시도%20처리%20명세.md)를 따릅니다.
 
 ### 2026-09-11 수정 ① — 오버레이 이미지를 보내지 않습니다
 
@@ -231,16 +238,23 @@ ALTER TABLE analysis_image_result
 | `damageType` | `Scratched` · `Separated` · `Crushed` · `Breakage` |
 | `repairMethod` | `coating` · `sheet_metal` · `exchange` · `repair` |
 | `fallbackStage` | `MODEL` · `CAR_CLASS` · `ALL` |
-| `confidenceGrade` | `HIGH` · `MEDIUM` · `LOW` |
+| `confidenceGrade` | `HIGH` · `MEDIUM` · `LOW` · `null` |
+| `nonEstimableReason` | `PART_NOT_RESOLVED` · `INSUFFICIENT_CASES` · `null` |
 | `exclusionReason` | `NOT_VEHICLE` · `RATIO_BELOW_THRESHOLD` |
 | `partCode` | 표준 부품 코드 — 사진에서 나오는 것은 **32종** (`part_code` 마스터는 견적 전용 24종을 포함해 56종) |
+| `pairStatus` | `PAIRED` · `UNPAIRED` · `AMBIGUOUS` — 부품·손상 geometry 매칭 상태 |
+| `searchability` | `STRICT` · `VECTOR_ONLY` · `EXCLUDED` — 검색 사용 범위. `VECTOR_ONLY`면 `imageResults`의 `partCode`는 null |
 | `confidence` | 0~1 |
 | 좌표 | 원본 이미지 픽셀 · 좌상단 원점 · bbox는 XYWH |
 | 금액 | 원 단위 정수 · **부가세 미포함** |
 
+`pairStatus`와 `searchability`를 함께 보내는 이유는 부품 매칭 결과를 백엔드가
+구분해야 하기 때문입니다. `VECTOR_ONLY`는 유사 사례 검색·화면 표시에는 사용하지만
+확정 부품이 아니므로 견적 `items[]`에는 포함하지 않습니다.
+
 `estimable: false`면 `totals`·`items`는 비우고 `nonEstimableReason`만 보냅니다. **이때도 `imageResults[].detections[]`는 보냅니다** — 검출은 됐는데 사례가 부족해 산정을 못 한 경우, 화면에 손상 부위는 보여줄 수 있어야 합니다.
 
-**`fallbackStage`는 차종 → 차급 순입니다.** 기준 건수에 못 미치면 차종을 먼저 풀고, 그래도 부족하면 차급까지 풉니다.
+**`fallbackStage`는 차종 → 차급 순입니다.** 기준 건수에 못 미치면 차종을 먼저 풀고, 그래도 부족하면 차급까지 풉니다. 현재 DEV corpus는 모델 매핑 전이므로 `CAR_CLASS`부터 사용하며, `MODEL`은 모델 매핑 적재 후에만 사용합니다.
 
 **`costDistribution`의 의미** — 사례 견적서 행 중 실제 정산에 들어간 금액만 집계합니다. 참고가 행은 제외되므로 화면에 "실제 청구 기준"이라고 쓸 수 있습니다.
 
@@ -250,9 +264,9 @@ ALTER TABLE analysis_image_result
 
 ## 중복 방지 — 가장 중요
 
-**재시도할 때 `X-Request-Id` 를 같은 값으로 보내야 합니다.**
-
-다른 값이면 백엔드가 새 요청으로 보고 견적을 하나 더 만듭니다. 사용자는 분석을 한 번 했는데 화면에 견적 버전이 두 개가 됩니다. 같은 `requestId` 가 다시 오면 백엔드는 무시하고 200 을 돌려줍니다.
+세부 규칙은 [AI 서버 오류·재시도 처리 명세](AI%20서버%20오류·재시도%20처리%20명세.md)를
+따릅니다. callback 재시도 시 `X-Request-Id`와 본문의 `requestId`는 같은 값을
+사용하며, 백엔드는 이미 처리한 요청을 다시 저장하지 않습니다.
 
 ## 실패 경로
 
@@ -306,7 +320,7 @@ AI 응답 없음       → analysis_job = FAILED, retry_count +1 (최대 3)
 | --- | --- |
 | `analysis_image_result.detections` JSONB | 프론트가 그릴 좌표를 보관. 없으면 견적을 다시 열 때 다시 그릴 수 없음 |
 | `estimate_item.paint_material_cost` | 샘플 리포트가 **"공임 315,000원 + 도장 재료비 185,000원"**으로 나눠 보여줌. `repair_case_item`에는 `paint_material_cost`가 이미 있음 |
-| `analysis_job` 버전 컬럼 | `model_version` 하나뿐인데 `pipelineVersionId`를 받을 자리가 없음 |
+| `analysis_job` 버전 컬럼 | `pipelineVersionId`를 저장할 `analysis_job.pipeline_version_id` 컬럼이 없어 migration이 필요함 |
 
 별도 티켓으로 잡아야 합니다.
 
