@@ -274,7 +274,7 @@ private Accident accident;
 | `estimatevalidation/service/PartNameMappingService.java` | `loadDictionary()` · `map(rawItemName, dictionary)` |
 | `estimatevalidation/service/PartNameNormalizer.java` | 항목명 정규화 |
 | `estimatevalidation/domain/WorkTypeMapper.java` | 작업 유형 매핑 |
-| `pipeline/jobs/generate_part_name_mapping_seed.py` | 시드 SQL 생성 |
+| `pipeline/jobs/estimates/generate_part_name_mapping_seed.py` | 시드 SQL 생성 |
 
 **실사용 지점** — `estimatevalidation/service/EstimateValidationService.java`
 

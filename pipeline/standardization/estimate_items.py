@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from .normalizer import NormalizationError, normalize_estimate_work
+from shared.vision.normalizer import NormalizationError, normalize_estimate_work
 
 PAINT_MATERIAL_WORK_CODE = "COATING"
 

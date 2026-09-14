@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Pattern;
 
 /**
  * 계약의 {@code detection.part}. {@code code} 가 {@code part_code} 마스터의 PK 와 같은 어휘다
- * ({@code pipeline/standardization/catalog.py} 의 {@code PARTS}, 좌우 구분은 {@code _L}·{@code _R} 접미사).
+ * ({@code shared/vision/catalog.py} 의 {@code PARTS}, 좌우 구분은 {@code _L}·{@code _R} 접미사).
  *
  * <p>{@code group}·{@code side} 는 계약이 열거로 막고 있으나 <b>적재가 쓰지 않는다</b> —
  * {@code damaged_part} 에 해당 컬럼이 없고, 같은 정보가 이미 {@code part_code.layout_zone} 에 있다.

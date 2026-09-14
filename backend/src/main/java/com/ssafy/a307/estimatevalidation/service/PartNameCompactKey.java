@@ -7,7 +7,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * <b>seed·파이프라인 비교 키.</b> {@code pipeline/jobs/map_estimate_labels.py} 의
+ * <b>seed·파이프라인 비교 키.</b> {@code pipeline/jobs/estimates/map_estimate_labels.py} 의
  * {@code compact()} 와 <b>같은 결과를 내야 한다.</b>
  *
  * <pre>

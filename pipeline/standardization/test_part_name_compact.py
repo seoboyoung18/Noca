@@ -4,7 +4,7 @@
 backend/src/test/java/com/ssafy/a307/estimatevalidation/service/PartNameCompactKeyFixtureTest.java
 가 다시 읽는다. 한쪽 구현만 손대면 반대쪽 테스트가 깨지므로 두 구현이 조용히 갈라지지 않는다.
 
-compact() 는 jobs/map_estimate_labels.py 안에 있는데 그 스크립트는 import 시점에
+compact() 는 jobs/estimates/map_estimate_labels.py 안에 있는데 그 스크립트는 import 시점에
 argparse 로 --audit-json / --output 을 강제한다. 그래서 import 대신 소스에서 함수 정의만
 떼어내 실행한다. 사본을 두지 않으므로 원본을 고치면 이 테스트가 바로 반응한다.
 """
@@ -16,14 +16,14 @@ import unittest
 from pathlib import Path
 
 PIPELINE_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = PIPELINE_ROOT / "jobs" / "map_estimate_labels.py"
+SOURCE = PIPELINE_ROOT / "jobs" / "estimates" / "map_estimate_labels.py"
 FIXTURE = Path(__file__).parent / "fixtures" / "part_name_compact_fixture.tsv"
 EMPTY_MARKER = "<EMPTY>"
 REMOVED_CHARACTERS = [" ", "_", "-", "\uff0d", "\u00b7", ".", ",", "/"]
 
 
 def load_compact():
-    """map_estimate_labels.py 의 compact() 정의만 떼어내 실제 함수 객체로 만든다."""
+    """jobs/estimates/map_estimate_labels.py의 compact()만 실제 함수 객체로 만든다."""
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == "compact":

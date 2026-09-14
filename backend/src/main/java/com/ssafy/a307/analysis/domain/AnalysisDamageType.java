@@ -14,12 +14,12 @@ import java.util.Locale;
  * </pre>
  *
  * <p><b>셋 중 하나가 틀린 것이 아니다.</b> 백엔드가 받는 것은 표준화 계약
- * ({@code pipeline/standardization/common_schema.json}, {@code damage.code}) 의 UPPER_SNAKE
+ * ({@code shared/vision/common_schema.json}, {@code damage.code}) 의 UPPER_SNAKE
  * 하나뿐이고, DB 에 넣을 때만 DDL 표기로 바꾼다. <b>변환을 여기 한 곳에만 두는 이유</b>는
  * 두 곳에 두면 한쪽만 고쳐졌을 때 {@code ck_dp_damage} 위반이 INSERT 시점에야 드러나고,
  * 그때는 어느 쪽이 옳은지 알 수 없기 때문이다.
  *
- * <p><b>DDL 값은 임의로 정한 것이 아니다.</b> {@code pipeline/standardization/catalog.py} 의
+ * <p><b>DDL 값은 임의로 정한 것이 아니다.</b> {@code shared/vision/catalog.py} 의
  * {@code DAMAGES} 가 각 코드에 {@code name_en} 을 달아 두었고, DDL 의
  * {@code CHECK (damage_type IN ('Scratched','Separated','Crushed','Breakage'))} 가
  * <b>그 {@code name_en} 과 글자까지 같다.</b> 그래서 이 enum 은 새 규칙을 만드는 것이 아니라

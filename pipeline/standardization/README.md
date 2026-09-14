@@ -13,7 +13,8 @@
 
 ## 표준 코드
 
-부품 32종과 영문 원본 라벨·한글 표시명·그룹·방향은 `catalog.py`의 `PARTS`가 단일 기준이다. 손상은 `SCRATCHED`, `SEPARATED`, `CRUSHED`, `BREAKAGE`다.
+부품 32종과 영문 원본 라벨·한글 표시명·그룹·방향은
+[shared/vision/catalog.py](../../shared/vision/catalog.py)의 `PARTS`가 단일 기준이다. 손상은 `SCRATCHED`, `SEPARATED`, `CRUSHED`, `BREAKAGE`다.
 
 ### 작업 후보 — `WORKS` (사진 기반)
 
@@ -104,7 +105,7 @@ SC의 잔여 불일치 104건은 손해사정에서 재료비가 깎인 행이�
 별칭(`1/2오버홀`, `견인비`, `구난비`)은 `ESTIMATE_WORK_ALIASES`에 둔다. 견적서 표본 6,000건(수리내역 82,803행) 기준으로 이 어휘가 작업이 기재된 행 전부를 덮는다.
 
 ```python
-from standardization import normalize_estimate_work
+from shared.vision import normalize_estimate_work
 
 normalize_estimate_work("1/2OH")
 # {'code': 'OVERHAUL_HALF', 'raw': '1/2OH', 'name': '1/2 오버홀', 'category': 'WORK'}
@@ -114,7 +115,7 @@ normalize_estimate_work("1/2OH")
 
 ## 모델 개발자 전달 계약 — raw YOLO 출력
 
-모델 개발자에게 전달한 계약은 노션의 [YOLO 출력 형식 (공유용)](https://app.notion.com/p/3cf576ae278480f28463ef8e183945a3) 페이지를 기준으로 한다. 로컬 검증 스키마는 `raw_yolo_schema.json`이며, 다음 형식을 그대로 받는다.
+모델 개발자에게 전달한 계약은 노션의 [YOLO 출력 형식 (공유용)](https://app.notion.com/p/3cf576ae278480f28463ef8e183945a3) 페이지를 기준으로 한다. 로컬 검증 스키마 정본은 [shared/vision/raw_yolo_schema.json](../../shared/vision/raw_yolo_schema.json)이며, 다음 형식을 그대로 받는다.
 
 - 최상위: `model`, `image`, `predictions`
 - 이미지 키: `image_id`, `original_width`, `original_height`
@@ -123,7 +124,7 @@ normalize_estimate_work("1/2OH")
 - 검출 결과가 없으면 `predictions: []`
 - 모델명·버전·task·class_id·class_name·confidence를 보존한다.
 
-이 raw 계약은 모델 개발자와의 입력 계약이다. `common_schema.json`은 raw 결과를 부품·손상 코드로 정규화한 **downstream 표준 출력 계약**이며, raw 계약과 동일한 JSON 구조가 아니다.
+이 raw 계약은 모델 개발자와의 입력 계약이다. [shared/vision/common_schema.json](../../shared/vision/common_schema.json)은 raw 결과를 부품·손상 코드로 정규화한 **downstream 표준 출력 계약**이며, raw 계약과 동일한 JSON 구조가 아니다.
 
 ## 정규화 출력 계약
 
@@ -148,22 +149,22 @@ normalize_estimate_work("1/2OH")
 
 `coordinate_space`는 `PIXEL_XY` 또는 `NORMALIZED_XY`다. 생략하면 AI-Hub 원천 라벨과 같은 픽셀 좌표로 해석한다. 표준 출력은 항상 픽셀 좌표이며, `geometry.segmentation`에 `polygons`, `area_px`, 이미지 대비 `area_ratio`가 포함된다. 모델이 confidence를 아직 제공하지 않으면 두 값은 `null`이다.
 
-```python
-from standardization import adapt_raw_yolo_outputs, normalize_repair_label
+YOLO raw JSON을 검증·매핑하고 같은 이미지에서 부품과 손상을 연결하는 adapter는
+`AI/server/app/adapters/yolo_adapter.py`가 소유한다. 파이프라인과 AI 서버가 사용하는
+부품/손상 표준 코드, ROI 매칭 규칙, 정규화 출력은
+[shared/vision](../../shared/vision/README.md)이 단일 기준으로 제공한다.
+이 패키지는 견적서 항목과 storage key에 한정된 배치 전용 코드만 유지한다.
 
-normalized = adapt_raw_yolo_outputs(
-    part_raw, damage_raw,
-    image_id=501,
-    part_class_map={0: "Front bumper"},
-    damage_class_map={0: "Scratched"},
-)
+```python
+from shared.vision import normalize_repair_label
+
 repair = normalize_repair_label("Front bumper:coating,exchange")
 ```
 
 검증:
 
 ```powershell
-python -m unittest standardization.test_normalizer -v
+python -m unittest shared.vision.tests.test_normalizer -v
 ```
 
 ## 모델 개발자에게 추가로 고정 요청할 항목
@@ -172,7 +173,7 @@ raw 계약은 이미 확정되었으므로 bbox 포맷과 좌표계를 추가 �
 
 ## 검색 메타데이터 계약
 
-`search_metadata_schema.json`은 정규화 출력에서 검색에 사용할 ROI 단위 메타데이터를 만든다. 한 손상 ROI마다 하나의 레코드다.
+[shared/vision/search_metadata_schema.json](../../shared/vision/search_metadata_schema.json)은 정규화 출력에서 검색에 사용할 ROI 단위 메타데이터를 만든다. 한 손상 ROI마다 하나의 레코드다.
 
 같은 `damage_part` 이미지에서 geometry가 명확히 매칭된 `part_code`와 `damage_type`은
 strict 후보 필터다. `part_code`가 없거나 모호한 ROI는 `damage_type` 기반 vector-only

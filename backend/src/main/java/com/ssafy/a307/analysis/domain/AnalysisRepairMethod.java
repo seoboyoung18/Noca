@@ -11,7 +11,7 @@ import java.util.Locale;
  * </pre>
  *
  * <p>{@link AnalysisDamageType} 과 같은 이유로 변환을 여기 한 곳에만 둔다. DDL 값은
- * {@code pipeline/standardization/catalog.py} 의 {@code WORKS} 가 가진 {@code name_en} 과 같다.
+ * {@code shared/vision/catalog.py} 의 {@code WORKS} 가 가진 {@code name_en} 과 같다.
  *
  * <p><b>견적 어휘 13종과 다른 어휘다.</b> {@code catalog.ESTIMATE_WORKS} 에는 탈착·오버홀·견인
  * 같은 값이 더 있지만, 분석이 내놓는 후보는 아래 넷뿐이고 {@code ck_dp_method} 도 넷만 받는다.

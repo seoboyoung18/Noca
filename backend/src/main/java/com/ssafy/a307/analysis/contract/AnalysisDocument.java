@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * 표준화 계약 {@code inference-standardized-1.1.0} 문서 하나.
- * 정본은 {@code pipeline/standardization/common_schema.json} 이며 <b>파이프라인 소유</b>다 —
+ * 정본은 {@code shared/vision/common_schema.json} 이며 <b>공용 vision 계층 소유</b>다 —
  * 이 레코드는 그 스키마를 자바 쪽에 옮겨 적은 것이고, 계약을 바꾸는 곳이 아니다.
  *
  * <p><b>문서 하나가 이미지 한 장이다.</b> 사고 한 건에 이미지가 여러 장이므로 적재는 문서를
