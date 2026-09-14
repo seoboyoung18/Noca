@@ -117,6 +117,46 @@ AS는 별도 불변식이다 — as-0000011에서 작업 행 합계 3,945,120원
   매핑 테이블의 소유권과 `mapping_rule_version` 관리는 검색·비용 양쪽이 공유한다
 - **`repair_cost_stat`** (P25/P50/P75) 생성
 
+### 온라인 견적용 `repair_cost_stat` 설계
+
+온라인 분석 요청마다 `repair_case_item` 원천 행을 다시 집계하지 않는다. 비용 산출
+모듈은 사전 집계한 `repair_cost_stat`을 `(car_class, part_code, damage_type,
+repair_method, source)`로 일괄 조회해 P25·중앙값·P75 비용 범위를 만든다. 이 유니크
+키는 한 사고의 여러 STRICT 부품을 N+1 조회하지 않고 batch 조회하는 기준이다.
+
+벡터 검색과 비용 통계의 책임은 분리한다.
+
+```text
+repair_case_roi_embedding → 화면용 유사 사례 최대 10건
+repair_cost_stat          → 견적 금액과 통계 표본 수
+```
+
+따라서 화면용 `referencedCaseIds`와 통계의 `case_count`는 같은 집합일 필요가 없다.
+전자는 유사 사진을 보여 주기 위한 대표 사례이고, 후자는 비용 분포를 만든 전체 표본이다.
+
+통계 배치는 다음 단위로 비용 표본을 만든다.
+
+1. `PAIRED`·`STRICT` ROI의 `part_code`·`damage_type`을 기준으로 잡는다.
+2. 같은 사례의 `repair_case_item.part_code` 비용 행을 연결한다.
+3. 같은 사고의 ROI·견적 행이 여러 개여도
+   `case_id + part_code + damage_type + repair_method` 단위로 먼저 하나의 비용 표본으로
+   합친다. 한 사례가 분위수 계산에서 여러 번 가중되면 안 된다.
+4. 그 표본 집합의 비용 성분과 총액으로 통계를 만든다.
+
+`REFERENCE_PRICE`, `ANCILLARY`, `NOT_APPROVED` 행의 통계 포함 기준과, `COATING` /
+`REPAIR` / `SHEET_METAL` / `EXCHANGE`별 비용 성분을 어느 행까지 묶을지는 배치의
+명시적 정책으로 정한다. 출처 중 사례 수가 큰 행을 자동 선택하면 안 된다. AS·SC 통합
+통계를 쓸지 특정 출처만 쓸지를 먼저 결정하고, 배치와 온라인 조회에서 같은 `source`를
+사용한다.
+
+현재 `repair_cost_stat`에는 `part_cost_median`, `labor_cost_median`만 있고
+`paint_material_cost_median`이 없다. callback의 `paintMaterialCost`를 통계 기반으로
+반환하려면 이 컬럼 추가와 배치 적재가 필요하다.
+
+검색 ROI의 직접 부품 확정 규칙은
+[damage_part 중심 유사 사례 검색 스키마](A307_DAMAGE_SEARCH_SCHEMA.md), AI 서버 내부
+입·출력은 [견적 산출 입출력 형식](../AI/견적%20산출%20입출력%20형식.md)을 따른다.
+
 ## 4. 이어받을 때 먼저 볼 것
 
 **입력을 파일에서 DB로 바꿀 수 있다.** CLI가 쓰는 것은 `payload.get("수리내역")`뿐이고
