@@ -69,6 +69,15 @@ public interface SimilarCaseRepository extends JpaRepository<Estimate, Long> {
      *
      * <p>정렬은 하지 않는다. <b>AI 가 준 순서가 유사도 순일 수 있어</b> 호출한 쪽이 그 순서대로
      * 다시 세운다.
+     *
+     * <p><b>{@code SERVICE} 사례는 없는 것으로 본다</b> — {@code RepairCaseDetailRepository
+     * .findPublicCase} 와 같은 이유다. 실사용자 사고의 금액은 AI 추정에서 온 것이라 사례로
+     * 쓸 만큼 검증되지 않았고, 무엇보다 다른 사람의 데이터다. S15P21A307-223 이 그 행을
+     * {@code repair_case} 에 적재하기 시작하므로(사고 이력 보관·통계가 원천을 필요로 한다)
+     * 이 경로도 함께 막는다. <b>상세는 막혀 있는데 목록은 뚫려 있으면 막지 않은 것과 같다.</b>
+     *
+     * <p>여기서 빠진 사례는 그냥 목록에 안 나온다 — {@code SimilarCaseService} 가 조회되지 않은
+     * 사례를 건너뛰므로 서비스 코드는 손대지 않았다.
      */
     @Query(value = """
             SELECT rc.case_id AS caseId,
@@ -88,6 +97,7 @@ public interface SimilarCaseRepository extends JpaRepository<Estimate, Long> {
                     AND rci.part_code = :partCode
                     AND rci.line_type <> 'REFERENCE_PRICE'
              WHERE rc.case_id IN (:caseIds)
+               AND rc.source <> 'SERVICE'
              GROUP BY rc.case_id, rc.manufacturer, rc.model_name, rc.car_class, rc.repair_year
             """, nativeQuery = true)
     List<SimilarCaseView> findCases(@Param("caseIds") Collection<Long> caseIds,
