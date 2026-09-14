@@ -156,6 +156,29 @@ class SimilarCaseApiTest {
                 .andExpect(jsonPath("$.data.cases[0].caseId").value((int) caseA));
     }
 
+    /**
+     * S15P21A307-223 이 실사용자 사고를 {@code source='SERVICE'} 로 적재하기 시작한다.
+     * 그 금액은 AI 추정에서 온 것이라 사례로 쓸 만큼 검증되지 않았고, 무엇보다 다른 사람의
+     * 데이터다. 상세 조회({@code findPublicCase})는 이미 막혀 있는데 <b>이 목록이 뚫려 있으면
+     * 막지 않은 것과 같다</b> — AI 가 실수로 그 사례를 참조하면 그대로 화면에 나간다.
+     */
+    @Test
+    @DisplayName("SERVICE 사례는 참조돼 있어도 목록에서 빠진다")
+    void serviceCaseIsExcluded() throws Exception {
+        long aihubCase = insertCase("현대", "아반떼", (short) 2021, 335_500);
+        long serviceCase = insertServiceCase("기아", "K5", (short) 2026, 1_250_000);
+
+        Fixture f = insertEstimateItem(
+                "{\"referencedCaseIds\":[" + aihubCase + "," + serviceCase + "]}");
+
+        mockMvc.perform(get("/api/estimates/{id}/similar-cases", f.estimateId())
+                        .param("estimateItemId", String.valueOf(f.estimateItemId()))
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cases.length()").value(1))
+                .andExpect(jsonPath("$.data.cases[0].caseId").value((int) aihubCase));
+    }
+
     /** 참고 정가는 정산에 포함되지 않는다. 합산하면 사례 금액이 부풀려진다. */
     @Test
     @DisplayName("REFERENCE_PRICE 행은 부위 금액에 넣지 않는다")
@@ -266,12 +289,27 @@ class SimilarCaseApiTest {
     }
 
     private long insertCase(String manufacturer, String modelName, short repairYear, int itemTotal) {
+        return insertCase("AIHUB_AS", "TEST-" + System.nanoTime(),
+                manufacturer, modelName, repairYear, itemTotal);
+    }
+
+    /**
+     * 서비스 사고에서 온 사례. {@code external_ref} 접두사는 적재 job 이 쓰는 것과 같다
+     * ({@code pipeline/jobs/load_service_accidents.py}).
+     */
+    private long insertServiceCase(String manufacturer, String modelName, short repairYear,
+                                   int itemTotal) {
+        return insertCase("SERVICE", "svc-test-" + System.nanoTime(),
+                manufacturer, modelName, repairYear, itemTotal);
+    }
+
+    private long insertCase(String source, String ref, String manufacturer, String modelName,
+                            short repairYear, int itemTotal) {
         insertPartCode();
-        String ref = "TEST-" + System.nanoTime();
         jdbcTemplate.update(
                 "insert into repair_case (source, external_ref, manufacturer, model_name,"
-                        + " car_class, repair_year) values ('AIHUB_AS', ?, ?, ?, 'Compact', ?)",
-                ref, manufacturer, modelName, repairYear);
+                        + " car_class, repair_year) values (?, ?, ?, ?, 'Compact', ?)",
+                source, ref, manufacturer, modelName, repairYear);
         Long caseId = jdbcTemplate.queryForObject(
                 "select case_id from repair_case where external_ref = ?", Long.class, ref);
 

@@ -116,6 +116,26 @@ A~D로 나뉜다. 산출물을 전달하는 단계는 순서대로 실행한다.
 | 11 | `load_search_data.py` | 표본 또는 최종 검색 가능 범위를 `part_code`·`part_name_mapping`·`repair_case`·`repair_case_image`에 upsert |
 | 12 | `verify_search_sample.py` | 1,000건 표본의 연결·중복·차급·이미지·원천 건수·재실행 멱등성 검증 |
 
+**E. 서비스 데이터 적재** — 원천이 AI-Hub 파일이 아니라 운영 DB다
+
+| 순서 | 스크립트 | 역할 |
+|---|---|---|
+| — | `load_service_accidents.py` | 실제 수리비가 기록된 서비스 사고를 `repair_case`에 `source='SERVICE'`로 증분 적재 |
+
+순서를 비워 둔 것은 **A~D의 연속 단계가 아니기 때문이다.** 앞 단계 산출물에 기대지 않고
+서비스에 수리비가 쌓이는 대로 따로 돌린다.
+
+⚠️ **이 job은 파이프라인이 서비스 테이블(`accident`)을 읽는 첫 사례다.** 1~12는 전부
+AI-Hub 원본 파일 → DB 방향이지만 13은 **DB → DB**다. 같은 DB 안의 이동이라 `--dsn`
+하나로 되지만, 읽는 쪽이 사용자 데이터라는 점이 다르다.
+
+적재한 `SERVICE` 행은 **사례 검색에 쓰지 않는다.** 사용자 사고의 금액은 AI 추정에서
+온 것이라 사례로 쓸 만큼 검증되지 않았고, 다른 사람의 데이터이기도 하다. 배제는 조회
+쪽에서 한다 — `RepairCaseDetailRepository.findPublicCase`와
+`SimilarCaseRepository.findCases`가 둘 다 `rc.source <> 'SERVICE'`를 건다.
+검색 코퍼스(`build_case_*`·`validate_search_readiness`)는 AI-Hub **파일**에서 만들어지므로
+DB에 `SERVICE` 행이 생겨도 자동으로 섞이지 않는다.
+
 A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. DB 마스터 seed에는 핵심 32종과 견적 전용 24종, 총 56종이 있고 확정 매핑 seed는 15,308행이다. 모호한 매핑 검수, 사진 손상과 견적 항목의 교차 연결 및 매핑 버전 관리는 남아 있다.
 
 ### 1. category_id 무결성 검증

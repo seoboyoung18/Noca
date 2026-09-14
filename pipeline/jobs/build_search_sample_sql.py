@@ -59,6 +59,25 @@ ESTIMATE_REL = Path("1.Training") / "1.원천데이터_230126_add" / "TS_99. 붙
 # SC(손해사정후 기준) 99.90% 일치했고, 도장+수리+판금으로 넓히면 AS 81.90%로 떨어진다.
 PAINT_MATERIAL_WORK_CODE = "COATING"
 
+# case_id 접두사로 source를 정한다. load_search_data.py·load_estimate_raw.py·
+# verify_search_sample.py가 쓰는 것과 같은 표다.
+SOURCE_BY_PREFIX = {"as": "AIHUB_AS", "sc": "AIHUB_SC"}
+
+
+def source_for_case(case_id: str) -> str:
+    """case_id 접두사로 source를 정한다. 모르는 접두사는 KeyError로 멈춘다.
+
+    예전에는 ``"AIHUB_AS" if case_id.startswith("as-") else "AIHUB_SC"``였다.
+    그 형태는 모르는 접두사를 **조용히 AIHUB_SC로 분류한다.** 지금은 상류의
+    readiness 필터가 ``as-``/``sc-``만 통과시켜 실제로 도달하지 않지만, 그 필터가
+    바뀌는 날 검색·통계가 틀린 source로 오염되고 아무도 알아채지 못한다.
+
+    특히 ``svc-``(서비스 사고, S15P21A307-223)는 견적이 AI 추정치라 신뢰도 때문에
+    검색에서 일부러 뺀 데이터다. AI-Hub 사례로 위장해 들어가면 안 된다.
+    형제 job들이 전부 이 표를 쓰고, 모르는 접두사에 KeyError를 내는 것이 안전장치다.
+    """
+    return SOURCE_BY_PREFIX[case_id[:2].lower()]
+
 
 def sql_e(value: Any) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -316,7 +335,7 @@ def main() -> None:
             continue
 
         vehicle = estimate.get("차량정보") or {}
-        source = "AIHUB_AS" if case_id.startswith("as-") else "AIHUB_SC"
+        source = source_for_case(case_id)
         settlement = estimate.get("수리비 정산정보") or {}
         totals = settlement.get("합계") or {}
         total_cost = money(totals.get("총계")) if source == "AIHUB_AS" else None
