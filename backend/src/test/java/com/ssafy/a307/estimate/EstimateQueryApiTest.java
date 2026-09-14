@@ -89,8 +89,13 @@ class EstimateQueryApiTest {
                 // 서버가 표시 문구를 준다 — FE 가 4종을 하드코딩하지 않게
                 .andExpect(jsonPath("$.data.items[0].repairMethod").value("exchange"))
                 .andExpect(jsonPath("$.data.items[0].repairMethodDisplayName").value("교환"))
-                // 문구 테이블이 아직 없다(S15P21A307-288). 필드는 있고 값만 빈다
-                .andExpect(jsonPath("$.data.notices.length()").value(0));
+                // estimate_notice 테이블에서 내려온다(S15P21A307-288). 시드는 LEGAL_NOTICE 한 건이다.
+                // 문장 자체는 여기서 단언하지 않는다 — 운영자가 psql 로 바꿀 수 있는 값이라
+                // 이 테스트가 문구 개정을 막아서는 안 된다. 값 정합성은
+                // EstimateNoticeProviderTest 가 상수·마이그레이션·시드 셋을 묶어 본다.
+                .andExpect(jsonPath("$.data.notices.length()").value(1))
+                .andExpect(jsonPath("$.data.notices[0].code").value("LEGAL_NOTICE"))
+                .andExpect(jsonPath("$.data.notices[0].message").isNotEmpty());
     }
 
     /** 화면이 앞·뒤·좌·우를 매번 같은 차례로 그려야 사용자가 같은 자리에서 찾는다. */

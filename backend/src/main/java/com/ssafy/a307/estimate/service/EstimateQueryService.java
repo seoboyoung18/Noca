@@ -29,6 +29,7 @@ public class EstimateQueryService {
 
     private final EstimateQueryRepository estimateQueryRepository;
     private final RefConditionReader refConditionReader;
+    private final EstimateNoticeProvider noticeProvider;
 
     @Transactional(readOnly = true)
     public EstimateResponse detail(Long estimateId, Long memberId) {
@@ -90,13 +91,16 @@ public class EstimateQueryService {
     }
 
     /**
-     * 고지 문구. <b>지금은 항상 비어 있다.</b>
+     * 고지 문구 (S15P21A307-288).
      * <p>
-     * 문구를 담을 테이블이 아직 없다(S15P21A307-288). 여기서 문자열을 상수로 박으면
-     * "코드 수정 없이 변경 가능하도록" 이라는 그 티켓의 요구가 그 자리에서 깨진다.
-     * 필드를 미리 내려 두는 것은 288 이 들어와도 <b>계약이 바뀌지 않게</b> 하려는 것이다.
+     * {@code estimate_notice} 테이블에서 읽는다. 운영자가 {@code psql UPDATE} 로 문장을 바꾸면
+     * 재배포 없이 다음 요청부터 반영된다 — 그것이 이 티켓의 요구였다.
+     * <p>
+     * 문구가 한 건도 없으면 빈 목록이다. 견적 조회는 그래도 200 으로 나간다 — 고지가 필수인
+     * 것은 사용자가 밖으로 들고 가는 리포트 쪽이고, 그 검사는
+     * {@code EstimateReportService.requireSections()} 가 한다.
      */
     private List<EstimateNotice> notices() {
-        return List.of();
+        return noticeProvider.activeNotices();
     }
 }

@@ -468,6 +468,18 @@ CREATE TABLE estimate_item (
     CONSTRAINT ck_ei_method CHECK (repair_method IN ('coating','sheet_metal','exchange','repair'))
 );
 
+-- 견적 화면·리포트·PDF 가 함께 쓰는 고지 문구. 코드에 상수로 박지 않는 이유는 문구가
+-- 법무·기획 사정으로 바뀌는 값이고, 바뀔 때마다 재배포를 요구하면 안 되기 때문이다
+-- (S15P21A307-288). 관리자 API 는 두지 않았다 — 값 변경은 psql UPDATE 로 한다.
+-- version(낙관적 잠금)이 없는 것은 repair_code 와 달리 동시 편집 경로가 없어서다.
+CREATE TABLE estimate_notice (
+    code          VARCHAR(30)  PRIMARY KEY,
+    message       VARCHAR(500) NOT NULL,
+    display_order SMALLINT     NOT NULL DEFAULT 0,
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
 -- 견적과 생명주기가 다름 (재생성·삭제·실패)
 CREATE TABLE estimate_report (
     report_id      BIGSERIAL    PRIMARY KEY,

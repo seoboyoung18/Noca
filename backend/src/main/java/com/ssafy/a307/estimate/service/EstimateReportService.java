@@ -37,6 +37,7 @@ public class EstimateReportService {
     private final EstimateQueryService estimateQueryService;
     private final EstimateValidationService validationService;
     private final AccidentImageDownloadUrls downloadUrls;
+    private final EstimateNoticeProvider noticeProvider;
 
     @Transactional(readOnly = true)
     public EstimateReportResponse report(Long estimateId, Long memberId) {
@@ -68,7 +69,9 @@ public class EstimateReportService {
                 estimate,
                 basis,
                 validation,
-                EstimateValidationService.LEGAL_NOTICE,
+                // 문구 출처가 상수에서 estimate_notice 테이블로 옮겨졌다(S15P21A307-288).
+                // 값은 그대로다 — 이관이지 개정이 아니다. 비면 아래 requireSections 가 막는다.
+                noticeProvider.legalNotice(),
                 Instant.now());
 
         requireSections(report);
