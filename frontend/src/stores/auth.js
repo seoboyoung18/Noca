@@ -3,6 +3,9 @@ import { ApiError, fetchMe, fetchProfile, logout as apiLogout } from '../lib/api
 
 // 로그인 뒤 돌아갈 경로. 서버가 OAuth 성공 후 항상 FE '/' 로 보내므로 세션 스토리지에 잠시 보관한다.
 const NEXT_KEY = 'noka.auth.next'
+// 가입 때 소셜(카카오·구글)이 준 이름. 서버는 가입 뒤 이 값을 버리므로(GET /api/auth/signup 에만 있음)
+// FE 가 회원 ID 별로 보관한다. 서버 응답에 socialName 이 생기면 그 값이 우선한다 — 그때 FE 수정 없이 전환된다.
+const SOCIAL_KEY = (memberId) => `noka.socialName.${memberId}`
 let inflight = null
 
 export const useAuthStore = defineStore('auth', {
@@ -12,6 +15,8 @@ export const useAuthStore = defineStore('auth', {
     me: null, // { memberId, nickname, email, provider, role }
     // GET /api/members/me 의 profileImageUrl — 10분짜리 presigned GET. 없으면 null (기본 아바타)
     profileImageUrl: null,
+    // 연결된 소셜 계정의 이름. 닉네임을 바꿔도 변하지 않는다. 없으면 '' (표시 생략)
+    socialName: '',
     offline: false, // 서버에 연결하지 못해 guest 로 처리한 경우
   }),
 
@@ -28,6 +33,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         this.me = await fetchMe()
         this.status = 'member'
+        this.syncSocialName(this.me)
       } catch (e) {
         this.me = null
         if (e instanceof ApiError && e.status === 403 && e.code === 'SIGNUP_REQUIRED') this.status = 'pending'
@@ -46,7 +52,27 @@ export const useAuthStore = defineStore('auth', {
       return inflight
     },
 
-    setMember(me) { this.me = me; this.status = 'member' },
+    setMember(me) { this.me = me; this.status = 'member'; this.syncSocialName(me) },
+
+    /* ----- 소셜 계정 이름: 서버 값 → 브라우저 보관 값 → 없음 ----- */
+    syncSocialName(source) {
+      if (source?.socialName) { this.socialName = source.socialName; return } // 서버가 내려주기 시작하면 이쪽이 우선
+      const id = this.me?.memberId
+      try { this.socialName = (id && localStorage.getItem(SOCIAL_KEY(id))) || '' } catch (e) { this.socialName = '' }
+    },
+    /** 가입 성공 직후 약관 화면이 호출 — GET /api/auth/signup 의 socialNickname 을 회원 ID 에 묶어 보관 */
+    rememberSocialName(memberId, name) {
+      const v = (name || '').trim()
+      if (!memberId || !v) return
+      try { localStorage.setItem(SOCIAL_KEY(memberId), v) } catch (e) { /* 저장 불가 환경이면 표시만 생략된다 */ }
+      if (this.me?.memberId === memberId) this.socialName = v
+    },
+    /** 탈퇴 시 정리 */
+    forgetSocialName(memberId) {
+      if (!memberId) return
+      try { localStorage.removeItem(SOCIAL_KEY(memberId)) } catch (e) { /* 무시 */ }
+      this.socialName = ''
+    },
     /** 닉네임 수정 성공 뒤 세션 정보만 갱신 — 홈·마이페이지·계정 관리 표시가 함께 바뀐다 */
     setNickname(nickname) { if (this.me) this.me = { ...this.me, nickname } },
     /** 프로필 응답(MemberProfileResponse)으로 닉네임·이미지 URL 갱신 */
@@ -54,14 +80,15 @@ export const useAuthStore = defineStore('auth', {
       if (!profile) return
       if (this.me && profile.nickname) this.me = { ...this.me, nickname: profile.nickname }
       this.profileImageUrl = profile.profileImageUrl || null
+      if (profile.socialName) this.socialName = profile.socialName
     },
     /** 프로필 이미지 URL 을 새로 받는다. presigned URL 이 10분이라 화면 진입 때마다 부르는 편이 안전하다 */
     async loadProfile() {
       if (this.status !== 'member') return null
       try { const p = await fetchProfile(); this.setProfile(p); return p } catch (e) { return null }
     },
-    setPending() { this.me = null; this.profileImageUrl = null; this.status = 'pending' },
-    clear() { this.me = null; this.profileImageUrl = null; this.status = 'guest' },
+    setPending() { this.me = null; this.profileImageUrl = null; this.socialName = ''; this.status = 'pending' },
+    clear() { this.me = null; this.profileImageUrl = null; this.socialName = ''; this.status = 'guest' },
 
     /** 서버 세션을 끊는다. 서버가 실패해도 로컬 상태는 비운다. */
     async logout() {

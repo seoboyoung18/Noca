@@ -62,6 +62,8 @@ async function agree() {
   notice.value = ''
   try {
     const me = await signup(nick, terms.value.map((t) => t.type))
+    // 소셜 이름은 가입 뒤 서버가 버리므로 여기서 회원 ID 에 묶어 보관 — 계정 관리 "연결된 계정" 표시용
+    auth.rememberSocialName(me?.memberId, ctx.value?.socialNickname)
     auth.setMember(me)
     store.agreed = true
     router.replace(auth.consumeNext('/home'))
