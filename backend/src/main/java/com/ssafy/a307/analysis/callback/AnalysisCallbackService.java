@@ -2,11 +2,14 @@ package com.ssafy.a307.analysis.callback;
 
 import com.ssafy.a307.analysis.callback.AnalysisCallbackController.AnalysisCallbackResponse;
 import com.ssafy.a307.analysis.entity.AnalysisJob;
+import com.ssafy.a307.analysis.entity.AnalysisJobStatus;
+import com.ssafy.a307.analysis.event.AnalysisJobFinishedEvent;
 import com.ssafy.a307.analysis.repository.AnalysisJobRepository;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +52,7 @@ public class AnalysisCallbackService {
 
     private final AnalysisJobRepository jobRepository;
     private final AnalysisResultPersister persister;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 결과를 받는다.
@@ -94,6 +98,10 @@ public class AnalysisCallbackService {
         if (stored != null && job.finished()) {
             log.info("분석 결과 중복 수신 — 저장 생략. jobId={} requestId={} status={}",
                     jobId, request.requestId(), job.getStatus());
+
+            // 결과는 저장하지 않지만 단계는 다시 적는다. 기록이 멱등이라 같은 값을 덮어쓸
+            // 뿐이고, 첫 callback 에서 단계 기록만 깨졌다면 이 재시도가 고쳐 준다.
+            publishFinished(job);
             return new AnalysisCallbackResponse(jobId, job.getStatus().name(), true);
         }
 
@@ -128,6 +136,23 @@ public class AnalysisCallbackService {
             }
         }
 
+        // 단계 기록은 커밋 뒤로 미룬다. 결과가 본질이고 단계는 진행 표시다 —
+        // 순서를 이 방향으로 고정한 이유는 AnalysisJobFinishedListener 에 적었다.
+        publishFinished(job);
+
         return new AnalysisCallbackResponse(jobId, job.getStatus().name(), false);
+    }
+
+    /**
+     * 끝난 작업의 단계를 적으라고 알린다 (S15P21A307-383).
+     *
+     * <p>여기서 직접 쓰지 않는다. 같은 트랜잭션에서 쓰면 단계 기록 실패가 분석 결과까지
+     * 되돌리고, {@code REQUIRES_NEW} 로 먼저 쓰면 결과보다 단계가 먼저 보인다.
+     */
+    private void publishFinished(AnalysisJob job) {
+        eventPublisher.publishEvent(new AnalysisJobFinishedEvent(
+                job.getJobId(),
+                job.getStatus() == AnalysisJobStatus.FAILED,
+                job.getFinishedAt()));
     }
 }

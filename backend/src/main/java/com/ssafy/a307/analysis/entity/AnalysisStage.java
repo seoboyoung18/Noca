@@ -23,15 +23,28 @@ import java.time.Instant;
  * <p>정본 DDL 이 이 테이블 위에 <b>"화면의 4단계 체크리스트"</b> 라고 적어 두었다
  * ({@code Docs/Erd/A307_ddl_final.sql:185}). 분석 중 화면이 보여 주는 "N/4" 가 이 행들이다.
  *
- * <h2>이 작업(prompt58)이 하지 <b>않는</b> 것 — 쓰기</h2>
+ * <h2>누가 이 행을 쓰는가 (S15P21A307-382 · -383)</h2>
  *
- * <p><b>행을 만들거나 상태를 옮기는 코드를 두지 않았다.</b> 단계를 진행시키는 것은 비동기 분석
- * 파이프라인({@code S15P21A307-155})의 몫이고 이 저장소에 그 코드가 없다.
- * {@link AnalysisJob} 이 같은 이유로 전이 메서드를 두지 않은 것과 같은 판단이다 —
- * 두 곳에서 상태를 옮기면 어느 쪽이 옳은지 알 수 없게 된다.
+ * <p>분석 결과 callback 이 커밋된 뒤 {@code AnalysisStageRecorder} 가 쓴다.
+ * <b>백엔드가 아는 만큼만 쓴다.</b> {@code AnalysisCallbackRequest} 에 단계를 나타내는 필드가
+ * 하나도 없고, AI 서버의 {@code /analyze} 는 2026-09-15 기준 501 스텁이라 <b>진행 콜백 자체가
+ * 없다.</b> 그래서 알 수 있는 사실은 "끝났다" 하나뿐이고, 네 단계를 한꺼번에
+ * {@code DONE}(실패면 {@code FAILED})으로 옮긴다.
  *
- * <p>그래서 <b>정적 팩터리도 최소한만 둔다.</b> {@link #pending}·{@link #of} 는 테스트 픽스처와
- * 나중에 붙을 파이프라인이 쓸 입구이며, 지금 운영 경로에서 부르는 곳은 없다.
+ * <p>즉 <b>중간 진행은 보이지 않는다.</b> 화면이 볼 수 있는 것은 "접수됨 → 완료" 두 상태다.
+ * 그래도 빈 배열만 주던 이전보다는 낫다 — 끝난 작업이 {@code doneStages=0} 으로 나가던 것이
+ * 이것 때문이었다.
+ *
+ * <p><b>{@code RUNNING} 으로 옮기는 메서드를 두지 않았다.</b> 부를 곳이 없어서다. 나중에
+ * {@code /analyze} 와 진행 콜백이 생기면 {@code uk_as (job_id, stage)} 위에서 같은 행을
+ * 갱신하면 되므로, 지금 쓰는 값이 그때 걸림돌이 되지 않는다.
+ *
+ * <h2>전이는 이 클래스에만 있다</h2>
+ *
+ * <p>{@code status}·{@code started_at}·{@code finished_at} 을 서비스가 따로 만지지 않는다.
+ * {@code ck_as_status} 가 네 값을 강제하고 시각 두 개는 상태와 짝이 맞아야 하는데(DDL 에
+ * CHECK 가 없어 <b>코드가 지켜야 한다</b>), 두 곳에서 옮기면 한쪽만 고쳐져 어긋난다 —
+ * {@link AnalysisJob}·{@code AccidentReview} 와 같은 방식이다.
  *
  * <h2>{@code detail} 을 서버가 만들지 않는다</h2>
  *
@@ -108,6 +121,47 @@ public class AnalysisStage {
             throw new IllegalArgumentException("status 는 필수입니다.");
         }
         return new AnalysisStage(job, stage, status, detail, startedAt, finishedAt);
+    }
+
+    // ── 상태 전이 (S15P21A307-382 · -383) ──────────────────────────────────
+    //
+    // 두 메서드가 전부다. 시각 처리 규칙도 여기 한 곳에만 있다.
+    //
+    //   · 끝난 단계는 finished_at 이 반드시 있다
+    //   · started_at 이 비어 있으면 now 로 채운다 — 단계를 깔아 두는 접수 경로가 아직
+    //     없어서(S15P21A307-155·156 미구현) PENDING 상태로 곧장 끝나는 일이 정상이다.
+    //     "끝났는데 시작한 적이 없다" 는 행을 남기지 않는다
+
+    /**
+     * 단계를 끝냈다. {@code → DONE}.
+     *
+     * <p>콜백이 단계를 구분해 주지 않으므로 <b>네 단계가 같은 시각으로 끝난다.</b> 단계별
+     * 소요 시간을 여기서 지어내지 않는다 — 없는 값을 만들면 화면이 그것을 사실로 읽는다.
+     */
+    public void complete(Instant now) {
+        finishAt(AnalysisStageStatus.DONE, now);
+    }
+
+    /**
+     * 단계가 실패했다. {@code → FAILED}.
+     *
+     * <p><b>어느 단계에서 실패했는지는 알 수 없다.</b> 콜백의 {@code error.code} 를 단계에
+     * 대응시키는 표가 {@code Docs/Api/AI 서버 오류·재시도 처리 명세.md} 에 없다. 하나를 골라
+     * 적으면 그것은 지어낸 값이므로, 부르는 쪽이 네 단계 전부에 이것을 적용한다.
+     */
+    public void fail(Instant now) {
+        finishAt(AnalysisStageStatus.FAILED, now);
+    }
+
+    private void finishAt(AnalysisStageStatus finished, Instant now) {
+        if (now == null) {
+            throw new IllegalArgumentException("now 는 필수입니다.");
+        }
+        this.status = finished;
+        if (this.startedAt == null) {
+            this.startedAt = now;
+        }
+        this.finishedAt = now;
     }
 
     public boolean isDone() {

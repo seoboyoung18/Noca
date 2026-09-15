@@ -32,9 +32,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * 분석 진행 상태 조회(화면 5 · 10).
  *
- * <p><b>단계 행을 JDBC 로 직접 넣는다.</b> 행을 만드는 운영 코드가 없기 때문이다 —
- * 단계를 진행시키는 것은 비동기 분석 파이프라인({@code S15P21A307-155}) 몫이고, 없는 기능을
- * 흉내 내는 더미 생성 코드를 두지 않았다({@code AnalysisStage} javadoc).
+ * <p><b>단계 행을 JDBC 로 직접 넣는다.</b> 여기서 보는 것은 <b>읽는 쪽</b>이기 때문이다 —
+ * {@code RUNNING} 이 섞인 중간 상태처럼, 운영 경로가 아직 만들지 못하는 조합까지 읽기 규칙이
+ * 버티는지 봐야 한다.
+ *
+ * <p>쓰는 쪽({@code AnalysisStageRecorder})은 {@code AnalysisCallbackApiTest} 가 덮는다.
+ * 이 클래스는 {@code @Transactional} 이라 커밋 뒤에 도는 리스너가 아예 돌지 않는다.
  */
 @SpringBootTest
 @Transactional

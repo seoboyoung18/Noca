@@ -1,6 +1,9 @@
 package com.ssafy.a307.analysis;
 
 import com.ssafy.a307.analysis.callback.AnalysisCallbackController;
+import com.ssafy.a307.analysis.dto.AnalysisProgressResponse;
+import com.ssafy.a307.analysis.entity.AnalysisStageType;
+import com.ssafy.a307.analysis.service.AnalysisProgressService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,6 +41,7 @@ class AnalysisCallbackApiTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private AnalysisProgressService analysisProgressService;
 
     @BeforeEach
     void setUp() {
@@ -80,6 +84,7 @@ class AnalysisCallbackApiTest {
                     (select estimate_id from estimate where job_id = ?)
                 """, JOB_ID);
         jdbcTemplate.update("delete from estimate where job_id = ?", JOB_ID);
+        jdbcTemplate.update("delete from analysis_stage where job_id = ?", JOB_ID);
         jdbcTemplate.update("delete from analysis_image_result where job_id = ?", JOB_ID);
         jdbcTemplate.update("delete from damaged_part where job_id = ?", JOB_ID);
         jdbcTemplate.update("delete from analysis_job where job_id = ?", JOB_ID);
@@ -508,7 +513,130 @@ class AnalysisCallbackApiTest {
         assertThat(stored).isTrue();
     }
 
+    // ── 단계 기록 (S15P21A307-382 · -383) ───────────────────────────────────
+    //
+    // 백엔드가 아는 사실은 "끝났다" 하나뿐이다. 콜백에 단계 필드가 없고 AI 의 /analyze 가
+    // 501 스텁이라 진행 콜백이 없기 때문이다. 그래서 네 단계를 한꺼번에 옮긴다.
+
+    @Test
+    @DisplayName("성공 callback 이 네 단계를 모두 DONE 으로 남긴다")
+    void successRecordsFourDoneStages() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        assertThat(jdbcTemplate.queryForList(
+                "select stage from analysis_stage where job_id = ?", String.class, JOB_ID))
+                .containsExactlyInAnyOrder("PREPROCESS", "DETECT", "MATCH", "ESTIMATE");
+        assertThat(stageStatuses()).hasSize(4).containsOnly("DONE");
+    }
+
+    @Test
+    @DisplayName("끝난 단계는 시각 두 개가 모두 있고 작업이 끝난 시각과 같다")
+    void finishedStagesCarryBothTimestamps() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        // PENDING 을 깔아 두는 접수 경로가 아직 없어 started_at 이 비어 있을 수 있다.
+        // "끝났는데 시작한 적이 없다" 는 행을 남기지 않는다.
+        assertThat(count("analysis_stage where job_id = " + JOB_ID
+                + " and started_at is not null and finished_at is not null")).isEqualTo(4);
+        assertThat(count("analysis_stage where job_id = " + JOB_ID
+                + " and finished_at = (select finished_at from analysis_job where job_id = "
+                + JOB_ID + ")")).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("실패 callback 이면 단계가 FAILED 다 — 어느 단계에서 실패했는지는 알 수 없다")
+    void failureRecordsFourFailedStages() throws Exception {
+        String body = """
+                {"requestId":"%s","jobId":%d,"estimable":false,
+                 "error":{"code":"MODEL_ERROR","message":"x","retryable":true}}
+                """.formatted(REQUEST_ID, JOB_ID);
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(stageStatuses()).hasSize(4).containsOnly("FAILED");
+    }
+
+    @Test
+    @DisplayName("사진이 전부 제외돼도 단계는 FAILED 다 — 작업 상태를 따라간다")
+    void allImagesExcludedRecordsFailedStages() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replace("\"excluded\":false,\"exclusionReason\":null",
+                        "\"excluded\":true,\"exclusionReason\":\"NOT_VEHICLE\"");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        assertThat(stageStatuses()).hasSize(4).containsOnly("FAILED");
+    }
+
+    @Test
+    @DisplayName("callback 이 네 번 와도 단계는 네 행이다 — uk_as 위반 없이 갱신된다")
+    void duplicateCallbackKeepsFourStageRows() throws Exception {
+        // AI 는 전송 실패 시 1초 → 5초 → 20초 로 최대 3회 재시도한다. 전부 같은 값이다.
+        for (int attempt = 0; attempt < 4; attempt++) {
+            mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(stageStatuses()).hasSize(4).containsOnly("DONE");
+    }
+
+    @Test
+    @DisplayName("결과 저장이 롤백되면 단계도 남지 않는다 — 단계가 결과보다 먼저 보이지 않는다")
+    void rolledBackResultLeavesNoStages() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID).replace("\"REAR_BUMPER\"", "\"NO_SUCH_PART\"");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("PROCESSING");
+        assertThat(count("analysis_stage where job_id = " + JOB_ID)).isZero();
+    }
+
+    // ── 진행 조회에 실제로 반영되는가 (S15P21A307-496) ───────────────────────
+
+    @Test
+    @DisplayName("끝난 작업이 4/4 로 나간다 — 이전에는 COMPLETED 인데 0/4 였다")
+    void completedJobReportsAllStagesDone() throws Exception {
+        AnalysisProgressResponse before = analysisProgressService.progress(MEMBER_ID, 98_301L);
+        assertThat(before.doneStages()).isZero();
+        assertThat(before.stages()).isEmpty();
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        AnalysisProgressResponse after = analysisProgressService.progress(MEMBER_ID, 98_301L);
+        assertThat(after.totalStages()).isEqualTo(AnalysisStageType.TOTAL);
+        assertThat(after.doneStages()).isEqualTo(AnalysisStageType.TOTAL);
+        assertThat(after.stages()).hasSize(4);
+
+        // RUNNING 으로 옮기는 경로가 없다. 중간 진행은 AI 진행 콜백이 생겨야 보인다.
+        assertThat(after.currentStage()).isNull();
+    }
+
+    @Test
+    @DisplayName("callback 을 받은 적 없는 작업은 빈 목록이다 — 500 이 아니다")
+    void jobWithoutCallbackHasEmptyStages() {
+        AnalysisProgressResponse progress = analysisProgressService.progress(MEMBER_ID, 98_301L);
+
+        assertThat(progress.jobId()).isEqualTo(JOB_ID);
+        assertThat(progress.stages()).isEmpty();
+        assertThat(progress.doneStages()).isZero();
+        assertThat(progress.totalStages()).isEqualTo(AnalysisStageType.TOTAL);
+    }
+
     // ── 도우미 ──────────────────────────────────────────────────────────────
+
+    /** 단계 상태 네 줄. {@code uk_as} 가 있으므로 작업당 단계별 한 행이다. */
+    private java.util.List<String> stageStatuses() {
+        return jdbcTemplate.queryForList(
+                "select status from analysis_stage where job_id = ? order by stage",
+                String.class, JOB_ID);
+    }
 
     /** 계약 ⑥ 의 성공 본문. 저장은 다음 커밋이라 여기서는 구조가 통과하는지만 본다. */
     private String successBody(long jobId, String requestId) {
