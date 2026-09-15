@@ -56,7 +56,8 @@ async function logout() { sh.logout = false; store.agreed = false; await auth.lo
           <span class="mi"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5.5 13.5V9a4.5 4.5 0 0 1 9 0v4.5l1.2 1.5H4.3z" stroke="#4E36E4" stroke-width="1.5" stroke-linejoin="round"/><path d="M8.5 16.5a1.5 1.5 0 0 0 3 0" stroke="#4E36E4" stroke-width="1.5"/></svg></span>
           <span class="ml">알림 설정</span><ChevR />
         </button>
-        <button class="mrow" @click="router.push('/terms')">
+        <!-- /terms 는 가입용 동의 화면이라 회원은 가드에 걸려 홈으로 돌아간다. 문서 열람은 별도 메뉴 화면으로 -->
+        <button class="mrow" @click="router.push('/terms/docs')">
           <span class="mi"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3l6 2.2v4.6c0 3.4-2.5 5.9-6 7.2-3.5-1.3-6-3.8-6-7.2V5.2z" stroke="#4E36E4" stroke-width="1.5" stroke-linejoin="round"/></svg></span>
           <span class="ml">약관 및 개인정보 처리방침</span><ChevR />
         </button>

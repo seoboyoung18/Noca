@@ -52,6 +52,8 @@ export const useAppStore = defineStore('app', {
     homeMode: 'busy',
     hasAvatar: false,
     agreed: false,
+    // 약관 동의 화면의 체크 상태. 전문 화면(/terms/service 등)을 보고 돌아와도 체크가 유지되도록 화면 밖에 둔다
+    termsChecked: { SERVICE: false, PRIVACY: false },
 
     vehicles: [
       { id: 1, maker: '현대', name: '현대 아반떼', year: '2021년식', cls: '준중형 세단', recent: '9월 5일', primary: true, claims: 2 },

@@ -5,7 +5,7 @@ const v = (name) => () => import(`../views/${name}.vue`)
 
 // 로그인 없이 볼 수 있는 화면. 그 밖의 모든 화면은 서버 세션(ROLE_USER)이 필요하다 —
 // 가이드 2종을 제외한 모든 백엔드 API 가 로그인 필수이기 때문이다.
-const PUBLIC_PATHS = new Set(['/', '/landing', '/login', '/terms'])
+const PUBLIC_PATHS = new Set(['/', '/landing', '/login', '/terms', '/terms/docs', '/terms/service', '/terms/privacy'])
 
 // 백엔드 없이 화면만 볼 때(프로토타입 확인) .env.local 에 VITE_AUTH_GUARD=off 를 두면 가드를 건너뛴다
 export const AUTH_GUARD_OFF = import.meta.env.VITE_AUTH_GUARD === 'off'
@@ -15,6 +15,8 @@ export const screens = [
   { path: '/landing',              component: v('LandingView'),             meta: { group: '진입',      code: 'S01',  name: '랜딩' } },
   { path: '/login',                component: v('LoginView'),               meta: { group: '진입',      code: 'S02',  name: '로그인' } },
   { path: '/terms',                component: v('TermsView'),               meta: { group: '진입',      code: 'S02a', name: '약관 동의' } },
+  { path: '/terms/service',        component: v('TermsDocView'), props: { doc: 'service' }, meta: { group: '진입', code: 'S02b', name: '이용약관' } },
+  { path: '/terms/privacy',        component: v('TermsDocView'), props: { doc: 'privacy' }, meta: { group: '진입', code: 'S02c', name: '개인정보 처리방침' } },
   { path: '/home',                 component: v('HomeView'),                meta: { group: '홈·차량',   code: 'S03',  name: '홈' } },
   { path: '/claim/vehicle',        component: v('ClaimVehicleView'),        meta: { group: '홈·차량',   code: 'S04',  name: '차량 선택' } },
   { path: '/vehicles/new',         component: v('VehicleNewView'),          meta: { group: '홈·차량',   code: 'S04a', name: '차량 등록' } },
@@ -34,6 +36,7 @@ export const screens = [
   { path: '/my/vehicles',          component: v('VehiclesView'),            meta: { group: '마이',      code: 'S12a', name: '차량 관리' } },
   { path: '/my/notifications',     component: v('NotificationsView'),       meta: { group: '마이',      code: 'S12b', name: '알림 설정' } },
   { path: '/my/account',           component: v('AccountView'),             meta: { group: '마이',      code: 'S12e', name: '계정 관리' } },
+  { path: '/terms/docs',           component: v('TermsDocsView'),           meta: { group: '마이',      code: 'S12f', name: '약관 및 개인정보 처리방침' } },
 ].map((s) => ({ ...s, meta: { ...s.meta, auth: !PUBLIC_PATHS.has(s.path) } }))
 
 const router = createRouter({
