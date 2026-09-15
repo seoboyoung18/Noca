@@ -15,8 +15,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 
 /**
- * 분석 진행 상태 조회. <b>조회만 한다</b> — 단계 행을 만들거나 상태를 옮기는 코드는 없다
- * ({@code AnalysisStage} Javadoc).
+ * 분석 진행 상태 조회. <b>조회만 한다</b> — 단계 행을 쓰는 곳은
+ * {@link AnalysisStageRecorder} 한 곳이다 (S15P21A307-382 · -383).
+ *
+ * <h2>단계는 "접수됨 → 완료" 두 상태다</h2>
+ *
+ * <p>AI 가 진행 콜백을 보내지 않으므로({@code /analyze} 가 501 스텁이다) 네 단계가 작업이
+ * 끝날 때 한꺼번에 {@code DONE}(실패면 {@code FAILED})이 된다. <b>{@code RUNNING} 인 단계가
+ * 없으므로 {@code currentStage} 는 항상 {@code null} 이다.</b> 중간 진행을 보여 주려면 AI 쪽
+ * 진행 콜백이 먼저 있어야 한다.
  *
  * <h2>404 를 두 경우에 똑같이 낸다</h2>
  *
