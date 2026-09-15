@@ -72,6 +72,10 @@ public class EstimateReportService {
                 // 문구 출처가 상수에서 estimate_notice 테이블로 옮겨졌다(S15P21A307-288).
                 // 값은 그대로다 — 이관이지 개정이 아니다. 비면 아래 requireSections 가 막는다.
                 noticeProvider.legalNotice(),
+                // 체크리스트·질문 안내 고지 (S15P21A307-487 · -488). 이쪽은 requireSections 가
+                // 막지 않는다 — 실을 섹션이 아직 없어서 없다고 리포트를 죽일 이유가 없고,
+                // 시드가 빠진 환경에서 리포트 전체가 500 이 되는 사고가 2026-09-14 에 있었다.
+                noticeProvider.guidanceLimitNotice(),
                 Instant.now());
 
         requireSections(report);
