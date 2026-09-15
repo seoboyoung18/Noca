@@ -14,11 +14,12 @@ const router = useRouter()
 const store = useAppStore()
 const auth = useAuthStore()
 
-// 연결된 계정 — 세션(auth.me)의 provider·nickname·email. 세션이 없으면 기존 목업 값
+// 연결된 계정 — 소셜 계정 이름(가입 때 받은 값, 닉네임을 바꿔도 고정) · 로그인 방식 · 이메일(있을 때만)
+// 소셜 이름은 서버 값 → 가입 시 브라우저에 보관한 값 순으로 쓰고, 없으면 줄을 비운다 (앱 닉네임을 반복하지 않음)
 const PROVIDER_LABEL = { KAKAO: '카카오', GOOGLE: '구글' }
 const provider = computed(() => auth.me?.provider || 'KAKAO')
 const providerLabel = computed(() => PROVIDER_LABEL[provider.value] || provider.value)
-const nickname = computed(() => auth.nickname || '김싸피')
+const socialName = computed(() => (AUTH_GUARD_OFF && !auth.me ? '김싸피' : auth.socialName))
 // 서버는 이메일을 저장하지 않아(member.email 항상 NULL) 대부분 비어 있다. 있을 때만 보여 준다
 const email = computed(() => auth.me?.email || '')
 
@@ -56,6 +57,7 @@ async function doQuit() {
   busy.value = false
   quit.value = false
   store.agreed = false
+  auth.forgetSocialName(auth.me?.memberId) // 탈퇴한 회원의 소셜 이름 보관값 정리
   auth.clear()
   router.replace('/landing')
 }
@@ -68,8 +70,8 @@ async function doQuit() {
       <div class="lbl">연결된 계정</div>
       <div class="card row" style="margin-top:8px;padding:20px 16px;gap:12px">
         <span class="flex1" style="display:flex;flex-direction:column;gap:8px">
-          <span style="font-size:16px;font-weight:700">{{ nickname }}</span>
-          <span style="font-size:14px;color:var(--text-2)">{{ providerLabel }} 계정으로 로그인{{ email ? ' · ' + email : '' }}</span>
+          <span v-if="socialName" style="font-size:16px;font-weight:700">{{ socialName }}</span>
+          <span :style="socialName ? 'font-size:14px;color:var(--text-2)' : 'font-size:16px;font-weight:700'">{{ providerLabel }} 계정으로 로그인{{ email ? ' · ' + email : '' }}</span>
         </span>
         <span class="kk" :class="{ gg: provider === 'GOOGLE' }">{{ providerLabel }}</span>
       </div>
