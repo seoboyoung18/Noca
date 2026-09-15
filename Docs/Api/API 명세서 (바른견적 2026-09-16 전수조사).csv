@@ -1,0 +1,97 @@
+차시,기능,method,url,도메인,담당,비고,출처
+1차,회원가입 (약관 동의 후 계정 생성),POST,/api/auth/signup,인증,보영,동의 완료 후 계정 생성. SERVICE·PRIVACY 둘 다 필수. 한 트랜잭션,Controller
+1차,회원 탈퇴,DELETE,/api/members/me,회원,보영,soft delete. provider_user_id 무효화. 소셜 unlink·S3 삭제는 트랜잭션 밖 best-effort,Controller
+1차,내 정보 조회,GET,/api/members/me,회원,보영,등록 차량 수·사고 접수 건수 포함. 카카오 이메일 미제공 시 null,Controller
+1차,닉네임 수정,PATCH,/api/members/me,회원,보영,2~12자. 중복 검사 없음 — 소셜 전용이라 식별자 아님,Controller
+1차,프로필 이미지 삭제,DELETE,/api/members/me/profile-image,회원,보영,삭제 시 기본 이미지 표시,Controller
+1차,프로필 이미지 등록·변경,PUT,/api/members/me/profile-image,회원,보영,multipart/form-data. 지원 형식·최대 용량 미정,Controller
+1차,차량 모델 조회,GET,/api/vehicle-models,차량,재원,드롭다운용. is_active=true만. 모델 선택이 차급을 결정 — 유사 사례 검색 키,Controller
+1차,차량 등록,POST,/api/vehicles,차량,재원,modelId 필수(NOT NULL). 마스터에 없는 차종은 등록 불가. 연식 1980~2100,Controller
+1차,내 차량 목록,GET,/api/vehicles/me,차량,재원,deleted_at IS NULL 필터 — 폐차·매각 차량 제외. 부분 인덱스 ix_vehicle_member 사용. Pagination 없음,Controller
+1차,차량 삭제,DELETE,/api/vehicles/{vehicleId},차량,재원,소프트 삭제 — deleted_at 을 채워 목록에서만 숨김. 행은 남겨야 사고 이력에 차종이 보임. 사고 이력 있어도 204 — 409 없음,Controller
+1차,차량 수정,PATCH,/api/vehicles/{vehicleId},차량,재원,연식만 수정 가능. modelId 변경 불가 — 차급이 바뀌면 기존 견적 ref_condition과 어긋남,Controller
+1차,사고 현장 체크리스트,GET,/api/guides/checklist,가이드,재원,사고 직후 로그인 없이 보야 함. 정적 문안이라 FE 상수화 검토 대상,Controller
+1차,각도별 촬영 가이드,GET,/api/guides/shooting,가이드,재원,8방향 실루에트 오버레이 + 파손 부위 근접 2장 = 권장 10장. 업로드 상한과 같은 숫자,Controller
+1차,사고 건 생성,POST,/api/accidents,사고,재원,등록 차량 선택 필수,Controller
+1차,사고 이력 목록,GET,/api/accidents/me,사고,재원,accident.member_id 제거로 vehicle 경유. 폐차 차량의 사고도 이력에 나와야 하므로 deleted_at 필터 없음. LATERAL 2단 — 건별 조회하면 N+1,Controller
+1차,사고 상세 조회,GET,/api/accidents/{accidentId},사고,재원,소유자 검사는 vehicle 을 거쳐 확인. 화면에 내보내는 이미지는 variant='BLURRED' 만 — 원본에는 번호판·얼굴이 찍힘,Controller
+1차,실제 수리비 기록,PUT,/api/accidents/{accidentId}/actual-cost,사고,재원,견적 오차 분석·모델 개선 데이터. 0 초과 정수,Controller
+1차,이미지 업로드 완료 통보,POST,/api/accidents/{accidentId}/images,사고,재원,매직넘버 검증·HEIC 변환·EXIF 제거·재인코딩 후 격리→서비스 버킷 이동. 이미지 1장당 asset 4행(원본·분석용·썸네일·블러본),Controller
+1차,이미지 업로드 URL 발급,POST,/api/accidents/{accidentId}/images/upload-urls,사고,재원,Presigned. 격리 버킷 → 검증 통과분만 이동. 사진 상한 10장 · 장당 20MB — 촬영 가이드 8방향 + 근접 2장 기준. 초과 시 400,Controller
+1차,이미지 삭제,DELETE,/api/accidents/{accidentId}/images/{imageId},사고,재원,S3 객체 정리. 분석 진행 중이면 409,Controller
+1차,사고별 견적 조회,GET,/api/accidents/{accidentId}/estimates,견적,보영,"재분석 시 version 증가. UNIQUE(job_id, version). latest=true 기본",Controller
+1차,견적 조회,GET,/api/estimates/{estimateId},견적,보영,생성 API 없음 — 분석 완료 시 자동 산정. HQ 체계: 공임 = standard_hq × labor_rate. ref_condition 이 산정 근거 스냅샷. 부품비는 원천에 없어 null — 공임 기준 고지 필수,Controller
+1차,견적 PDF 상태 조회,GET,/api/estimates/{estimateId}/pdf,견적,보영,QUEUED·PROCESSING·COMPLETED·FAILED. report_no · retry_count 함께 반환. Redis 캐시 대상,Controller
+1차,견적 PDF 생성 요청,POST,/api/estimates/{estimateId}/pdf,견적,보영,202 Accepted. estimate.pdf_* 에서 estimate_report 테이블로 분리됨. 재생성 시 report_no 를 새로 발급(1:N). ux_er_inflight 로 동시 생성 1건만 허용,Controller
+1차,견적 PDF 다운로드,GET,/api/estimates/{estimateId}/pdf/download,견적,보영,S3 Presigned URL 302 · 만료 5분. 최신 COMPLETED 리포트 1건. 서버 스트리밍은 메모리 부담,Controller
+1차,항목별 유사 사례 조회,GET,/api/estimates/{estimateId}/similar-cases,유사사례,보영,"검색하지 않음 — AI 서버가 찾아 준 사례 ID(ref_condition.referencedCaseIds)로 조회만. estimateItemId 필수(누락 400). AI가 준 순서 유지, 없는 사례 ID는 제외. 부위 금액에서 REFERENCE_PRICE 제외. 이미지 URL 발급 실패 시 그 건만 null. 본인 견적 아니면 404",Controller
+1차,사례 상세 조회,GET,/api/repair-cases/{caseId},유사사례,보영,"로그인만 요구 — AI-Hub 공개 데이터셋이라 소유자 검사 없음. source=SERVICE 사례는 공개 정책 확정 전까지 404. 이미지는 original(데이터셋이 이미 비식별본 · 블러 폐기 2026-09-10), is_searchable 만, 발급 실패 시 그 이미지만 null. 부위별 묶음(part_code.display_order 순) · 부대 비용(ANCILLARY)은 ancillaryItems 로 분리. REFERENCE_PRICE 제외. 불인정 행은 '불인정'으로 표시하고 부위 합계에 포함(정비소 청구 기준 — 총액과 같은 기준). 총액은 AS total_cost · SC claim_amount(정비소 청구 기준). 수리 연도는 입고일자 기준. external_ref·source_image_ref·storage_key 미노출",Controller
+1차,견적서 업로드,POST,/api/estimate-validations,견적서 검증,재원,202 Accepted. 사진 분석 경로와 독립 — estimate_id 는 nullable. file_type 에 MANUAL 추가(직접 입력 탭) · 그때 s3_key_file 은 NULL,Controller
+1차,견적서 업로드,POST,/api/estimate-validations,견적서 검증,재원,202 Accepted. 사진 분석 경로와 독립 — estimate_id 는 nullable. file_type 에 MANUAL 추가(직접 입력 탭) · 그때 s3_key_file 은 NULL,Controller
+1차,검증 이력 목록,GET,/api/estimate-validations/me,견적서 검증,재원,Pagination,Controller
+1차,검증 삭제,DELETE,/api/estimate-validations/{validationId},견적서 검증,재원,개인정보 문서라 물리 삭제. 원본·PDF S3 객체 정리,Controller
+1차,검증 상태 조회,GET,/api/estimate-validations/{validationId},견적서 검증,재원,OCR→LLM→PDF 진행 상태,Controller
+1차,검증 PDF 다운로드,GET,/api/estimate-validations/{validationId}/pdf,견적서 검증,재원,S3 Presigned URL 302. estimate_validation 과 1:1 (PK 겸 FK). PDF에 '특정 사업자를 평가하지 않습니다' 고지 필수,Controller
+1차,정비소 확인 질문 조회,GET,/api/estimate-validations/{validationId}/questions,견적서 검증,재원,검증 완료 시 저장한 질문 스냅샷을 display_order 순으로 반환. 조회 시 재생성하지 않음. 결과 조회 응답에도 같은 내용이 포함됨,Controller
+1차,검증 결과 조회,GET,/api/estimate-validations/{validationId}/result,견적서 검증,재원,항목이 JSONB 가 아니라 테이블라 항목별 비교표 정렬·집계 가능. 저장된 llm_grade·llm_summary 렌더링 — 매번 LLM 재호출 금지. '확인 권장'만 사용,Controller
+2차,분석 요청,POST,/api/accidents/{accidentId}/analysis,AI 분석,보영,202 Accepted. 연타 방지는 부분 유니크 인덱스(QUEUED/PROCESSING),Controller
+2차,감사 로그 조회,GET,/api/admin/audit-logs,관리자,재원,FE 미착수 / AdminAuditLogController / 관리자 행위·개인정보 변경·탈퇴만 기록. HTTP 액세스 로그는 업무 DB에 넣지 않음. 기간·행위자·대상으로 필터. before_data·after_data 는 JSONB — 검색 조건으로 안 씀,Controller
+2차,부품명 매핑 삭제,DELETE,/api/admin/part-name-mappings,관리자,재원,FE 미착수 / AdminPartNameMappingController / ★ 경로 변수 아님. raw_name에 / 가 346건 있어 {rawName} 경로로 표현 불가(StrictHttpFirewall이 %2F 거부). changeReason 필수. FE는 encodeURIComponent 필요,Controller
+2차,부품명 매핑 목록,GET,/api/admin/part-name-mappings,관리자,재원,FE 미착수 / AdminPartNameMappingController / 관리자 기능 중 화면이 꼭 필요한 유일한 항목. 시드 15308건(가이드라인의 442건은 오기 — seed 전수 파싱 결과). 페이지네이션 필수(size 상한 200). MAPPED/MAPPED_EXTENDED 확정 매핑만,Controller
+2차,부품명 매핑 수정,PATCH,/api/admin/part-name-mappings,관리자,재원,FE 미착수 / AdminPartNameMappingController / ★ 경로 변수 아님(삭제 행 비고 참고). raw_name이 PK라 표준 라벨만 변경. 원문 수정은 삭제 후 재등록. changeReason 필수. 과거 repair_case_item.part_code는 소급 변경하지 않음,Controller
+2차,부품명 매핑 등록,POST,/api/admin/part-name-mappings,관리자,재원,"FE 미착수 / AdminPartNameMappingController / raw_name이 PK. 중복 시 409. changeReason 필수(1~500자). compact() 비교 키가 겹치면 같은 부품이어도 409 DUPLICATE_PART_NAME_MAPPING, 다른 부품이면 409 NORMALIZED_NAME_CONFLICT",Controller
+3차,주변 정비소 검색,GET,/api/repair-shops,정비소,재원,카카오 로컬 API 프록시. 위치 쿼리 로그 마스킹·위치정보 동의 문구 필요. 결과 저장 약관 확인 필요,Controller
+확인 필요,약관 동의와 함께 회원을 만든다,GET,/api/auth/me,인증,보영,,Controller
+확인 필요,가입 화면이 쓸 값,GET,/api/auth/signup,인증,보영,,Controller
+확인 필요,닉네임 수정,POST,/api/members/me/profile-image/upload-url,회원,보영,,Controller
+확인 필요,완료 통보,GET,/api/accidents/{accidentId}/images,사고,재원,,Controller
+확인 필요,진행 상태,GET,/api/accidents/{accidentId}/analysis,AI 분석,재원,,Controller
+확인 필요,검출된 부위와 사진별 좌표,GET,/api/accidents/{accidentId}/analysis/result,AI 분석,보영,,Controller
+확인 필요,견적 상세,GET,/api/estimates/{estimateId}/basis,견적,보영,,Controller
+확인 필요,(report),GET,/api/estimates/{estimateId}/report,견적,보영,,Controller
+확인 필요,생성 요청,GET,/api/accidents/{accidentId}/repair-checklist,체크리스트,재원,,Controller
+확인 필요,생성 요청,POST,/api/accidents/{accidentId}/repair-checklist,체크리스트,재원,,Controller
+확인 필요,생성 요청,POST,/api/accidents/{accidentId}/repair-checklist/items,체크리스트,재원,,Controller
+확인 필요,생성 상태 · 항목 · 진행률 · 고지 문구,DELETE,/api/accidents/{accidentId}/repair-checklist/items/{itemId},체크리스트,재원,,Controller
+확인 필요,생성 상태 · 항목 · 진행률 · 고지 문구,PATCH,/api/accidents/{accidentId}/repair-checklist/items/{itemId},체크리스트,재원,,Controller
+확인 필요,사용자 항목 추가 (S15P21A307-485),PATCH,/api/accidents/{accidentId}/repair-checklist/items/{itemId}/check,체크리스트,재원,,Controller
+확인 필요,사용자 항목 문안 수정 (S15P21A307-485),PATCH,/api/accidents/{accidentId}/repair-checklist/items/{itemId}/memo,체크리스트,재원,,Controller
+확인 필요,사용자 항목 추가 (S15P21A307-485),POST,/api/accidents/{accidentId}/repair-checklist/regenerate,체크리스트,재원,,Controller
+확인 필요,생성 요청,GET,/api/accidents/{accidentId}/repair-questions,질문,재원,,Controller
+확인 필요,생성 요청,POST,/api/accidents/{accidentId}/repair-questions,질문,재원,,Controller
+확인 필요,좌표 → 주소,GET,/api/locations/category-groups,정비소,재원,,Controller
+확인 필요,주소 문자열 → 좌표,GET,/api/locations/geocode,정비소,재원,,Controller
+확인 필요,주소 문자열 → 좌표,GET,/api/locations/places,정비소,재원,,Controller
+확인 필요,주소 문자열 → 좌표,GET,/api/locations/places/category,정비소,재원,,Controller
+확인 필요,주소 문자열 → 좌표,GET,/api/locations/reverse-geocode,정비소,재원,,Controller
+확인 필요,(compare),GET,/api/accidents/{accidentId}/cost-comparison,견적서 검증,재원,,Controller
+확인 필요,검수 목록,GET,/api/admin/accident-reviews,관리자,재원,FE 미착수 / AdminAccidentReviewController,Controller
+확인 필요,검수 목록,GET,/api/admin/accident-reviews/{reviewId},관리자,재원,FE 미착수 / AdminAccidentReviewController,Controller
+확인 필요,검수 목록,PATCH,/api/admin/accident-reviews/{reviewId},관리자,재원,FE 미착수 / AdminAccidentReviewController,Controller
+확인 필요,지금 적용 중인 규칙,GET,/api/admin/estimate-validation-rules/current,관리자,재원,FE 미착수 / AdminEstimateValidationRuleController,Controller
+확인 필요,버전 이력,PATCH,/api/admin/estimate-validation-rules/current,관리자,재원,FE 미착수 / AdminEstimateValidationRuleController,Controller
+확인 필요,지금 적용 중인 규칙,GET,/api/admin/estimate-validation-rules/history,관리자,재원,FE 미착수 / AdminEstimateValidationRuleController,Controller
+확인 필요,(findOne),GET,/api/admin/part-codes,관리자,재원,FE 미착수 / AdminPartCodeController,Controller
+확인 필요,(update),POST,/api/admin/part-codes,관리자,재원,FE 미착수 / AdminPartCodeController,Controller
+확인 필요,(findOne),GET,/api/admin/part-codes/{partCode},관리자,재원,FE 미착수 / AdminPartCodeController,Controller
+확인 필요,(update),PATCH,/api/admin/part-codes/{partCode},관리자,재원,FE 미착수 / AdminPartCodeController,Controller
+확인 필요,(changeStatus),PATCH,/api/admin/part-codes/{partCode}/status,관리자,재원,FE 미착수 / AdminPartCodeController,Controller
+확인 필요,행이 8개뿐이라 페이지네이션하지 않는다,GET,/api/admin/repair-codes,관리자,재원,FE 미착수 / AdminRepairCodeController,Controller
+확인 필요,행이 8개뿐이라 페이지네이션하지 않는다,PATCH,/api/admin/repair-codes/{codeType}/{code},관리자,재원,FE 미착수 / AdminRepairCodeController,Controller
+확인 필요,(changeStatus),PATCH,/api/admin/repair-codes/{codeType}/{code}/status,관리자,재원,FE 미착수 / AdminRepairCodeController,Controller
+확인 필요,(findOne),GET,/api/admin/repair-method-rules,관리자,재원,FE 미착수 / AdminRepairMethodRuleController,Controller
+확인 필요,(update),POST,/api/admin/repair-method-rules,관리자,재원,FE 미착수 / AdminRepairMethodRuleController,Controller
+확인 필요,(findOne),GET,/api/admin/repair-method-rules/{ruleId},관리자,재원,FE 미착수 / AdminRepairMethodRuleController,Controller
+확인 필요,(update),PATCH,/api/admin/repair-method-rules/{ruleId},관리자,재원,FE 미착수 / AdminRepairMethodRuleController,Controller
+확인 필요,(changeStatus),PATCH,/api/admin/repair-method-rules/{ruleId}/status,관리자,재원,FE 미착수 / AdminRepairMethodRuleController,Controller
+확인 필요,"화면이 처음 그릴 때 필요한 것 전부 — 수리 방식 규칙 목록, 현재 이상 탐지 임계값, 입력 폼의 단위·경계·선택 가능한 코드 목록",GET,/api/admin/rules/history,관리자,재원,FE 미착수 / AdminRuleController,Controller
+확인 필요,"화면이 처음 그릴 때 필요한 것 전부 — 수리 방식 규칙 목록, 현재 이상 탐지 임계값, 입력 폼의 단위·경계·선택 가능한 코드 목록",GET,/api/admin/rules/overview,관리자,재원,FE 미착수 / AdminRuleController,Controller
+확인 필요,active 를 생략하면 비활성 모델까지 전부 나온다 — 공개 목록과 다른 점이다,GET,/api/admin/vehicle-models,관리자,재원,FE 미착수 / AdminVehicleModelController,Controller
+확인 필요,active 를 생략하면 비활성 모델까지 전부 나온다 — 공개 목록과 다른 점이다,POST,/api/admin/vehicle-models,관리자,재원,FE 미착수 / AdminVehicleModelController,Controller
+확인 필요,active 를 생략하면 비활성 모델까지 전부 나온다 — 공개 목록과 다른 점이다,GET,/api/admin/vehicle-models/{modelId},관리자,재원,FE 미착수 / AdminVehicleModelController,Controller
+확인 필요,(update),PATCH,/api/admin/vehicle-models/{modelId},관리자,재원,FE 미착수 / AdminVehicleModelController,Controller
+확인 필요,(changeStatus),PATCH,/api/admin/vehicle-models/{modelId}/status,관리자,재원,FE 미착수 / AdminVehicleModelController,Controller
+확인 필요,분석 결과 수신,POST,/internal/analysis-jobs/{jobId}/result,내부 연동,보영,AI 서버 콜백용 · FE 화면 미사용,Controller
+1차,소셜 인증 시작 (카카오·구글),GET,/oauth2/authorization/{provider},인증,보영,Spring Security 제공 · provider=kakao|google,Spring Security
+1차,OAuth 콜백,GET,/login/oauth2/code/{provider},인증,보영,Spring Security 제공 · 콜백에서 회원 생성 금지,Spring Security
+1차,로그아웃,POST,/api/auth/logout,인증,보영,Spring Security 제공 (LogoutFilter) · SecurityConfig.java:124-139,Spring Security
