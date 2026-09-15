@@ -58,3 +58,10 @@ export const logout = () => http.post('/api/auth/logout')
 
 /** 마이페이지 프로필 — { memberId, nickname, email, provider, profileImageUrl, vehicleCount, accidentCount, createdAt } */
 export const fetchProfile = () => http.get('/api/members/me').then(data)
+
+/**
+ * 회원 탈퇴. 204, 본문 없음.
+ * 서버가 개인식별정보를 지우는 소프트 삭제를 하고 같은 요청에서 세션을 끊어 SESSION 쿠키를 삭제한다.
+ * 소셜 연결 해제(카카오 unlink·구글 revoke)는 서버에 아직 없다(S15P21A307-102).
+ */
+export const withdraw = () => http.delete('/api/members/me')
