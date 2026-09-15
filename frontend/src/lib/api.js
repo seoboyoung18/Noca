@@ -105,6 +105,26 @@ export const completeProfileImage = (uploadKey) => http.put('/api/members/me/pro
 /** 이미지 삭제(기본 이미지로). 204 가 아니라 갱신된 프로필을 돌려준다 */
 export const deleteProfileImage = () => http.delete('/api/members/me/profile-image').then(data)
 
+/* ===== 차량 (VehicleController · VehicleModelController) — 전부 로그인 필요 =====
+ * 응답 모양은 등록·수정·목록이 같다: { vehicleId, modelId, manufacturer, modelName, vehicleType, carClass, modelYear }
+ * 제조사·유형·차급은 모델을 고르면 결정되므로 등록 본문은 { modelId, modelYear } 둘뿐이다.
+ */
+
+/** 활성 모델 51종 전체 (필터·페이지 없음, 약 5KB). 순서는 의미 없음 → FE 가 정렬 */
+export const fetchVehicleModels = () => http.get('/api/vehicle-models').then((r) => r.data.data.vehicleModels || [])
+
+/** 내 차량 목록. created_at DESC. 비어 있으면 [] (404 아님) */
+export const fetchMyVehicles = () => http.get('/api/vehicles/me').then((r) => r.data.data.vehicles || [])
+
+/** 차량 등록. 201 + 등록된 차량 (재조회 불필요). modelYear 1980~2100 */
+export const createVehicle = (modelId, modelYear) => http.post('/api/vehicles', { modelId, modelYear }).then(data)
+
+/** 연식 수정. 연식만 바꿀 수 있다 — modelId 를 보내면 400. 모델을 바꾸려면 삭제 후 재등록 */
+export const updateVehicleYear = (vehicleId, modelYear) => http.patch(`/api/vehicles/${vehicleId}`, { modelYear }).then(data)
+
+/** 차량 삭제. 204 · 소프트 삭제 · 멱등(이미 지운 차량도 204). 사고 이력은 남는다 */
+export const deleteVehicle = (vehicleId) => http.delete(`/api/vehicles/${vehicleId}`)
+
 /* ===== 사고 · 정비 체크리스트 (AccidentController · RepairChecklistController) ===== */
 
 /** 내 사고 이력. createdAt 내림차순. { accidents[], page, size, totalElements, totalPages, hasNext }. size 상한 100 */

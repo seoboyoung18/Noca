@@ -7,6 +7,7 @@ import BottomSheet from '../components/BottomSheet.vue'
 import CheckBox from '../components/CheckBox.vue'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
+import { useVehicleStore } from '../stores/vehicles'
 import { fetchProfile, withdraw } from '../lib/api'
 import { AUTH_GUARD_OFF } from '../router'
 
@@ -59,6 +60,7 @@ async function doQuit() {
   store.agreed = false
   auth.forgetSocialName(auth.me?.memberId) // 탈퇴한 회원의 소셜 이름 보관값 정리
   auth.clear()
+  useVehicleStore().reset()
   router.replace('/landing')
 }
 </script>
