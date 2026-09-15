@@ -835,6 +835,73 @@ CREATE TABLE repair_question_item (
                                  OR (damage_type IS NULL AND repair_method IS NULL))
 );
 
+-- ─── 12-3. 사고 데이터·피드백 검수 (S15P21A307-513) ──────────────────
+-- 관리자가 서비스 사고 한 건을 보고 "재학습 데이터로 써도 되는가" 를 판정한 결과다
+-- (S15P21A307-349 · -350 · -352).
+--
+-- 왜 필요한가 — 이미 있는 구멍을 메운다
+--   pipeline/jobs/load_service_accidents.py (S15P21A307-223) 가 actual_repair_cost 가 입력된
+--   사고를 repair_case 에 source='SERVICE' 로 적재하고 있다. 그런데 그 행은 조회에서 통째로
+--   빠진다 — RepairCaseDetailRepository.findPublicCase 와 SimilarCaseRepository.findCases 가
+--   둘 다 rc.source <> 'SERVICE' 를 건다. 그 파일 머리말이 이유를 적어 두었다:
+--   "공개 정책이 정해지기 전까지 AI-Hub 사례만 연다."
+--   이 테이블이 그 "공개 정책" 의 자리다. 사람이 한 건씩 판정한다.
+--
+-- 왜 audit_log 가 아닌가
+--   audit_log 는 **일어난 일의 기록**이고 이것은 **아직 처리되지 않은 상태**다. 상태는 갱신되고
+--   기록은 갱신되지 않는다. 한 테이블에 두면 "승인 대기 목록" 이 기록 전체를 훑게 되고,
+--   사고당 한 건이라는 제약(uk_ar_accident)을 걸 자리도 없다(target_id 는 FK 없는 VARCHAR 다).
+--   승인·반려 **행위** 자체는 -352 가 audit_log 에도 남기면 된다 — 정본은 이 테이블이다.
+--
+-- 왜 검수 단위가 사고인가
+--   재학습 데이터셋에 들어가는 단위가 사고이기 때문이다. load_service_accidents.py 가
+--   external_ref = 'svc-<accident_id>' 로 사고 한 건을 사례 한 행에 대응시킨다.
+--   job 단위로 두면 사고 하나에 검수 행이 여러 개 쌓이는데 적재는 그것을 구분하지 않고,
+--   수정 내역 단건으로 두면 관리자가 봐야 할 맥락(사고 전체)이 흩어진다.
+--
+--   "그러면 재분석해서 결과가 바뀌면 검수한 것은 언제 것인가" 를 아래 두 열이 답한다 —
+--   reviewed_job_id 와 snapshot_actual_repair_cost 가 **무엇을 보고 승인했는지**를 박아 둔다.
+--
+-- 항목별 검수 테이블을 만들지 않았다
+--   사용자가 AI 결과를 고칠 수 있는 경로를 전수 조사한 결과 damaged_part(부위 판정)와
+--   estimate_item(견적 행)에는 수정 경로도, "누가 고쳤다" 를 담을 열도 없다. 담을 것이
+--   정해지지 않은 테이블을 미리 만들지 않는다 — 필요해지면 그때 review_id 를 FK 로 붙인다.
+
+CREATE TABLE accident_review (
+    review_id          BIGSERIAL    PRIMARY KEY,
+    accident_id        BIGINT       NOT NULL REFERENCES accident(accident_id) ON DELETE CASCADE,
+    -- PENDING · APPROVED · REJECTED. 생성·분석 상태 열거형들(analysis_job · repair_checklist)이
+    -- 네 값인 것과 달리 여기는 셋이다 — 사람이 판정하는 일이라 "처리 중" 이 없다.
+    status             VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
+    -- 관리자가 본 분석 결과가 어느 실행분이었나. 재분석하면 damaged_part 가 통째로 바뀌므로
+    -- 이 값이 없으면 "무엇을 승인했는지" 를 나중에 되짚을 수 없다.
+    -- ON DELETE SET NULL 이다 — 분석 실행이 지워져도 판정 기록은 남아야 한다.
+    reviewed_job_id    BIGINT       REFERENCES analysis_job(job_id) ON DELETE SET NULL,
+    -- 승인 시점의 실제 수리비 사본. 이 값이 재학습 데이터셋에 실린다(-353).
+    -- 사용자가 나중에 금액을 고치면 승인받지 않은 값이 흘러가므로, 적재 쪽이 이 사본과
+    -- accident.actual_repair_cost 를 대조해 재검수를 걸 수 있어야 한다.
+    -- accident 의 snapshot_* 열과 같은 방식이고, 범위 CHECK 도 ck_ac_cost 와 같은 형태다.
+    snapshot_actual_repair_cost INTEGER,
+    -- 누가 판정했나. 탈퇴해도 판정 자체는 남는다 — audit_log.actor_member_id 와 같은 형태다.
+    -- 그래서 이 열을 status 와 CHECK 로 묶지 않았다. 묶으면 회원 삭제가 제약에 걸려 실패한다.
+    reviewer_member_id BIGINT       REFERENCES member(member_id) ON DELETE SET NULL,
+    -- 반려 사유 (S15P21A307-352). 반려일 때만 있고, 반려가 아니면 없다 — ck_ar_reject 가
+    -- 양방향으로 강제한다. 승인에 사유를 받지 않는 이유는 열 이름이 말하는 그대로다.
+    reject_reason      VARCHAR(500),
+    queued_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    reviewed_at        TIMESTAMPTZ,
+    -- 사고당 한 건이다. 같은 사고가 큐에 두 번 쌓이면 관리자가 같은 것을 두 번 본다.
+    -- -350 의 적재 로직은 이 제약 위에서 ON CONFLICT DO NOTHING 으로 멱등해진다.
+    CONSTRAINT uk_ar_accident UNIQUE (accident_id),
+    CONSTRAINT ck_ar_status   CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+    -- 판정 시각은 판정이 끝났을 때만 있다. repair_checklist.ck_rcl_done 과 같은 식이되
+    -- 양방향이다 — 여기는 "끝난 상태" 가 둘뿐이라 등가로 쓸 수 있다.
+    CONSTRAINT ck_ar_done     CHECK ((status =  'PENDING') = (reviewed_at IS NULL)),
+    CONSTRAINT ck_ar_reject   CHECK ((status =  'REJECTED') = (reject_reason IS NOT NULL)),
+    CONSTRAINT ck_ar_cost     CHECK (snapshot_actual_repair_cost IS NULL
+                                  OR snapshot_actual_repair_cost > 0)
+);
+
 -- ============================================================
 -- 13. 인덱스
 -- ============================================================
@@ -937,3 +1004,10 @@ CREATE INDEX ix_rcli_checklist    ON repair_checklist_item (checklist_id, displa
 CREATE INDEX ix_rqi_question      ON repair_question_item (question_id, display_order);
 -- ix_rq_accident 제거: uk_rq_accident 가 그대로 커버한다
 -- ix_rqi_part 제거: 부품 코드로 질문을 거슬러 찾는 화면이 아직 없다. 생기면 그때 만든다
+
+-- ── 사고 데이터 검수 ──
+-- 관리자 화면이 늘 "대기" 만 오래된 순으로 읽는다. 판정이 끝난 행은 부분 인덱스에서 빠지므로
+-- 승인·반려가 쌓여도 인덱스는 대기 건수만큼만 커진다 — ix_job_queue · ix_ev_queue 와 같은 형태다.
+CREATE INDEX ix_ar_queue          ON accident_review (status, queued_at)
+    WHERE status = 'PENDING';
+-- ix_ar_accident 제거: uk_ar_accident 가 그대로 커버한다
