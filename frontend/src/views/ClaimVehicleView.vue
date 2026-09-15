@@ -1,11 +1,23 @@
 <script setup>
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
-import { useAppStore } from '../stores/app'
+import { useVehicleStore } from '../stores/vehicles'
+import { isUnsupportedVehicle, vehicleName, vehicleSpec } from '../data/vehicles'
 
+// 사고 접수 1/4 · 차량 선택 — 내 차량 목록(GET /api/vehicles/me)에서 고른다. 선택값은 차량 스토어에 남아 다음 단계가 쓴다
 const router = useRouter()
-const store = useAppStore()
+const vs = useVehicleStore()
+
+const state = ref('loading') // loading | idle | error
+const loadError = ref('')
+onMounted(load)
+async function load() {
+  state.value = 'loading'
+  try { await vs.loadVehicles(); state.value = 'idle' }
+  catch (e) { state.value = 'error'; loadError.value = e.status === 0 ? e.message : '차량 목록을 불러오지 못했어요.' }
+}
 </script>
 
 <template>
@@ -17,13 +29,24 @@ const store = useAppStore()
       <p class="step">1 / 4 · 차량 선택</p>
       <h1 class="h1" style="margin-top:6px">어떤 차량인가요?</h1>
 
-      <template v-if="store.vehicles.length">
+      <div v-if="state === 'loading'" class="stack" style="margin-top:20px">
+        <div v-for="i in 2" :key="i" class="card skel" style="height:76px"></div>
+      </div>
+
+      <div v-else-if="state === 'error'" class="flex1" style="display:flex;flex-direction:column">
+        <div class="empty">
+          <b>{{ loadError }}</b>
+          <button class="btn outline" style="margin-top:20px;width:auto;padding:0 24px;height:44px" @click="load">다시 시도</button>
+        </div>
+      </div>
+
+      <template v-else-if="vs.vehicles.length">
         <div class="stack" style="margin-top:20px">
-          <button v-for="c in store.vehicles" :key="c.id" class="vcard" :class="{ on: store.selectedVehicleId === c.id }" @click="store.selectedVehicleId = c.id">
-            <span class="radio" :class="{ on: store.selectedVehicleId === c.id }"></span>
-            <span style="display:flex;flex-direction:column;gap:3px;text-align:left">
-              <span class="sec">{{ c.name }}</span>
-              <span class="sub">{{ c.year }}</span>
+          <button v-for="v in vs.vehicles" :key="v.vehicleId" class="vcard" :class="{ on: vs.selectedVehicleId === v.vehicleId }" @click="vs.selectedVehicleId = v.vehicleId">
+            <span class="radio" :class="{ on: vs.selectedVehicleId === v.vehicleId }"></span>
+            <span style="display:flex;flex-direction:column;gap:3px;text-align:left;min-width:0">
+              <span class="row" style="gap:6px"><span class="sec">{{ vehicleName(v) }}</span><span v-if="isUnsupportedVehicle(v)" class="tag gray">분석 미지원</span></span>
+              <span class="sub">{{ v.modelYear }}년식 · {{ vehicleSpec(v) }}</span>
             </span>
           </button>
         </div>
@@ -42,13 +65,15 @@ const store = useAppStore()
     </div>
 
     <div class="foot">
-      <button v-if="store.vehicles.length" class="btn" @click="router.push('/claim/guide')">다음</button>
-      <button v-else class="btn" @click="router.push('/vehicles/new')">차량 등록하기</button>
+      <button v-if="vs.vehicles.length" class="btn" :disabled="!vs.selectedVehicleId" @click="router.push('/claim/guide')">다음</button>
+      <button v-else class="btn" :disabled="state === 'loading'" @click="router.push('/vehicles/new')">차량 등록하기</button>
     </div>
   </Screen>
 </template>
 
 <style scoped>
-.vcard { width: 100%; height: 76px; padding: 0 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); display: flex; align-items: center; gap: 14px; transition: border-color .15s; }
+.vcard { width: 100%; min-height: 76px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); display: flex; align-items: center; gap: 14px; transition: border-color .15s; }
 .vcard.on { border: 1.5px solid var(--primary); }
+.skel { background: var(--bg); border-color: transparent; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
 </style>
