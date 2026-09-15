@@ -3,20 +3,25 @@ package com.ssafy.a307.repairchecklist.controller;
 import com.ssafy.a307.common.response.ApiResponse;
 import com.ssafy.a307.common.security.CurrentMemberProvider;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemCheckRequest;
+import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemContentRequest;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemMemoRequest;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemResponse;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistStatusResponse;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistItemService;
+import com.ssafy.a307.repairchecklist.service.RepairChecklistRegenerateService;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistRequestService;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistStatusService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -28,8 +33,8 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>회원 ID 는 {@link CurrentMemberProvider} 에서만 얻는다 — 경로·본문으로 받지 않는다.
  *
- * <p><b>항목 추가·수정·삭제와 재생성은 여기 없다.</b> 각각 {@code S15P21A307-485} ·
- * {@code -486} 의 몫이다.
+ * <p><b>항목 추가·수정·삭제는 {@code USER} 항목만 가능하다</b>({@code S15P21A307-485}).
+ * {@code AI}·{@code COMMON} 은 생성 시점 기록이라 고치거나 지울 수 없고, 시도하면 400 이다.
  */
 @RestController
 @RequestMapping("/api/accidents/{accidentId}/repair-checklist")
@@ -39,6 +44,7 @@ public class RepairChecklistController {
     private final RepairChecklistRequestService requestService;
     private final RepairChecklistStatusService statusService;
     private final RepairChecklistItemService itemService;
+    private final RepairChecklistRegenerateService regenerateService;
     private final CurrentMemberProvider currentMemberProvider;
 
     /**
@@ -62,6 +68,62 @@ public class RepairChecklistController {
     @GetMapping
     public ApiResponse<RepairChecklistStatusResponse> status(@PathVariable Long accidentId) {
         return ApiResponse.of(statusService.status(
+                currentMemberProvider.currentMemberId(), accidentId));
+    }
+
+    /**
+     * 사용자 항목 추가 (S15P21A307-485).
+     *
+     * <p>{@code source} 는 서버가 {@code USER} 로 고정하고 {@code displayOrder} 는 맨 뒤에
+     * 붙인다 — 본문은 {@code content} 하나뿐이다. 체크리스트가 없는 사고는 404 다.
+     */
+    @PostMapping("/items")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<RepairChecklistItemResponse> addItem(
+            @PathVariable Long accidentId,
+            @Valid @RequestBody RepairChecklistItemContentRequest request) {
+        return ApiResponse.of(itemService.add(
+                currentMemberProvider.currentMemberId(), accidentId, request.content()));
+    }
+
+    /**
+     * 사용자 항목 문안 수정 (S15P21A307-485).
+     *
+     * <p><b>{@code AI}·{@code COMMON} 항목이면 400</b> 이다. 체크·메모는 이 경로가 아니라
+     * {@code /check} · {@code /memo} 가 맡는다({@code S15P21A307-483}) — 한 경로가 세 가지를
+     * 부분 갱신하면 "안 보냄" 과 "지움" 이 구분되지 않는다.
+     */
+    @PatchMapping("/items/{itemId}")
+    public ApiResponse<RepairChecklistItemResponse> changeItemContent(
+            @PathVariable Long accidentId,
+            @PathVariable Long itemId,
+            @Valid @RequestBody RepairChecklistItemContentRequest request) {
+        return ApiResponse.of(itemService.changeContent(
+                currentMemberProvider.currentMemberId(), accidentId, itemId, request.content()));
+    }
+
+    /**
+     * 사용자 항목 삭제 (S15P21A307-485).
+     *
+     * <p><b>{@code AI}·{@code COMMON} 항목이면 400</b> 이다. 공통 6종은 파손 부위와 무관한 필수
+     * 확인 사항이라 지우면 안내가 무너진다 — 필요 없으면 체크하지 않고 두면 된다.
+     */
+    @DeleteMapping("/items/{itemId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteItem(@PathVariable Long accidentId, @PathVariable Long itemId) {
+        itemService.delete(currentMemberProvider.currentMemberId(), accidentId, itemId);
+    }
+
+    /**
+     * 재생성 (S15P21A307-486). <b>비동기라 접수만 하고 즉시 돌아온다.</b>
+     *
+     * <p>{@code AI}·{@code COMMON} 항목을 지우고 <b>{@code USER} 항목은 남긴 채</b> 세대를 올려
+     * 큐로 되돌린다. 완성되지 않은 체크리스트는 409, 없는 체크리스트는 404,
+     * {@code GMS_KEY} 가 없는 환경은 503 이다.
+     */
+    @PostMapping("/regenerate")
+    public ApiResponse<RepairChecklistStatusResponse> regenerate(@PathVariable Long accidentId) {
+        return ApiResponse.of(regenerateService.regenerate(
                 currentMemberProvider.currentMemberId(), accidentId));
     }
 

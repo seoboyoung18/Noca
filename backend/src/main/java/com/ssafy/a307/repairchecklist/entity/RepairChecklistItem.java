@@ -165,6 +165,45 @@ public class RepairChecklistItem {
         this.updatedAt = now;
     }
 
+    /**
+     * 사용자가 직접 넣은 항목 (S15P21A307-485).
+     *
+     * <p><b>{@code source} 를 호출자가 정하지 못한다.</b> 이 팩터리를 거치면 무조건 {@code USER}
+     * 이고 {@code common_code} 는 비어 있다 — {@code ck_rcli_link} 가 그 조합만 허용한다.
+     * {@code NULL} 은 UNIQUE 를 통과하므로 사용자 항목은 몇 개든 들어간다({@code uk_rcli_common}).
+     *
+     * @param displayOrder 그 체크리스트의 현재 최댓값 + 1. 맨 뒤에 붙는다 — 사용자가 나중에
+     *                     적은 것이 AI·공통 항목 사이에 끼어들면 순서가 뜻을 잃는다
+     */
+    public static RepairChecklistItem user(RepairChecklist checklist, String content,
+                                           int displayOrder, Instant now) {
+        return new RepairChecklistItem(checklist, RepairChecklistItemSource.USER, null,
+                requireContent(content), displayOrder, now);
+    }
+
+    /** 사용자가 직접 넣은 항목인가. {@code AI}·{@code COMMON} 은 고치거나 지울 수 없다. */
+    public boolean userCreated() {
+        return this.source == RepairChecklistItemSource.USER;
+    }
+
+    /**
+     * 문안을 바꾼다 (S15P21A307-485).
+     *
+     * <p><b>{@code USER} 항목만 호출해야 한다.</b> 그 판단은 서비스가 하고(400 으로 거절),
+     * 여기서는 상태 전이만 한다 — 호출 가능 여부를 두 곳에서 판단하면 한쪽이 늦게 바뀐다.
+     *
+     * <p>{@code AI}·{@code COMMON} 문안을 고칠 수 없게 한 이유는 {@code content} 가 생성 시점
+     * <b>복사본</b>이기 때문이다({@code S15P21A307-509}). 사용자가 AI 문안을 고치면 "그때 AI 가
+     * 뭐라고 했었나" 를 되짚을 수 없다.
+     */
+    public void changeContent(String content, Instant now) {
+        if (now == null) {
+            throw new IllegalArgumentException("now 는 필수입니다.");
+        }
+        this.content = requireContent(content);
+        this.updatedAt = now;
+    }
+
     private static String requireContent(String content) {
         if (content == null || content.isBlank()) {
             throw new IllegalArgumentException("content 는 필수입니다.");

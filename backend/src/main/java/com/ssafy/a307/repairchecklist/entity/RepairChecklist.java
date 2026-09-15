@@ -107,6 +107,34 @@ public class RepairChecklist {
         this.completedAt = null;
     }
 
+    /**
+     * 완성된 체크리스트를 다시 만든다 (S15P21A307-486). {@code COMPLETED → QUEUED}.
+     *
+     * <p><b>머리를 새로 만들지 않는다.</b> {@code uk_rcl_accident} 가 사고당 한 행을 강제하므로
+     * 재생성은 이 행을 고쳐 쓰는 것이다 — {@code S15P21A307-509} 가 그렇게 설계했다.
+     *
+     * <p><b>{@code generationNo} 와 {@code regeneratedAt} 을 함께 올린다.</b>
+     * {@code ck_rcl_regen} 이 {@code regenerated_at IS NULL OR generation_no > 1} 이라, 둘을 따로
+     * 두면 "{@code regeneratedAt} 만 채우는" 호출이 가능해지고 그 호출은 DB 가 거부한다.
+     * 메서드를 하나로 두는 것이 그 조합을 코드에서 불가능하게 만드는 방법이다.
+     *
+     * <p>{@link #requeue()} 와 다르다. 저쪽은 <b>실패한 생성의 재시도</b>라 세대를 올리지 않는다 —
+     * 만들어진 적이 없는 것을 다시 시도하는 일과, 만들어진 것을 새로 만드는 일은 다르다.
+     *
+     * <p>{@code completedAt} 을 비우는 것은 {@code ck_rcl_done} 때문이다 — 그 열은
+     * {@code COMPLETED}·{@code FAILED} 일 때만 값을 가질 수 있다.
+     */
+    public void regenerate(Instant now) {
+        if (now == null) {
+            throw new IllegalArgumentException("now 는 필수입니다.");
+        }
+        this.status = RepairChecklistStatus.QUEUED;
+        this.generationNo = (short) (this.generationNo + 1);
+        this.regeneratedAt = now;
+        this.failureReason = null;
+        this.completedAt = null;
+    }
+
     /** 생성을 끝냈다. {@code PROCESSING → COMPLETED}. */
     public void markCompleted(Instant now) {
         this.status = RepairChecklistStatus.COMPLETED;

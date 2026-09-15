@@ -43,7 +43,19 @@ public interface RepairChecklistItemRepository extends JpaRepository<RepairCheck
                                                 @Param("memberId") Long memberId);
 
     /**
-     * 생성분을 통째로 비운다. 실패한 건을 다시 만들 때 앞 시도가 남긴 항목이 섞이지 않게 한다.
+     * <b>생성분만</b> 비운다 — {@code AI}·{@code COMMON} 을 지우고 {@code USER} 는 남긴다.
+     * 실패한 건을 다시 만들 때(재시도) 앞 시도가 남긴 항목이 섞이지 않게 하고, 재생성
+     * ({@code S15P21A307-486})이 사용자 항목을 보존하게 한다.
+     *
+     * <p><b>{@code USER} 를 남기는 것이 {@code -485}·{@code -486} 의 핵심 판단이다.</b> 전부
+     * 지우는 {@code deleteAllByChecklistId} 가 {@code -460} 시절에 있었지만, 그 주석이 "재생성이
+     * 붙을 때는 사용자 항목을 어떻게 할지 그쪽에서 정해야 한다 — 이 메서드를 그대로 쓰면
+     * 지워진다" 고 미뤄 두었다. 이 메서드가 그 답이고, 사용자 데이터를 조용히 지우는 메서드를
+     * 남겨 두지 않으려고 <b>그쪽을 지웠다</b>(호출처가 없었다).
+     *
+     * <p>지우는 곳이 둘이라 <b>둘 다 같은 규칙이어야</b> 한다 — 재생성이 사용자 항목을 남기고
+     * {@code QUEUED} 로 되돌리는데, 그 건을 집은 {@code RepairChecklistProcessor} 가 전부 지우면
+     * 방금 남겨 둔 항목이 몇 초 뒤에 사라진다. 그래서 워커 쪽도 이 메서드를 부른다.
      *
      * <p><b>파생 {@code deleteBy...} 가 아니라 벌크 DELETE 여야 한다.</b> 파생 삭제는 엔티티를
      * 하나씩 {@code remove} 표시만 해 두고 실제 DELETE 는 플러시 때 나가는데, <b>Hibernate 는
@@ -55,14 +67,21 @@ public interface RepairChecklistItemRepository extends JpaRepository<RepairCheck
      * {@code clearAutomatically} 는 쓰지 않는다 — 영속성 컨텍스트를 비우면 호출자가 들고 있던
      * {@code RepairChecklist} 가 준영속이 되어 이어지는 상태 전이가 저장되지 않는다.
      *
-     * <p><b>{@code USER} 항목까지 지운다.</b> 지금은 생성이 {@code COMPLETED} 가 아닌 건에만
-     * 일어나므로 사용자가 손으로 넣은 항목({@code S15P21A307-485})이 있을 수 없다. 완성된
-     * 체크리스트를 다시 만드는 재생성({@code -486})이 붙을 때는 사용자 항목을 어떻게 할지
-     * 그쪽에서 정해야 한다 — 이 메서드를 그대로 쓰면 지워진다.
-     *
      * @return 지운 행 수
      */
     @Modifying(flushAutomatically = true)
-    @Query("delete from RepairChecklistItem i where i.checklist.checklistId = :checklistId")
-    int deleteAllByChecklistId(@Param("checklistId") Long checklistId);
+    @Query("delete from RepairChecklistItem i where i.checklist.checklistId = :checklistId"
+            + " and i.source <> com.ssafy.a307.repairchecklist.entity.RepairChecklistItemSource.USER")
+    int deleteGeneratedByChecklistId(@Param("checklistId") Long checklistId);
+
+    /**
+     * 그 체크리스트의 {@code display_order} 최댓값. 항목이 없으면 빈 값이다.
+     *
+     * <p>사용자 항목은 <b>맨 뒤</b>에 붙는다(최댓값 + 1). AI·공통 항목 사이에 끼워 넣지 않는
+     * 이유는 {@code RepairChecklistProcessor} 가 "AI 먼저, 공통 뒤" 로 매긴 순서가 기획의
+     * 판단이기 때문이다 — 그 사이에 끼면 그 순서가 뜻을 잃는다.
+     */
+    @Query("select max(i.displayOrder) from RepairChecklistItem i"
+            + " where i.checklist.checklistId = :checklistId")
+    Optional<Short> findMaxDisplayOrder(@Param("checklistId") Long checklistId);
 }

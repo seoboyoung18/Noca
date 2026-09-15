@@ -79,10 +79,13 @@ public class RepairChecklistProcessor {
 
         List<String> aiContents = generator.generate(context(checklist.getAccident()));
 
-        // 앞 시도가 남긴 항목을 먼저 비운다. 실패한 건을 다시 만들 때 두 시도가 섞이면
+        // 앞 시도가 남긴 생성분을 먼저 비운다. 실패한 건을 다시 만들 때 두 시도가 섞이면
         // 사용자는 어느 줄이 최신인지 알 수 없다. 벌크 DELETE 라 이 줄에서 바로 나간다 —
         // 파생 삭제였다면 새 공통 항목 INSERT 가 먼저 나가 uk_rcli_common 을 위반한다.
-        int stale = itemRepository.deleteAllByChecklistId(checklistId);
+        //
+        // ★ USER 항목은 남긴다 (S15P21A307-485 · -486). 재생성이 사용자 항목을 남겨 두고
+        //   QUEUED 로 되돌리는데, 여기서 전부 지우면 그 항목이 몇 초 뒤에 사라진다.
+        int stale = itemRepository.deleteGeneratedByChecklistId(checklistId);
         if (stale > 0) {
             log.info("앞 시도가 남긴 항목을 지웠다: checklistId={}, {}건", checklistId, stale);
         }
