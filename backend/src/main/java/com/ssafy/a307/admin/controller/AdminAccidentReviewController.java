@@ -1,6 +1,7 @@
 package com.ssafy.a307.admin.controller;
 
 import com.ssafy.a307.admin.dto.AccidentReviewDecisionRequest;
+import com.ssafy.a307.admin.dto.AccidentReviewDetailResponse;
 import com.ssafy.a307.admin.dto.AccidentReviewResponse;
 import com.ssafy.a307.admin.dto.AdminPageRequest;
 import com.ssafy.a307.admin.dto.AdminPageResponse;
@@ -33,7 +34,8 @@ import java.util.Set;
  * ({@code AccidentReviewQueueService}) — 관리자가 손으로 큐를 만들 이유가 없고, 만들 수 있게
  * 하면 재학습에 쓸 수 없는 건이 큐에 섞인다.
  *
- * <p><b>AI 결과 ↔ 사용자 수정 내역 비교 상세는 여기 없다.</b> 그 티켓이 아직 없다(answer71 §6-1).
+ * <p><b>비교 상세는 {@code GET /{reviewId}} 다</b>({@code S15P21A307-514}). 목록은 금액과
+ * 차량만 주므로 그것만 보고 판정하면 AI 가 무엇을 말했는지 모른 채 학습 데이터를 고르게 된다.
  */
 @RestController
 @RequestMapping("/api/admin/accident-reviews")
@@ -62,6 +64,19 @@ public class AdminAccidentReviewController {
 
         return ApiResponse.of(service.search(status,
                 AdminPageRequest.of(page, size, sort, DEFAULT_SORT, SORTABLE)));
+    }
+
+    /**
+     * 비교 상세 (S15P21A307-514). <b>조회 전용이라 감사 로그를 남기지 않는다</b> — 조회는
+     * 행위가 아니다.
+     *
+     * <p>목록 응답을 통째로 품고({@code review}) 그 위에 AI 산출물을 얹는다 — 예상 견적 ·
+     * 부위 판정 · 체크리스트 항목이다. 분석이나 견적이 없는 사고도 <b>200</b> 이다.
+     * 없는 {@code reviewId} 만 404({@code ADMIN_TARGET_NOT_FOUND})다.
+     */
+    @GetMapping("/{reviewId}")
+    public ApiResponse<AccidentReviewDetailResponse> findDetail(@PathVariable Long reviewId) {
+        return ApiResponse.of(service.findDetail(reviewId));
     }
 
     /**

@@ -34,6 +34,19 @@ public interface RepairChecklistRepository extends JpaRepository<RepairChecklist
                                                           @Param("memberId") Long memberId);
 
     /**
+     * 사고의 체크리스트. <b>소유자 조건이 없다</b> — 관리자 검수 조회 전용이다
+     * ({@code S15P21A307-514}).
+     *
+     * <p>{@link #findByAccidentIdAndMemberId} 를 쓸 수 없다. 관리자는 그 사고의 주인이 아니라
+     * 소유자 조건이 언제나 빈 값을 낸다. 그렇다고 그 메서드에서 조건을 빼면 <b>사용자 경로가
+     * 남의 체크리스트를 보게 된다</b> — 그래서 메서드를 따로 둔다.
+     *
+     * <p>이 메서드를 부르는 곳은 {@code /api/admin/**} 뿐이어야 한다. 그 경로는
+     * {@code SecurityConfig} 가 {@code hasRole("ADMIN")} 으로 막는다.
+     */
+    Optional<RepairChecklist> findByAccident_AccidentId(Long accidentId);
+
+    /**
      * 큐에서 처리 대기 중인 건을 오래된 순으로 가져온다.
      *
      * <p>엔티티가 아니라 ID 만 읽는다 — 선점에 성공한 건만 뒤에서 통째로 읽으면 되고, 경쟁에서
