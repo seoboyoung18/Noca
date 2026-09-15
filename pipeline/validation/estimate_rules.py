@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from standardization import NormalizationError, normalize_estimate_work
+from shared.vision.normalizer import NormalizationError, normalize_estimate_work
 
 
 CONTRACT_WORK_CODES = frozenset({

@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import unittest
+from types import SimpleNamespace
+
+import numpy as np
+from PIL import Image
+
+from app.infrastructure.vector_repository import VectorSearchError, vector_literal
+from app.services.embedding_service import EmbeddingService
+from app.services.search_service import _merge_strict
+
+
+class _FakeEmbedder:
+    spec = SimpleNamespace(version="f9e44c8-pooler-pad20-lb224gray")
+
+    def __init__(self) -> None:
+        self.images = []
+
+    def embed(self, images):
+        self.images.extend(images)
+        return np.ones((len(images), 768), dtype=np.float32)
+
+
+def _detection() -> dict:
+    return {
+        "detectionId": "501:damage:damage-001",
+        "partCode": "REAR_BUMPER",
+        "damageType": "Scratched",
+        "pairStatus": "PAIRED",
+        "searchability": "STRICT",
+        "confidence": {"part": 0.9, "damage": 0.8},
+        "geometry": {
+            "bbox": {"x": 50, "y": 30, "width": 100, "height": 40},
+            "polygons": [[
+                {"x": 50, "y": 30}, {"x": 150, "y": 30},
+                {"x": 150, "y": 70}, {"x": 50, "y": 70},
+            ]],
+        },
+    }
+
+
+class EmbeddingServiceTest(unittest.TestCase):
+    def test_uses_shared_roi_rule_before_embedding(self):
+        fake = _FakeEmbedder()
+        vector = EmbeddingService(fake).embed_detection(Image.new("RGB", (300, 200)), _detection())
+        self.assertEqual(vector.shape, (768,))
+        self.assertEqual(fake.images[0].size, (224, 224))
+
+    def test_vector_literal_requires_the_schema_dimension(self):
+        value = vector_literal([0.25] * 768)
+        self.assertTrue(value.startswith("[0.25,"))
+        with self.assertRaises(VectorSearchError):
+            vector_literal([0.25] * 767)
+
+    def test_strict_detections_merge_by_part_and_damage(self):
+        groups = {}
+        first = {
+            "detectionId": "501:damage:damage-001", "partCode": "REAR_BUMPER",
+            "damageType": "Scratched", "confidence": 0.8, "pairStatus": "PAIRED",
+            "searchability": "STRICT", "fallbackStage": "CAR_CLASS", "searchHitCount": 1,
+            "referencedCaseIds": [10], "cases": [{"caseId": 10, "similarity": 0.8}],
+        }
+        second = {**first, "detectionId": "502:damage:damage-002", "confidence": 0.9,
+                  "fallbackStage": "ALL", "referencedCaseIds": [11],
+                  "cases": [{"caseId": 11, "similarity": 0.9}]}
+        _merge_strict(groups, first)
+        _merge_strict(groups, second)
+        actual = groups[("REAR_BUMPER", "Scratched")]
+        self.assertEqual(actual["detectionIds"], ["501:damage:damage-001", "502:damage:damage-002"])
+        self.assertEqual(actual["fallbackStage"], "ALL")
+        self.assertEqual(actual["referencedCaseIds"], [11, 10])
+
+
+if __name__ == "__main__":
+    unittest.main()

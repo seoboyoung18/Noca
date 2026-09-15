@@ -6,14 +6,18 @@
 
 2026-09-10 `develop` (`4a0836d`) 기준으로 원천 보존·검색 후보 검증·사례/이미지 적재와 ROI 공용 모듈이 구현돼 있다. 임베딩 배치·Top-K 검색·검색 평가·수리비 통계 생성은 후속 작업이다.
 
-구현 상태, 기존 실행 건수, 확인된 오류와 테스트 결과는 [파이프라인 진행 현황](../Docs/Pipeline/STATUS.md)을 본다. DB·S3의 현재 건수는 이번 점검에서 재조회하지 않았다.
+구현 상태와 기존 실행 건수, 확인된 오류는 아래 각 job 절에 함께 적는다. DB·S3의 현재 건수는 이번 점검에서 재조회하지 않았다.
 
 ## 구조
 
 ```
 pipeline/
-├── standardization/   표준 코드 정의와 정규화 모듈 (런타임 공용)
-├── jobs/              배치 스크립트
+├── standardization/   견적 항목·storage key 전용 정규화
+├── jobs/              도메인별 배치 스크립트
+│   ├── corpus/        검색 corpus 검증·manifest·검수
+│   ├── ingestion/     AI-Hub·견적·검색 DB 적재
+│   ├── estimates/     견적 라벨 추출·매핑·seed 생성
+│   └── quality/       견적 데이터 검증
 ├── validation/        견적 행 분류·비용 검증 규칙
 ├── sql/               스테이징 DDL·기존 DB migration
 └── requirements.txt
@@ -21,29 +25,24 @@ pipeline/
 
 ## standardization
 
-파이프라인과 서비스 추론 경로가 함께 쓰는 유일한 표준 코드 모듈이다.
+AI 서버와 batch가 함께 쓰는 vision 정본은 [shared/vision](../shared/vision/README.md)이다.
+이 폴더는 견적서 항목·storage key 처리만 담당한다. 부품·손상·ROI·검색 메타데이터는
+여기에 복제하지 않고 `shared.vision`을 직접 import한다.
 
 | 파일 | 역할 |
 |---|---|
-| `catalog.py` | 표준 부품 32종, 손상 4종, 작업 4종 정의 |
-| `normalizer.py` | 정규화 및 `NormalizationError` 격리 |
-| `raw_yolo_schema.json` | YOLO raw 출력 입력 계약 |
-| `common_schema.json` | 정규화 이후 downstream 출력 계약 |
-| `roi.py` | 손상 ROI 생성 규칙과 부품 연결·품질 판정 |
-| `search_metadata.py` | 정규화 결과를 ROI 단위 검색 메타데이터로 변환 |
-| `search_metadata_schema.json` | 검색 필터·ROI 품질·버전 추적 계약 |
-| `test_normalizer.py` | 회귀 테스트 |
-| `test_roi.py` | ROI 생성·부품 연결·품질 판정 테스트 |
-| `test_search_metadata.py` | 검색 메타데이터 변환 테스트 |
-| `README.md` | 코드값·좌표계 등 계약 결정사항 |
+| `estimate_items.py` | 견적서 항목의 금액·작업 정규화 |
+| `storage_keys.py` | AI-Hub 사례 이미지 storage key 생성 |
+| `fixtures/` | 견적서 부품명 정규화 fixture |
+| `README.md` | 견적 항목·storage key 계약과 shared vision 경계 |
 
 사용 예:
 
 ```python
-from standardization import PARTS, normalize_inference, normalize_repair_label, NormalizationError
+from shared.vision import PARTS, normalize_inference, normalize_repair_label, NormalizationError
 ```
 
-`PARTS`, `DAMAGES`, `WORKS`, `DEFAULT_WORK_BY_DAMAGE`는 패키지 최상위에서 바로 import한다. `standardization.catalog`를 직접 참조하지 않는다.
+새 batch와 AI vision 코드는 모두 `shared.vision`을 직접 import한다.
 
 ### 검색 메타데이터
 
@@ -141,7 +140,7 @@ A는 사진 라벨(YOLO 32종), B는 견적서 한글 텍스트를 다룬다. DB
 ### 1. category_id 무결성 검증
 
 ```bash
-python pipeline/jobs/validate_category_id_integrity.py \
+python pipeline/jobs/corpus/validate_category_id_integrity.py \
   --subset-root "<AI-Hub 견적서 보유 subset 경로>" \
   --output-dir "<결과를 쓸 경로>"
 ```
@@ -153,7 +152,7 @@ python pipeline/jobs/validate_category_id_integrity.py \
 1단계가 만든 `case_id_linkage.csv`를 입력으로 받는다.
 
 ```bash
-python pipeline/jobs/validate_search_readiness.py \
+python pipeline/jobs/corpus/validate_search_readiness.py \
   --subset-root "<AI-Hub 견적서 보유 subset 경로>" \
   --linkage-csv "<1단계 output-dir>/case_id_linkage.csv" \
   --output-dir "<결과를 쓸 경로>"
@@ -165,10 +164,10 @@ python pipeline/jobs/validate_search_readiness.py \
 
 ```bash
 # 그룹 하나만, 20개 샤드 중 0번
-python pipeline/jobs/validate_search_readiness.py ... --only-group TRAIN:DAMAGE_PART --shard-index 0 --shard-count 20
+python pipeline/jobs/corpus/validate_search_readiness.py ... --only-group TRAIN:DAMAGE_PART --shard-index 0 --shard-count 20
 
 # 샤드 산출물을 병합해 최종 리포트 생성 (스캔 생략)
-python pipeline/jobs/validate_search_readiness.py ... --merge-only
+python pipeline/jobs/corpus/validate_search_readiness.py ... --merge-only
 ```
 
 현재 샤드 산출물에는 사례별 라벨·orphan 건수가 빠져 있어 `--merge-only` 결과의 해당 건수 열이 0으로 출력된다. geometry/part-code 집합은 병합되지만 건수 검증은 전체 실행 결과와 대조해야 한다.
@@ -178,7 +177,7 @@ python pipeline/jobs/validate_search_readiness.py ... --merge-only
 ### 3. 견적 원본 부품명 집계
 
 ```bash
-python pipeline/jobs/extract_estimate_labels.py \
+python pipeline/jobs/estimates/extract_estimate_labels.py \
   --estimate-dir "<subset>/1.Training/1.원천데이터_230126_add/TS_99. 붙임_견적서" \
   --output "<결과를 쓸 경로>/estimate_label_audit.json"
 ```
@@ -188,7 +187,7 @@ python pipeline/jobs/extract_estimate_labels.py \
 ### 4. 표준 부위 코드 매핑
 
 ```bash
-python pipeline/jobs/map_estimate_labels.py \
+python pipeline/jobs/estimates/map_estimate_labels.py \
   --audit-json "<3단계 산출물>/estimate_label_audit.json" \
   --output "<결과를 쓸 경로>/estimate_label_mapped.json"
 ```
@@ -205,12 +204,12 @@ python pipeline/jobs/map_estimate_labels.py \
 | `REVIEW_CONFLICT` | 둘 이상의 부품 계열이 겹쳐 사람 확인 필요 |
 | `OUT_OF_SCOPE_PART` | 실제 부품이나 현재 코드 범위 밖 |
 
-확장 매핑 규칙은 현재 이 스크립트가 정의하며 DB 마스터 seed에는 확장 24종이 반영돼 있다. 사진 정규화용 `standardization/catalog.py`의 32종과 DB 56종은 용도가 다르다. 코드 집합 일치 검증과 `mapping_rule_version` 관리는 후속 작업이다.
+확장 매핑 규칙은 현재 이 스크립트가 정의하며 DB 마스터 seed에는 확장 24종이 반영돼 있다. 사진 정규화용 `shared/vision/catalog.py`의 32종과 DB 56종은 용도가 다르다. 코드 집합 일치 검증과 `mapping_rule_version` 관리는 후속 작업이다.
 
 ### 5. 견적 이상치 플래그
 
 ```bash
-python pipeline/jobs/flag_estimate_outliers.py \
+python pipeline/jobs/estimates/flag_estimate_outliers.py \
   --estimate-dir "<subset>/1.Training/1.원천데이터_230126_add/TS_99. 붙임_견적서" \
   --output-dir "<결과를 쓸 경로>"
 ```
@@ -226,9 +225,9 @@ python pipeline/jobs/flag_estimate_outliers.py \
 파일 수가 많아 한 번에 돌기 어려우면 나눠 스캔한 뒤 합친다.
 
 ```bash
-python pipeline/jobs/flag_estimate_outliers.py ... --shard-index 0 --shard-count 2
-python pipeline/jobs/flag_estimate_outliers.py ... --shard-index 1 --shard-count 2
-python pipeline/jobs/flag_estimate_outliers.py ... --merge-only
+python pipeline/jobs/estimates/flag_estimate_outliers.py ... --shard-index 0 --shard-count 2
+python pipeline/jobs/estimates/flag_estimate_outliers.py ... --shard-index 1 --shard-count 2
+python pipeline/jobs/estimates/flag_estimate_outliers.py ... --merge-only
 ```
 
 배수는 스캔이 아니라 병합 단계에서 적용된다. `--output-dir`의 `case_metrics__shard*.json`을 남겨두면 배수를 바꿀 때 재스캔 없이 `--merge-only`만 다시 돌리면 된다. 사용한 배수와 그때의 사분위수·상한은 `outlier_summary.json`에 기록된다.
@@ -236,7 +235,7 @@ python pipeline/jobs/flag_estimate_outliers.py ... --merge-only
 ### 6. part_name_mapping seed 생성
 
 ```bash
-python pipeline/jobs/generate_part_name_mapping_seed.py \
+python pipeline/jobs/estimates/generate_part_name_mapping_seed.py \
   --workbook "<표준화 매핑 워크북>.xlsx" \
   --output "<결과를 쓸 경로>/A307_PART_NAME_MAPPING_SEED.sql"
 ```
@@ -246,7 +245,7 @@ python pipeline/jobs/generate_part_name_mapping_seed.py \
 ### 7. 검색 테이블 적재 SQL 생성
 
 ```bash
-python pipeline/jobs/build_search_sample_sql.py \
+python pipeline/jobs/corpus/build_search_sample_sql.py \
   --subset-root "<AI-Hub 견적서 보유 subset 경로>" \
   --readiness-csv "<2단계 output-dir>/case_search_readiness.csv" \
   --mapping-workbook "<표준화 매핑 워크북>.xlsx" \
@@ -272,7 +271,7 @@ python pipeline/jobs/build_search_sample_sql.py \
 ### 8. 원천 라벨 스테이징 적재
 
 ```bash
-python pipeline/jobs/load_aihub_damage_dataset.py \
+python pipeline/jobs/ingestion/load_aihub_damage_dataset.py \
   --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
   --dsn "$DATABASE_URL"
 ```
@@ -289,7 +288,7 @@ python pipeline/jobs/load_aihub_damage_dataset.py \
 ### 9. 원천 견적 JSON Raw 전수 적재
 
 ```bash
-python pipeline/jobs/load_estimate_raw.py \
+python pipeline/jobs/ingestion/load_estimate_raw.py \
   --estimate-root "<TS_99. 붙임_견적서 경로>" \
   --dsn "$DATABASE_URL" \
   --output-dir "<저장소 밖 결과 경로>"
@@ -310,7 +309,7 @@ python pipeline/jobs/load_estimate_raw.py \
 ### 10. 라벨 경로 인덱스 생성
 
 ```bash
-python pipeline/jobs/build_label_path_index.py \
+python pipeline/jobs/corpus/build_label_path_index.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --output-dir "<저장소 밖 결과 경로>"
 ```
@@ -347,7 +346,7 @@ manifest, ROI metadata adapter를 같은 정책으로 생성한 뒤 사용한다
 만들고, 006 migration 적용 뒤 정식 loader를 실행한다.
 
 ```bash
-python pipeline/jobs/validate_search_readiness.py \
+python pipeline/jobs/corpus/validate_search_readiness.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --linkage-csv "<category integrity output>/case_id_linkage.csv" \
   --estimate-root "<견적 JSON 경로>" \
@@ -357,7 +356,7 @@ python pipeline/jobs/validate_search_readiness.py \
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f pipeline/sql/006_damage_search_corpus.sql
 
-python pipeline/jobs/load_search_data.py \
+python pipeline/jobs/ingestion/load_search_data.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --readiness-csv "<저장소 밖 readiness output>/case_search_readiness.csv" \
   --mapping-workbook "<표준화 매핑 워크북>.xlsx" \
@@ -367,7 +366,7 @@ python pipeline/jobs/load_search_data.py \
 ```
 
 ```bash
-python pipeline/jobs/load_search_data.py \
+python pipeline/jobs/ingestion/load_search_data.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --readiness-csv "<검색 준비도 output-dir>/case_search_readiness.csv" \
   --mapping-workbook "<표준화 매핑 워크북>.xlsx" \
@@ -395,7 +394,7 @@ readiness와 사례 manifest는 재생성 가능한 실행 산출물이므로 �
 아래 `<manifest output>`은 `build_case_split_manifests.py`의 `--output-dir` 값이다.
 
 ```bash
-python pipeline/jobs/load_search_data.py \
+python pipeline/jobs/ingestion/load_search_data.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --readiness-csv "<manifest output>/case_search_readiness.csv" \
   --case-manifest "<manifest output>/search_dev_cases.csv" \
@@ -414,7 +413,7 @@ python pipeline/jobs/load_search_data.py \
 DEV 검색 DB의 사례와 다른 `case_id`여야 자기 자신이 검색되는 것을 막을 수 있다.
 
 ```bash
-python pipeline/jobs/build_case_query_manifest.py \
+python pipeline/jobs/corpus/build_case_query_manifest.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --case-manifest "<manifest output>/search_demo_cases.csv" \
   --dataset-root "<AI-Hub 데이터셋 기준 경로>" \
@@ -431,7 +430,7 @@ manifest의 `source_image_ref`를 `<AI-Hub 데이터셋 기준 경로>`와 결�
 TRAIN과 VALIDATION 양쪽에 있으면 `MIXED`로 표시하고 EVAL에서 제외한다.
 
 ```bash
-python pipeline/jobs/build_case_split_manifests.py \
+python pipeline/jobs/corpus/build_case_split_manifests.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --readiness-csv "<readiness output>/case_search_readiness.csv" \
   --linkage-csv "<category integrity output>/case_id_linkage.csv" \
@@ -452,7 +451,7 @@ python pipeline/jobs/build_case_split_manifests.py \
 직전의 현재 건수를 넣어 재실행 후 건수 불변도 확인한다.
 
 ```bash
-python pipeline/jobs/verify_search_sample.py \
+python pipeline/jobs/corpus/verify_search_sample.py \
   --dsn "$DATABASE_URL" \
   --readiness-csv "<검색 준비도 output-dir>/case_search_readiness.csv" \
   --sample-cases 1000 \
@@ -492,10 +491,10 @@ pip install -r pipeline/requirements.txt
 ```bash
 python -m unittest discover -s pipeline/standardization -t pipeline -p "test_*.py"
 python -m unittest discover -s pipeline/validation -t pipeline -p "test_*.py"
-python -m unittest discover -s pipeline/jobs -p "test_*.py"
+python -m unittest discover -s pipeline/jobs/corpus/tests -t . -p "test_*.py"
 ```
 
-2026-09-10 Python 3.12/Pillow 12.3.0 환경에서 80개 중 79개 통과, 1개 실패했다. 사례 분할 테스트 입력의 ID 중복 문제와 테스트 외 재현 오류는 [진행 현황](../Docs/Pipeline/STATUS.md)을 본다.
+2026-09-10 Python 3.12/Pillow 12.3.0 환경에서 80개 중 79개 통과, 1개 실패했다. 실패 1건은 사례 분할 테스트 입력의 ID 중복 문제다.
 
 ## 로컬 DB
 

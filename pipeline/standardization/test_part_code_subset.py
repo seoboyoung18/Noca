@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MAPPER = REPO_ROOT / "pipeline" / "jobs" / "map_estimate_labels.py"
+MAPPER = REPO_ROOT / "pipeline" / "jobs" / "estimates" / "map_estimate_labels.py"
 PART_CODE_SEED = REPO_ROOT / "Docs" / "Erd" / "A307_part_code_seed.sql"
 
 #: 소스가 `standard_code` 에 넣는 표현식 전체. 새 코드가 추가되면 이 집합이 달라지고

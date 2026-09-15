@@ -122,12 +122,12 @@ readiness와 사례별 manifest는 원천 데이터에서 재생성 가능한 �
 `pipeline/manifests/`에 커밋하지 않고 저장소 밖에 보관한다. 생성 명령은 다음과 같다.
 
 ```bash
-python pipeline/jobs/validate_search_readiness.py \
+python pipeline/jobs/corpus/validate_search_readiness.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --linkage-csv "<category integrity output>/case_id_linkage.csv" \
   --output-dir "<저장소 밖 readiness output>"
 
-python pipeline/jobs/build_case_split_manifests.py \
+python pipeline/jobs/corpus/build_case_split_manifests.py \
   --subset-root "<01.데이터_견적서보유 경로>" \
   --readiness-csv "<저장소 밖 readiness output>/case_search_readiness.csv" \
   --linkage-csv "<category integrity output>/case_id_linkage.csv" \
@@ -207,10 +207,10 @@ S3 실측에서도 `original.jpg` 2,216개에 `blurred.jpg`는 0개다. 같은 �
 
 ## 적재 책임 분리
 
-1. `pipeline/jobs/load_estimate_raw.py`가 견적 JSON 원문을 먼저 보존한다.
-2. `pipeline/jobs/load_search_data.py`가 기준 코드·확정 매핑·검색 사례·이미지만
+1. `pipeline/jobs/ingestion/load_estimate_raw.py`가 견적 JSON 원문을 먼저 보존한다.
+2. `pipeline/jobs/ingestion/load_search_data.py`가 기준 코드·확정 매핑·검색 사례·이미지만
    적재한다.
-3. `pipeline/jobs/load_aihub_damage_dataset.py`는 AI-Hub annotation 원천 테이블용
+3. `pipeline/jobs/ingestion/load_aihub_damage_dataset.py`는 AI-Hub annotation 원천 테이블용
    구조다. annotation 전수 적재는 이번 범위에 포함하지 않는다.
 
 따라서 `aihub_estimate_raw`의 125,006건과 `repair_case`의 검색 사례 수는 서로 다른

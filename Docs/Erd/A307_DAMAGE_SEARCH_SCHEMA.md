@@ -81,7 +81,7 @@ AMBIGUOUS가 실제 경계 손상인지 bbox 근사에 의한 과대평가인지
 0.5 기준 bbox `AMBIGUOUS` 622건 중 polygon 기준으로도 다중 부품인 건은 17건,
 나머지 605건은 bbox 근사에서만 생긴 후보였다. 이는 polygon 규칙으로 즉시 전환했다는
 뜻이 아니라, bbox 근사가 모호성 비율을 크게 부풀릴 수 있다는 후속 검증 신호다.
-해당 비교는 [analyze_damage_part_pairing.py](../../pipeline/jobs/analyze_damage_part_pairing.py)
+해당 비교는 [analyze_damage_part_pairing.py](../../pipeline/jobs/corpus/analyze_damage_part_pairing.py)
 로 재현하며, 전체 corpus 전수 sweep 결과가 아닌 표본 분석이다.
 
 `repair` annotation의 부품 문자열은 이 계약의 부품 정본이 아니다. 견적서 원천

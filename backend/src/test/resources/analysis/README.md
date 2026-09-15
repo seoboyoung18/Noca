@@ -17,8 +17,8 @@ git grep -rl "sample_analysis\|work_candidates" -- Docs/                        
 
 | 픽스처의 무엇 | 어디서 |
 | --- | --- |
-| 구조 · 필수 키 · 상수 · 값 범위 | `pipeline/standardization/common_schema.json` (`inference-standardized-1.1.0`) |
-| `part.code` · `name_en` · `name_ko` · `group` · `side` | `pipeline/standardization/catalog.py` 의 `PARTS` |
+| 구조 · 필수 키 · 상수 · 값 범위 | `shared/vision/common_schema.json` (`inference-standardized-1.1.0`) |
+| `part.code` · `name_en` · `name_ko` · `group` · `side` | `shared/vision/catalog.py` 의 `PARTS` |
 | `damage.code` · `name_en` · `name_ko` | 같은 파일의 `DAMAGES` |
 | `work_candidates` 조합 | 같은 파일의 `DEFAULT_WORK_BY_DAMAGE` |
 

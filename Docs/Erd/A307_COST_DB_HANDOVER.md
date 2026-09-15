@@ -2,7 +2,7 @@
 
 기준일: 2026-09-10 · 작성: 김경연(데이터 파이프라인)
 
-코드 대조 갱신: `develop` `4a0836d`. 전수 적재·표본 실측 건수는 기존 실행 기록이며 이번 문서 갱신에서 DB를 재조회하지 않았다. 전체 현황은 [파이프라인 진행 현황](../Pipeline/STATUS.md)을 본다.
+코드 대조 갱신: `develop` `4a0836d`. 전수 적재·표본 실측 건수는 기존 실행 기록이며 이번 문서 갱신에서 DB를 재조회하지 않았다. 파이프라인 전체 현황은 [`pipeline/README.md`](../../pipeline/README.md)를 본다.
 
 원천 견적 데이터는 전수 보존이 끝났다. 이 문서는 **그 위에서 `repair_case_item`을
 만드는 사람이 알아야 할 것**만 모았다. 검색 쪽(`repair_case`·`repair_case_image`)은
@@ -24,7 +24,7 @@ CREATE TABLE aihub_estimate_raw (
 ```
 
 125,006건 전수(`AIHUB_AS` 57,004 / `AIHUB_SC` 68,002). DDL은
-`pipeline/sql/003_aihub_staging.sql`, 적재기는 `pipeline/jobs/load_estimate_raw.py`.
+`pipeline/sql/003_aihub_staging.sql`, 적재기는 `pipeline/jobs/ingestion/load_estimate_raw.py`.
 
 **원문 무손실이다.** 표본 1,001건과 전수 표본 3,049건에서 파싱 객체 `==` 비교로
 확인했다. 즉 **원천 JSON을 다시 읽을 이유가 없다.** payload에서 바로 변환하면 된다.
@@ -44,7 +44,7 @@ payload 최상위 키는 `차량정보` / `수리비 정산정보` / `수리내�
 `82a2cf4` (`S15P21A307-416`)의 규칙 모듈·CLI·테스트가 현재 develop에 있다. 별도 브랜치에만 있다는 이전 설명은 더 이상 맞지 않는다.
 
 ```bash
-python pipeline/jobs/validate_estimate_rules.py \
+python pipeline/jobs/quality/validate_estimate_rules.py \
   --estimate-dir "<TS_99. 붙임_견적서 경로>" \
   --output-dir   "<저장소 밖 경로>" \
   --source all \
@@ -67,7 +67,7 @@ python pipeline/jobs/validate_estimate_rules.py \
 **주의 — `--mapping-json`을 넘기지 않으면 `part_code`가 전부 `NULL`로 나온다.**
 현재 `load_mapping()`은 `map_estimate_labels.py`의 `rows` 포함 JSON을 일반 딕셔너리로 잘못 읽는다. 수정 전 사용할 수 있는 입력은 `{"원본 부품명": "FRONT_BUMPER"}` 형태의 평면 문자열 매핑이다. SQL seed를 그대로 `--mapping-json`에 넘길 수는 없다.
 넘긴 경우에만 매핑을 적용하도록 되어 있다. 매핑 원본은 `part_name_mapping`
-seed(15,308건, DB 적재 완료)와 `pipeline/jobs/generate_part_name_mapping_seed.py`다.
+seed(15,308건, DB 적재 완료)와 `pipeline/jobs/estimates/generate_part_name_mapping_seed.py`다.
 
 ## 2. 확정된 것 (414 머지)
 
@@ -198,9 +198,9 @@ SELECT current_database(), count(*) FROM aihub_estimate_raw;
 |---|---|
 | `pipeline/sql/003_aihub_staging.sql` | Raw·라벨 스테이징 DDL |
 | `pipeline/sql/004_repair_case_item_line_type.sql` | 견적 행 종류 재설계 migration |
-| `pipeline/jobs/load_estimate_raw.py` | Raw 전수 적재 |
+| `pipeline/jobs/ingestion/load_estimate_raw.py` | Raw 전수 적재 |
 | `pipeline/validation/estimate_rules.py` | 행 검증 규칙 |
-| `pipeline/jobs/validate_estimate_rules.py` | 검증 CLI |
+| `pipeline/jobs/quality/validate_estimate_rules.py` | 검증 CLI |
 | `pipeline/standardization/` | 표준 코드·작업 어휘 단일 기준 |
 | `pipeline/README.md` | 로컬 DB 구축 순서와 job 실행법 |
 | `Docs/Erd/A307_SEARCH_LOAD_SCOPE.md` | 검색 쪽 적재 범위 |

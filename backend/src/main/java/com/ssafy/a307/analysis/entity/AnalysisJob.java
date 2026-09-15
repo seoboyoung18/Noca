@@ -22,7 +22,7 @@ import java.time.Instant;
  * 사고 한 건에 대한 분석 작업. 적재된 {@link DamagedPart} 들이 매달리는 소유자다.
  *
  * <p><b>{@code model_version} 을 이 작업에서 채우지 않는다.</b> 적재 입력인 표준화 계약
- * ({@code pipeline/standardization/common_schema.json} 1.1.0) 에 <b>모델 버전 필드가 아예 없다.</b>
+ * ({@code shared/vision/common_schema.json} 1.1.0) 에 <b>모델 버전 필드가 아예 없다.</b>
  * 버전은 상위 원본 계약({@code raw_yolo_schema.json} 의 {@code model.name}·{@code model.version})
  * 에만 있고 표준화 과정에서 떨어져 나간다. 그래서 적재 쪽이 채울 값이 없다 —
  * 없는 값을 지어내는 대신 비워 두고 보고서에 적었다.
