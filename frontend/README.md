@@ -43,6 +43,19 @@ npm run dev
 
 백엔드 준비 사항: Redis·PostgreSQL 실행, `KAKAO_CLIENT_ID`·`KAKAO_CLIENT_SECRET` 설정, 카카오 콘솔 Redirect URI 에 `http://localhost:8080/login/oauth2/code/kakao` 등록. `FRONTEND_BASE_URL` 기본값이 `http://localhost:5173` 이라 로컬 CORS 는 추가 설정이 없습니다.
 
+### 구글 로그인
+
+FE 는 버튼의 provider 만 `google` 로 바뀌고 나머지 흐름(콜백 → `/` 또는 `/signup` → 약관 동의 → 홈)은 카카오와 같습니다. 마이페이지의 로그인 방식 표시는 세션의 `provider` 값(KAKAO · GOOGLE)을 따릅니다.
+
+백엔드 준비 사항 (Google Cloud Console → API 및 서비스 → 사용자 인증 정보):
+
+1. OAuth 클라이언트 ID 만들기 → 애플리케이션 유형 **웹 애플리케이션**
+2. **승인된 리디렉션 URI** 에 `http://localhost:8080/login/oauth2/code/google` 추가 (승인된 JavaScript 원본은 서버 흐름이라 필요 없음)
+3. OAuth 동의 화면에서 범위는 기본 프로필만 — 백엔드 scope 가 `profile` 하나이며 이메일은 받지 않습니다. 테스트 게시 상태면 **테스트 사용자**에 로그인할 구글 계정을 추가해야 합니다
+4. 발급된 클라이언트 ID·보안 비밀을 `backend/.env` 의 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET` 에 넣고 백엔드 재시작
+
+키가 없으면 백엔드가 기본값 `changeme` 로 뜨고, 구글 버튼을 누르면 구글 쪽에서 `invalid_client` 오류 페이지가 나옵니다.
+
 ## 카카오 지도 API 설정 (주변 정비소 화면)
 
 1. https://developers.kakao.com → 내 애플리케이션 → 애플리케이션 추가
