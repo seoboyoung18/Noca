@@ -9,7 +9,7 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import {
   PROFILE_IMAGE_MAX_BYTES, PROFILE_IMAGE_TYPES, completeProfileImage, deleteProfileImage,
-  issueProfileImageUploadUrl, updateNickname, uploadToPresignedUrl,
+  fetchMyAccidents, fetchRepairChecklistStatus, issueProfileImageUploadUrl, updateNickname, uploadToPresignedUrl,
 } from '../lib/api'
 import { AUTH_GUARD_OFF } from '../router'
 
@@ -18,8 +18,47 @@ const store = useAppStore()
 const auth = useAuthStore()
 const sh = reactive({ avatar: false, logout: false, notice: false, nick: false })
 
-// 프로필 이미지 URL 은 10분짜리 presigned GET 이라 화면에 들어올 때마다 새로 받는다
-onMounted(() => { if (!AUTH_GUARD_OFF) auth.loadProfile() })
+/* ===== 통계 카드 — 서버 값과 동기화 =====
+ * 내 차량·사고 이력: GET /api/members/me 의 vehicleCount·accidentCount
+ * 체크리스트: 건수 API 가 없어 사고 목록(GET /api/accidents/me)을 받아 사고별 체크리스트 상태를 조회하고
+ *             COMPLETED 인 건수를 센다. 사고 수만큼 요청이 나가므로 동시 5건으로 제한한다.
+ * null 은 아직 모름(로딩 중·조회 실패) → '–' 로 표시
+ */
+const counts = reactive({ vehicles: null, accidents: null, checklists: null })
+const fmt = (n) => (n === null || n === undefined ? '–' : n)
+const CHECKLIST_SCAN_MAX = 300 // 사고가 이보다 많으면 최근 300건까지만 센다 (요청 폭주 방지)
+
+async function countCompletedChecklists() {
+  const ids = []
+  for (let page = 0; ids.length < CHECKLIST_SCAN_MAX; page++) {
+    const res = await fetchMyAccidents(page, 100)
+    ids.push(...(res.accidents || []).map((a) => a.accidentId))
+    if (!res.hasNext) break
+  }
+  let done = 0
+  let i = 0
+  const worker = async () => {
+    while (i < ids.length) {
+      const id = ids[i++]
+      try { if ((await fetchRepairChecklistStatus(id))?.status === 'COMPLETED') done++ } catch (e) { /* 개별 실패는 0으로 친다 */ }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(5, ids.length) }, worker))
+  return done
+}
+
+async function loadStats() {
+  if (AUTH_GUARD_OFF) { // 백엔드 없는 화면 확인 모드 — 기존 목업 수치
+    counts.vehicles = store.vehicles.length; counts.accidents = store.history.length; counts.checklists = store.checklists.length
+    return
+  }
+  // 프로필 이미지 URL(10분 presigned)도 여기서 함께 갱신된다
+  const profile = await auth.loadProfile()
+  if (profile) { counts.vehicles = profile.vehicleCount ?? null; counts.accidents = profile.accidentCount ?? null }
+  try { counts.checklists = await countCompletedChecklists() } catch (e) { counts.checklists = null }
+}
+
+onMounted(loadStats)
 
 /* ===== 프로필 이미지 — 발급(①) → S3 PUT(②) → 완료 통보(③) ===== */
 const albumInput = ref(null)
@@ -162,9 +201,9 @@ async function logout() { sh.logout = false; store.agreed = false; await auth.lo
       </div>
 
       <div class="stats">
-        <button class="stat" @click="router.push('/my/vehicles')"><b>{{ store.vehicles.length }}</b><span>내 차량<Chev /></span></button>
-        <button class="stat" @click="router.push('/history')"><b>{{ store.history.length }}</b><span>사고 이력<Chev /></span></button>
-        <button class="stat" @click="router.push('/checklists')"><b>{{ store.checklists.length }}</b><span>체크리스트<Chev /></span></button>
+        <button class="stat" @click="router.push('/my/vehicles')"><b :class="{ pending: counts.vehicles === null }">{{ fmt(counts.vehicles) }}</b><span>내 차량<Chev /></span></button>
+        <button class="stat" @click="router.push('/history')"><b :class="{ pending: counts.accidents === null }">{{ fmt(counts.accidents) }}</b><span>사고 이력<Chev /></span></button>
+        <button class="stat" @click="router.push('/checklists')"><b :class="{ pending: counts.checklists === null }">{{ fmt(counts.checklists) }}</b><span>체크리스트<Chev /></span></button>
       </div>
 
       <div class="lbl" style="margin-top:24px">계정 · 정보</div>
@@ -269,5 +308,6 @@ export default { components: { Chev, ChevR } }
 .stat { flex: 1 1 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .stat:last-child { border-right: 0; }
 .stat b { font-size: 24px; font-weight: 700; color: var(--text); }
+.stat b.pending { color: var(--text-4); }
 .stat span { display: flex; align-items: center; gap: 2px; font-size: 13px; color: var(--text-2); }
 </style>
