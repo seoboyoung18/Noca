@@ -35,6 +35,10 @@ class UltralyticsRunner:
             self._models[spec.weights] = YOLO(str(spec.weights))
         return self._models[spec.weights]
 
+    def is_loaded(self, spec: ModelSpec) -> bool:
+        """Return the lazy model-cache state without triggering a model load."""
+        return spec.weights in self._models
+
     def run(self, spec: ModelSpec, image_path: Path, image_id: int) -> tuple[dict[str, Any], dict[int, str]]:
         model = self._model(spec)
         try:

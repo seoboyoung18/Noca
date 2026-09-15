@@ -32,4 +32,4 @@ search_service = SearchService(
 )
 
 app = FastAPI(title="A307 AI Server", version="0.1.0")
-app.include_router(build_router(settings, inference_service, search_service))
+app.include_router(build_router(settings, inference_service, search_service, embedding_service))

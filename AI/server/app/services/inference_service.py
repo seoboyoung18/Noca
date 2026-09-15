@@ -31,6 +31,11 @@ class InferenceService:
             "damage": {"name": self._damage.name, "version": self._damage.version, "task": self._damage.api_task},
         }
 
+    @property
+    def models_loaded(self) -> bool:
+        """Both YOLO artifacts required by /inference are present in the process cache."""
+        return self._runner.is_loaded(self._part) and self._runner.is_loaded(self._damage)
+
     async def infer(self, images: list[InputImage]) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         with tempfile.TemporaryDirectory(prefix="a307-ai-") as directory:

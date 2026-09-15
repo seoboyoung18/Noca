@@ -29,6 +29,19 @@ class VectorRepository:
         self._expected_model_name = expected_model_name
         self._expected_model_version = expected_model_version
 
+    def is_reachable(self) -> bool:
+        """Perform a minimal read-only connectivity probe for the health endpoint."""
+        if not self._dsn:
+            return False
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn, connect_timeout=2) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    return cursor.fetchone() == (1,)
+        except Exception:
+            return False
+
     def search(self, *, vector: Sequence[float], pipeline_version_id: int,
                damage_type: str, part_code: str | None, car_class: str | None,
                limit: int) -> tuple[str, list[SearchHit]]:

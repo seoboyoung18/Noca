@@ -361,10 +361,18 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
 ## GET /health
 
 ```json
-{ "status": "ok", "modelsLoaded": true, "dbReachable": true }
+{
+  "status": "ok",
+  "modelsLoaded": true,
+  "embeddingModelLoaded": true,
+  "dbReachable": true
+}
 ```
 
-`X-Internal-Token` 없이 호출할 수 있습니다. 모델 로딩 전에는 `modelsLoaded: false`로 `200`을 돌려주므로, 배포 헬스체크는 이 값까지 봐야 합니다.
+`X-Internal-Token` 없이 호출할 수 있습니다. YOLO와 DINOv2는 지연 로딩하므로,
+각 모델을 아직 실제 요청에 사용하지 않았으면 해당 loaded 필드는 `false`일 수 있습니다.
+`dbReachable`은 읽기 전용 `SELECT 1` probe 결과입니다. 배포 헬스체크는 `status`를
+기본 생존 신호로 사용하고, 의존성 준비 여부는 세 상세 필드를 함께 확인합니다.
 
 ---
 
