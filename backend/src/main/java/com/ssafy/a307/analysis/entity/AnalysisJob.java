@@ -122,8 +122,9 @@ public class AnalysisJob {
     /**
      * AI 에 요청을 보냈다. {@code QUEUED → PROCESSING} 이며 이때 멱등 키가 정해진다.
      *
-     * <p>분석 요청(S15P21A307-156)이 부른다. 여기서 {@code requestId} 를 심어 두어야
-     * callback 이 "내가 보낸 요청의 답" 인지 대조할 수 있다.
+     * <p>여기서 {@code requestId} 를 심어 두어야 callback 이 "내가 보낸 요청의 답" 인지 대조할 수
+     * 있다. 분석 요청 워커(S15P21A307-156)는 같은 전이를 조건부 UPDATE
+     * ({@code AnalysisJobRepository#claimQueued})로 한다 — 워커 둘이 같은 건을 옮기지 않게.
      */
     public void markProcessing(String requestId, Instant now) {
         if (requestId == null || requestId.isBlank()) {
