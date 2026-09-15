@@ -27,6 +27,21 @@ const TOTAL = STAGES.length
 const POLL_MS = 2000
 const EXCLUDE_REASON = { NOT_VEHICLE: '차량이 아닌 사진', RATIO_BELOW_THRESHOLD: '차량이 너무 작게 찍힌 사진' }
 
+// failureReason 코드 → 안내 문구. 서버(AnalysisRequestFailure·AnalysisCallbackService)와 AI 서버 오류 명세의 코드 그대로.
+// photo=true 인 사유는 같은 사진으로 다시 분석해도 결과가 같으므로 재촬영으로 이끈다
+const FAIL_TEXT = {
+  ALL_IMAGES_EXCLUDED: { text: '올린 사진이 모두 분석에서 제외됐어요. 차량 전체와 손상 부위가 잘 보이도록 다시 촬영해 주세요.', photo: true },
+  NO_IMAGE: { text: '분석할 사진이 없어요. 사진을 먼저 올려 주세요.', photo: true },
+  IMAGE_FETCH_FAILED: { text: '사진을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.' },
+  MODEL_ERROR: { text: 'AI 분석 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.' },
+  INVALID_MODEL_OUTPUT: { text: 'AI 분석 결과를 처리하지 못했어요. 잠시 후 다시 시도해 주세요.' },
+  INTERNAL: { text: 'AI 서버에 일시적인 문제가 있어요. 잠시 후 다시 시도해 주세요.' },
+  AI_UNREACHABLE: { text: 'AI 서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.' },
+  STORAGE_UNAVAILABLE: { text: '사진 저장소에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.' },
+  ABANDONED: { text: '분석이 제한 시간 안에 끝나지 않았어요. 다시 시도해 주세요.' },
+}
+const FAIL_DEFAULT = '일시적인 문제일 수 있어요. 잠시 후 다시 시도해 주세요.'
+
 // 서버 상태
 const status = ref(null)        // QUEUED | PROCESSING | COMPLETED | FAILED | null(대기·미요청)
 const doneStages = ref(0)       // DONE 인 단계 수
@@ -49,6 +64,13 @@ const stageText = computed(() => {
   return STAGES[cur.value].text
 })
 const failed = computed(() => status.value === 'FAILED' || !!fatal.value)
+const failInfo = computed(() => FAIL_TEXT[failureReason.value] || null)
+const failText = computed(() => fatal.value || failInfo.value?.text || FAIL_DEFAULT)
+// 매핑에 없는 코드는 원인 추적을 위해 코드도 작게 보여 준다
+const failCode = computed(() => (!fatal.value && failureReason.value && !failInfo.value ? failureReason.value : ''))
+// 사진 문제(전부 제외·사진 없음)면 재촬영으로. 요청 거절 400 도 사진 없음이라 같은 처리
+const photoProblem = computed(() => !!failInfo.value?.photo || fatal.value.startsWith('분석할 사진이 없어요'))
+function reupload() { router.replace({ path: '/claim/upload', query: accidentId ? { accidentId } : {} }) }
 const excludedText = computed(() => {
   if (!excluded.value.length) return ''
   const kinds = [...new Set(excluded.value.map((e) => EXCLUDE_REASON[e.reason] || '기준에 맞지 않는 사진'))]
@@ -154,11 +176,14 @@ onUnmounted(() => { stopped = true; clearTimeout(timer) }) // 화면을 떠나�
           <span class="failic">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8v5M12 16.5h.01" stroke="#C0392B" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9.25" stroke="#C0392B" stroke-width="1.5"/></svg>
           </span>
-          <h1 class="h1 sm" style="margin-top:28px">{{ fatal ? '분석을 시작할 수 없어요' : '분석을 완료하지 못했어요' }}</h1>
-          <p style="margin-top:8px;font-size:14px;color:var(--text-3);line-height:1.55;padding:0 32px">{{ fatal || failureReason || '일시적인 문제일 수 있어요. 잠시 후 다시 시도해 주세요.' }}</p>
+          <h1 class="h1 sm" style="margin-top:28px">{{ fatal ? '분석을 시작할 수 없어요' : photoProblem ? '사진을 다시 올려 주세요' : '분석을 완료하지 못했어요' }}</h1>
+          <p style="margin-top:8px;font-size:14px;color:var(--text-3);line-height:1.55;padding:0 32px">{{ failText }}</p>
+          <p v-if="failCode" class="sub" style="margin-top:6px;font-size:11px;color:var(--text-4)">오류 코드 {{ failCode }}</p>
         </div>
         <div style="margin-top:28px;padding:0 40px;display:flex;flex-direction:column;gap:10px">
-          <button v-if="!fatal || fatal.includes('잠시 후')" class="btn" @click="retry">다시 분석하기</button>
+          <!-- 사진 문제: 같은 사진으로 다시 분석해도 결과가 같다 → 업로드 화면으로 -->
+          <button v-if="photoProblem" class="btn" @click="reupload">사진 다시 올리기</button>
+          <button v-else-if="!fatal || fatal.includes('잠시 후')" class="btn" @click="retry">다시 분석하기</button>
           <button class="btn outline muted" @click="router.replace('/home')">홈으로</button>
         </div>
       </template>
