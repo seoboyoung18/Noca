@@ -105,6 +105,19 @@ export const completeProfileImage = (uploadKey) => http.put('/api/members/me/pro
 /** 이미지 삭제(기본 이미지로). 204 가 아니라 갱신된 프로필을 돌려준다 */
 export const deleteProfileImage = () => http.delete('/api/members/me/profile-image').then(data)
 
+/* ===== 사고 · 정비 체크리스트 (AccidentController · RepairChecklistController) ===== */
+
+/** 내 사고 이력. createdAt 내림차순. { accidents[], page, size, totalElements, totalPages, hasNext }. size 상한 100 */
+export const fetchMyAccidents = (page = 0, size = 100) =>
+  http.get('/api/accidents/me', { params: { page, size } }).then(data)
+
+/**
+ * 사고별 정비 체크리스트 상태. 아직 요청하지 않은 사고는 200 + status null.
+ * { checklistId, status: QUEUED|PROCESSING|COMPLETED|FAILED|null, failureReason, items[], notice, ... }
+ */
+export const fetchRepairChecklistStatus = (accidentId) =>
+  http.get(`/api/accidents/${accidentId}/repair-checklist`).then(data)
+
 /**
  * 회원 탈퇴. 204, 본문 없음.
  * 서버가 개인식별정보를 지우는 소프트 삭제를 하고 같은 요청에서 세션을 끊어 SESSION 쿠키를 삭제한다.
