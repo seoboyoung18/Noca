@@ -1,7 +1,8 @@
 -- S15P21A307-503 · 마이그레이션 적용 여부 확인
 --
 -- 무엇을 하나
---   Docs/Erd/migrations/ 의 파일 8개가 이 DB 에 반영됐는지 파일별로 판정한다.
+--   Docs/Erd/migrations/ 의 2026-*.sql 9개가 이 DB 에 반영됐는지 파일별로 판정한다.
+--   (check-applied.sql 자신은 마이그레이션이 아니라 이 확인 스크립트다)
 --   각 파일이 만드는 대표 객체(테이블·컬럼·시드 행)의 존재로 판정한다.
 --
 -- 왜 필요한가
@@ -89,7 +90,12 @@ WITH probe(seq, migration, object_kind, detail, applied) AS (
         EXISTS (SELECT 1 FROM information_schema.tables
                  WHERE table_schema = 'public' AND table_name = 'repair_question')
         AND EXISTS (SELECT 1 FROM information_schema.tables
-                 WHERE table_schema = 'public' AND table_name = 'repair_question_item'))
+                 WHERE table_schema = 'public' AND table_name = 'repair_question_item')),
+
+    (9, '2026-09-15-accident-review.sql', '테이블 1',
+        'accident_review',
+        EXISTS (SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = 'public' AND table_name = 'accident_review'))
 )
 SELECT seq                                AS "#",
        CASE WHEN applied THEN 'O' ELSE 'X' END AS "적용",
@@ -129,7 +135,7 @@ SELECT count(*) AS "public 스키마 테이블 수"
   FROM information_schema.tables
  WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
 
--- 정본(Docs/Erd/A307_ddl_final.sql)은 2026-09-15 기준 41개다.
+-- 정본(Docs/Erd/A307_ddl_final.sql)은 2026-09-15 기준 42개다.
 --   grep -c '^CREATE TABLE' Docs/Erd/A307_ddl_final.sql
 -- 이보다 많으면 Spring Batch 메타 테이블 등이 섞인 것이다 — 그 자체는 문제가 아니다.
 -- 적으면 빠진 것이 있다. 위 표에서 X 를 찾는다.
