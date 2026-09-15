@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ApiError, fetchMe, logout as apiLogout } from '../lib/api'
+import { ApiError, fetchMe, fetchProfile, logout as apiLogout } from '../lib/api'
 
 // 로그인 뒤 돌아갈 경로. 서버가 OAuth 성공 후 항상 FE '/' 로 보내므로 세션 스토리지에 잠시 보관한다.
 const NEXT_KEY = 'noka.auth.next'
@@ -10,6 +10,8 @@ export const useAuthStore = defineStore('auth', {
     // unknown: 아직 확인 안 함 · guest: 비로그인 · pending: 소셜 인증만 끝난 가입 대기 · member: 로그인 완료
     status: 'unknown',
     me: null, // { memberId, nickname, email, provider, role }
+    // GET /api/members/me 의 profileImageUrl — 10분짜리 presigned GET. 없으면 null (기본 아바타)
+    profileImageUrl: null,
     offline: false, // 서버에 연결하지 못해 guest 로 처리한 경우
   }),
 
@@ -47,8 +49,19 @@ export const useAuthStore = defineStore('auth', {
     setMember(me) { this.me = me; this.status = 'member' },
     /** 닉네임 수정 성공 뒤 세션 정보만 갱신 — 홈·마이페이지·계정 관리 표시가 함께 바뀐다 */
     setNickname(nickname) { if (this.me) this.me = { ...this.me, nickname } },
-    setPending() { this.me = null; this.status = 'pending' },
-    clear() { this.me = null; this.status = 'guest' },
+    /** 프로필 응답(MemberProfileResponse)으로 닉네임·이미지 URL 갱신 */
+    setProfile(profile) {
+      if (!profile) return
+      if (this.me && profile.nickname) this.me = { ...this.me, nickname: profile.nickname }
+      this.profileImageUrl = profile.profileImageUrl || null
+    },
+    /** 프로필 이미지 URL 을 새로 받는다. presigned URL 이 10분이라 화면 진입 때마다 부르는 편이 안전하다 */
+    async loadProfile() {
+      if (this.status !== 'member') return null
+      try { const p = await fetchProfile(); this.setProfile(p); return p } catch (e) { return null }
+    },
+    setPending() { this.me = null; this.profileImageUrl = null; this.status = 'pending' },
+    clear() { this.me = null; this.profileImageUrl = null; this.status = 'guest' },
 
     /** 서버 세션을 끊는다. 서버가 실패해도 로컬 상태는 비운다. */
     async logout() {

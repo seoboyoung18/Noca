@@ -65,6 +65,46 @@ export const fetchProfile = () => http.get('/api/members/me').then(data)
  */
 export const updateNickname = (nickname) => http.patch('/api/members/me', { nickname }).then(data)
 
+/* ===== 프로필 이미지 — presigned 직접 업로드 3단계 (MemberController · ProfileImageService) =====
+ *   ① POST /api/members/me/profile-image/upload-url { contentType, size } → { uploadKey, url, expiresAt, requiredHeaders }
+ *   ② PUT  {url}  브라우저 → S3 직접. requiredHeaders 를 그대로 싣고, 신고한 size 와 같은 바이트를 올린다 (다르면 S3 403)
+ *   ③ PUT  /api/members/me/profile-image { uploadKey } → 갱신된 프로필(profileImageUrl 은 10분짜리 presigned GET)
+ * 허용 형식 image/jpeg · image/png · image/heic, 최대 5MB, URL 유효 10분. 저장소 미구성 서버는 503 SERVICE_UNAVAILABLE.
+ */
+export const PROFILE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/heic']
+export const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024 // app.profile-image.max-file-size-bytes 와 동일. 최종 판정은 서버
+
+export const issueProfileImageUploadUrl = (contentType, size) =>
+  http.post('/api/members/me/profile-image/upload-url', { contentType, size }).then(data)
+
+/**
+ * ② S3 presigned PUT. 세션 쿠키를 보내지 않는 별도 요청이라 axios 인스턴스를 쓰지 않는다.
+ * requiredHeaders 는 키 이름을 하드코딩하지 않고 그대로 펼친다 (사고 이미지 API 와 대소문자가 다름).
+ * onProgress(0~100) 로 진행률을 준다 — 서버는 전송 중인 바이트를 보지 못하므로 진행률은 FE 몫.
+ */
+export function uploadToPresignedUrl(url, file, requiredHeaders = {}, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    for (const [k, v] of Object.entries(requiredHeaders)) {
+      if (k.toLowerCase() === 'content-length') continue // 브라우저가 body 에서 계산. 직접 설정하면 거부한다
+      xhr.setRequestHeader(k, v)
+    }
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)) }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new ApiError(xhr.status, 'UPLOAD_FAILED', xhr.status === 403 ? '업로드가 거절되었어요. 파일을 다시 선택해 주세요.' : '파일 업로드에 실패했어요.'))
+    }
+    xhr.onerror = () => reject(new ApiError(0, 'NETWORK_ERROR', '파일을 업로드하지 못했어요. 네트워크를 확인해 주세요.'))
+    xhr.send(file)
+  })
+}
+
+export const completeProfileImage = (uploadKey) => http.put('/api/members/me/profile-image', { uploadKey }).then(data)
+
+/** 이미지 삭제(기본 이미지로). 204 가 아니라 갱신된 프로필을 돌려준다 */
+export const deleteProfileImage = () => http.delete('/api/members/me/profile-image').then(data)
+
 /**
  * 회원 탈퇴. 204, 본문 없음.
  * 서버가 개인식별정보를 지우는 소프트 삭제를 하고 같은 요청에서 세션을 끊어 SESSION 쿠키를 삭제한다.
