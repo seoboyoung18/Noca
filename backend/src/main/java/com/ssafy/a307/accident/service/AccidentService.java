@@ -16,6 +16,7 @@ import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.analysis.entity.AnalysisJobStatus;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
+import com.ssafy.a307.review.service.AccidentReviewQueueService;
 import com.ssafy.a307.vehicle.entity.Vehicle;
 import com.ssafy.a307.vehicle.repository.VehicleRepository;
 import com.ssafy.a307.vehicle.service.VehicleRegistrationService;
@@ -44,6 +45,7 @@ public class AccidentService {
     private final AccidentRepository accidentRepository;
     private final VehicleRepository vehicleRepository;
     private final VehicleRegistrationService vehicleRegistrationService;
+    private final AccidentReviewQueueService reviewQueueService;
     private final AccidentImageDownloadUrls downloadUrls;
 
     /**
@@ -241,11 +243,20 @@ public class AccidentService {
 
         requireNotBeforeReport(accident, request.repairCompletedDate());
 
+        Instant now = Instant.now();
         accident.recordActualRepair(
                 request.actualRepairCost(),
                 request.repairCompletedDate(),
                 request.repairShopName().strip(),
-                Instant.now());
+                now);
+
+        // 검수 대기 큐에 올린다 (S15P21A307-350). 재학습 데이터셋에 실릴 수 있는 건이
+        // actual_repair_cost 가 있는 사고뿐이라(load_service_accidents.py) 이 자리가 적재
+        // 자격이 생기는 시점이다. 두 번째 호출부터는 아무 일도 하지 않는다 —
+        // 사용자가 수리비를 정정해도 관리자가 같은 사고를 두 번 보지 않는다.
+        // 같은 트랜잭션이다: 수리비만 들어가고 검수 대상이 되지 않는 사고가 생기면 안 된다.
+        reviewQueueService.enqueue(accident, now);
+
         return ActualRepairCostResponse.from(accident);
     }
 

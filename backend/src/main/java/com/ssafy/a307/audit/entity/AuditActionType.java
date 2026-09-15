@@ -14,5 +14,12 @@ public enum AuditActionType {
     DEACTIVATE,
     /** 재활성화. */
     ACTIVATE,
-    DELETE
+    DELETE,
+    /**
+     * 검수 승인 (S15P21A307-352). UPDATE 로 뭉뚱그리지 않는 이유는 DEACTIVATE·ACTIVATE 와 같다 —
+     * "누가 이 사고를 학습 데이터로 승인했나" 를 찾을 때 UPDATE 수십 건을 뒤지게 된다.
+     */
+    APPROVE,
+    /** 검수 반려. 사유는 {@code change_reason} 에 들어간다. */
+    REJECT
 }
