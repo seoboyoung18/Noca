@@ -1,5 +1,5 @@
 <script setup>
-import { reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
@@ -7,12 +7,49 @@ import BottomSheet from '../components/BottomSheet.vue'
 import Avatar from '../components/Avatar.vue'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
+import { updateNickname } from '../lib/api'
+import { AUTH_GUARD_OFF } from '../router'
 
 const router = useRouter()
 const store = useAppStore()
 const auth = useAuthStore()
-const sh = reactive({ avatar: false, logout: false, notice: false })
+const sh = reactive({ avatar: false, logout: false, notice: false, nick: false })
 function setAvatar(v) { store.hasAvatar = v; sh.avatar = false }
+
+/* ===== 닉네임 수정 — PATCH /api/members/me ===== */
+// 서버 NicknamePolicy 와 같은 범위(앞뒤 공백 제거 후 2~12자). 금칙어는 서버가 판정해 400 메시지로 알려 준다
+const NICK_MIN = 2
+const NICK_MAX = 12
+const nick = ref('')
+const nickBusy = ref(false)
+const nickError = ref('')
+const nickTrimmed = computed(() => nick.value.trim())
+const nickValid = computed(() => nickTrimmed.value.length >= NICK_MIN && nickTrimmed.value.length <= NICK_MAX)
+const nickChanged = computed(() => nickTrimmed.value !== (auth.nickname || ''))
+
+function openNick() {
+  nick.value = auth.nickname || ''
+  nickError.value = ''
+  sh.nick = true
+}
+async function saveNick() {
+  if (!nickValid.value || nickBusy.value) return
+  const value = nickTrimmed.value
+  if (!nickChanged.value) { sh.nick = false; return }
+  if (AUTH_GUARD_OFF) { auth.setNickname(value); sh.nick = false; return } // 백엔드 없는 화면 확인 모드
+  nickBusy.value = true
+  nickError.value = ''
+  try {
+    const profile = await updateNickname(value)
+    auth.setNickname(profile?.nickname ?? value)
+    sh.nick = false
+  } catch (e) {
+    // 400: 길이·금칙어 — 서버 문구가 구체적이라 그대로 보여 준다. 401 은 전역 처리(로그인 화면)로 넘어간다
+    nickError.value = e.status === 400 ? e.message : e.status === 0 ? e.message : '닉네임을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.'
+  } finally {
+    nickBusy.value = false
+  }
+}
 // POST /api/auth/logout (204) 로 서버 세션을 끊은 뒤 랜딩으로
 async function logout() { sh.logout = false; store.agreed = false; await auth.logout(); router.replace('/landing') }
 </script>
@@ -29,7 +66,12 @@ async function logout() { sh.logout = false; store.agreed = false; await auth.lo
           </button>
         </Avatar>
         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px">
-          <span style="font-size:20px;font-weight:700">{{ auth.nickname || '김싸피' }}</span>
+          <span class="row" style="gap:6px">
+            <span style="font-size:20px;font-weight:700">{{ auth.nickname || '김싸피' }}</span>
+            <button class="nkedit" aria-label="닉네임 수정" @click="openNick">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M12.5 3.5l4 4L7 17H3v-4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            </button>
+          </span>
           <!-- 로그인 방식 — 세션의 provider(KAKAO | GOOGLE)에 따라 표시. 세션 정보가 없으면 기존 목업대로 카카오 -->
           <span v-if="auth.me?.provider === 'GOOGLE'" class="kakao google">
             <b class="gm" aria-hidden="true">G</b>구글 로그인
@@ -85,6 +127,26 @@ async function logout() { sh.logout = false; store.agreed = false; await auth.lo
       <div class="acts" style="margin-top:12px"><button class="btn outline" @click="sh.avatar = false">닫기</button></div>
     </BottomSheet>
 
+    <BottomSheet v-model="sh.nick">
+      <p class="st">닉네임 변경</p>
+      <div class="field" style="margin-top:20px">
+        <label class="fl" for="nickInput">닉네임</label>
+        <input
+          id="nickInput" v-model="nick" class="inp" :maxlength="NICK_MAX" autocomplete="off" enterkeyhint="done"
+          placeholder="2~12자" :disabled="nickBusy" @keyup.enter="saveNick"
+        >
+      </div>
+      <div class="row between" style="margin-top:8px">
+        <span class="sub" style="font-size:12px">한글·영문·숫자 모두 사용할 수 있어요. 앞뒤 공백은 저장 시 제거돼요</span>
+        <span class="sub nowrap" :class="{ over: nickTrimmed.length > 0 && !nickValid }" style="font-size:12px">{{ nickTrimmed.length }}/{{ NICK_MAX }}</span>
+      </div>
+      <p v-if="nickError" class="sub err" role="alert">{{ nickError }}</p>
+      <div class="acts">
+        <button class="btn outline" :disabled="nickBusy" @click="sh.nick = false">취소</button>
+        <button class="btn bold" :disabled="!nickValid || nickBusy" @click="saveNick">{{ nickBusy ? '저장 중…' : '저장' }}</button>
+      </div>
+    </BottomSheet>
+
     <BottomSheet v-model="sh.logout">
       <p class="st">로그아웃할까요?</p>
       <p class="sd">다시 이용하려면 카카오·구글 로그인이 필요해요.</p>
@@ -113,6 +175,10 @@ export default { components: { Chev, ChevR } }
 .avedit { position: absolute; right: -2px; bottom: -2px; width: 22px; height: 22px; border: 2px solid var(--white); border-radius: 11px; background: var(--primary); display: flex; align-items: center; justify-content: center; }
 .kakao { display: flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 12px; background: var(--kakao); font-size: 12px; font-weight: 600; color: var(--text); }
 .kakao.google { background: var(--white); border: 1px solid var(--line); }
+.nkedit { width: 26px; height: 26px; border-radius: 13px; display: flex; align-items: center; justify-content: center; color: var(--text-3); background: var(--bg); }
+.nkedit:hover { background: var(--bg-2); color: var(--text); }
+.over { color: var(--danger-2); }
+.err { margin-top: 10px; color: var(--danger-2); }
 .gm { font-family: Arial, sans-serif; font-size: 12px; font-weight: 700; color: #4285F4; }
 .stats { margin-top: 20px; padding: 20px 0; border: 1px solid var(--line); border-radius: 12px; display: flex; }
 .stat { flex: 1 1 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 6px; }

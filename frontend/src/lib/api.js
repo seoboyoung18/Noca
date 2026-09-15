@@ -60,6 +60,12 @@ export const logout = () => http.post('/api/auth/logout')
 export const fetchProfile = () => http.get('/api/members/me').then(data)
 
 /**
+ * 닉네임 수정. 갱신된 프로필(MemberProfileResponse)을 돌려준다.
+ * 서버 규칙: 앞뒤 공백 제거 후 2~12자, 금칙어 불가 — 위반 시 400 INVALID_REQUEST 와 구체적 메시지. 중복 검사는 없다.
+ */
+export const updateNickname = (nickname) => http.patch('/api/members/me', { nickname }).then(data)
+
+/**
  * 회원 탈퇴. 204, 본문 없음.
  * 서버가 개인식별정보를 지우는 소프트 삭제를 하고 같은 요청에서 세션을 끊어 SESSION 쿠키를 삭제한다.
  * 소셜 연결 해제(카카오 unlink·구글 revoke)는 서버에 아직 없다(S15P21A307-102).

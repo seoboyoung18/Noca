@@ -45,6 +45,8 @@ export const useAuthStore = defineStore('auth', {
     },
 
     setMember(me) { this.me = me; this.status = 'member' },
+    /** 닉네임 수정 성공 뒤 세션 정보만 갱신 — 홈·마이페이지·계정 관리 표시가 함께 바뀐다 */
+    setNickname(nickname) { if (this.me) this.me = { ...this.me, nickname } },
     setPending() { this.me = null; this.status = 'pending' },
     clear() { this.me = null; this.status = 'guest' },
 
