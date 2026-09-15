@@ -4,9 +4,10 @@ import com.ssafy.a307.repairchecklist.entity.RepairChecklist;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistStatus;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
- * 체크리스트 생성 상태 (S15P21A307-460 응답 · -461 조회).
+ * 체크리스트 생성 상태와 항목 (S15P21A307-460 응답 · -461 조회 · -483 항목·진행률).
  *
  * <h2>상태를 네 값 그대로 준다</h2>
  *
@@ -15,21 +16,37 @@ import java.time.Instant;
  * 접으면 FE 가 "생성 중" 을 구분해 보여 줄 수 없다. <b>한글 라벨을 내려보내지 않는다</b>
  * ({@code AnalysisProgressResponse} 와 같은 규칙).
  *
- * <h2>진행률을 주지 않는다</h2>
+ * <h2>항목을 이 응답에 함께 담는다 (S15P21A307-483)</h2>
  *
- * <p>체크 개수·퍼센트는 여기 없다. 담을 열이 정본 DDL 에 없고({@code -509} 가 일부러 두지
- * 않았다) 항목 조회·체크는 각자의 스토리({@code S15P21A307-483} · {@code -485})다. 필요해지면
- * {@code repair_checklist_item} 을 {@code COUNT} 두 번 세면 나온다.
+ * <p>{@code -460} 이 만들 때는 머리 정보만 있었다. 별도 엔드포인트를 두지 않고 <b>여기에 더한</b>
+ * 이유는 셋이다.
  *
- * <h2>빈 상태</h2>
+ * <ol>
+ *   <li>{@code -482} 가 "마이페이지 &gt; 나의 체크리스트에서 사용할 수 있다" 고 했다. 그 화면은
+ *       상태·항목·진행률을 <b>한 번에</b> 그린다 — 두 번 호출하면 그 사이에 체크가 들어와
+ *       진행률과 항목이 어긋나 보이는 창이 생긴다</li>
+ *   <li>사고당 한 행이라 항목이 많아야 <b>AI 최대 10 + 공통 6</b> 이다. 페이지네이션할 크기가 아니다</li>
+ *   <li>진행률을 따로 계산하지 않아도 된다 — 이미 읽은 항목을 세면 나온다
+ *       ({@link RepairChecklistProgress})</li>
+ * </ol>
  *
- * <p>사고는 있는데 아직 생성을 요청하지 않았다면 <b>오류가 아니라 빈 상태 200</b> 이다
- * ({@link #notRequested()}). 404 로 내면 화면이 "없는 사고" 와 "아직 요청 전" 을 구분하지 못한다.
+ * <p>생성이 끝나지 않았으면 항목은 <b>빈 목록</b>이다. {@code null} 이 아니다 — 화면이 길이만
+ * 보고 그릴 수 있어야 한다.
  *
- * @param status         네 값 중 하나. 빈 상태에서는 {@code null}
- * @param failureReason  실패 <b>코드</b>다. 한글 문구가 아니다
- *                       ({@link com.ssafy.a307.repairchecklist.domain.RepairChecklistFailure})
- * @param generationNo   몇 번째 생성분인가. 재생성({@code S15P21A307-486})이 올린다
+ * <h2>고지 문구를 함께 싣는다 (S15P21A307-487)</h2>
+ *
+ * <p>{@code -487} 이 "화면 <b>상단</b>과 리포트에 항상 표시한다" 고 요구한다. 화면이 상단에
+ * 띄우려면 이 응답에 있어야 하고, 별도 호출로 나누면 체크리스트는 떴는데 고지는 안 뜨는 창이
+ * 생긴다. 문안은 DB 에 있고 서버는 코드만 안다({@code EstimateNoticeProvider}).
+ *
+ * @param status        네 값 중 하나. 빈 상태에서는 {@code null}
+ * @param failureReason 실패 <b>코드</b>다. 한글 문구가 아니다
+ *                      ({@link com.ssafy.a307.repairchecklist.domain.RepairChecklistFailure})
+ * @param generationNo  몇 번째 생성분인가. 재생성({@code S15P21A307-486})이 올린다
+ * @param items         {@code display_order} 순. 생성 전·중에는 빈 목록
+ * @param progress      완료/전체 두 수. <b>퍼센트가 아니다</b>
+ * @param notice        안내 한계 고지 문구. <b>없으면 {@code null}</b> — 시드가 빠진 환경에서
+ *                      체크리스트 조회 전체를 죽이지 않는다
  */
 public record RepairChecklistStatusResponse(
         Long checklistId,
@@ -38,14 +55,29 @@ public record RepairChecklistStatusResponse(
         String failureReason,
         Instant createdAt,
         Instant completedAt,
-        Instant regeneratedAt) {
+        Instant regeneratedAt,
+        List<RepairChecklistItemResponse> items,
+        RepairChecklistProgress progress,
+        String notice) {
 
     /** 아직 생성을 요청하지 않은 사고. 오류가 아니다. */
-    public static RepairChecklistStatusResponse notRequested() {
-        return new RepairChecklistStatusResponse(null, null, (short) 0, null, null, null, null);
+    public static RepairChecklistStatusResponse notRequested(String notice) {
+        return new RepairChecklistStatusResponse(null, null, (short) 0, null, null, null, null,
+                List.of(), RepairChecklistProgress.EMPTY, notice);
     }
 
+    /**
+     * 항목을 실을 수 없는 자리 — 생성 <b>접수</b> 응답이다. 이제 막 큐에 들어갔으므로 항목이 없고,
+     * 재시도로 큐에 되돌린 건도 앞 시도의 항목을 그대로 보여 주면 최신으로 오해된다.
+     */
     public static RepairChecklistStatusResponse from(RepairChecklist checklist) {
+        return from(checklist, List.of(), null);
+    }
+
+    public static RepairChecklistStatusResponse from(RepairChecklist checklist,
+                                                     List<RepairChecklistItemResponse> items,
+                                                     String notice) {
+        List<RepairChecklistItemResponse> copied = items == null ? List.of() : List.copyOf(items);
         return new RepairChecklistStatusResponse(
                 checklist.getChecklistId(),
                 checklist.getStatus(),
@@ -53,6 +85,9 @@ public record RepairChecklistStatusResponse(
                 checklist.getFailureReason(),
                 checklist.getCreatedAt(),
                 checklist.getCompletedAt(),
-                checklist.getRegeneratedAt());
+                checklist.getRegeneratedAt(),
+                copied,
+                RepairChecklistProgress.of(copied),
+                notice);
     }
 }

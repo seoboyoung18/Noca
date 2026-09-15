@@ -111,6 +111,8 @@ class EstimatePdfGeneratorTest {
                 new EstimateBasisResponse(1L, (short) 1, List.of()),
                 null,
                 "이 결과는 AI와 사례 통계를 이용한 참고용 추정치이며 실제 수리비와 다를 수 있고 특정 사업자를 평가하지 않습니다.",
+                // 안내 고지(S15P21A307-488)는 아직 PDF 가 그리지 않는다 — 실을 섹션이 없다.
+                null,
                 now);
     }
 }
