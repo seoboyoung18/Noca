@@ -91,6 +91,22 @@ public class AuditLogService {
         write(AuditActionType.DELETE, targetType, targetId, before, null, changeReason);
     }
 
+    /**
+     * 검수 판정 (S15P21A307-352). 승인·반려를 {@code UPDATE} 와 나눠 분류한다 —
+     * {@link #statusChanged} 가 활성 전환을 나눈 것과 같은 이유다. "누가 이 사고를 학습
+     * 데이터로 승인했나" 를 찾을 때 {@code UPDATE} 수십 건을 뒤지지 않게 한다.
+     *
+     * @param approved     승인이면 {@code true}, 반려면 {@code false}
+     * @param changeReason 반려 사유. 승인에는 {@code null} 이다 — {@code ck_ar_reject} 가
+     *                     그 조합만 허용한다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void reviewDecided(AuditTargetType targetType, String targetId,
+                              Object before, Object after, boolean approved, String changeReason) {
+        write(approved ? AuditActionType.APPROVE : AuditActionType.REJECT,
+                targetType, targetId, before, after, changeReason);
+    }
+
     private void write(AuditActionType actionType, AuditTargetType targetType, String targetId,
                        Object before, Object after, String changeReason) {
         repository.save(AuditLog.record(

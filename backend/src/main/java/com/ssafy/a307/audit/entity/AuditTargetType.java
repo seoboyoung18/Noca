@@ -13,5 +13,12 @@ public enum AuditTargetType {
     PART_NAME_MAPPING,
     REPAIR_CODE,
     REPAIR_METHOD_RULE,
-    ESTIMATE_VALIDATION_RULE
+    ESTIMATE_VALIDATION_RULE,
+    /**
+     * 사고 데이터 검수 (S15P21A307-352). 앞의 여섯과 달리 <b>마스터가 아니라 사용자 데이터</b>에
+     * 대한 판정이다 — 이 테이블이 마스터 변경 기록 전용이 아니게 되는 첫 값이다.
+     * 상태의 정본은 {@code accident_review} 이고 여기는 "누가 언제 눌렀나" 의 이력이다
+     * (answer71 §2-2).
+     */
+    ACCIDENT_REVIEW
 }
