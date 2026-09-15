@@ -1,20 +1,143 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
+import { fetchAnalysisProgress, requestAnalysis } from '../lib/api'
 
+/*
+ * 분석 중 (S07) — 서버가 주는 단계 수로 진행을 그린다. 퍼센트·남은 시간은 서버가 주지 않으므로 만들지 않는다.
+ *   POST /api/accidents/{id}/analysis  → 접수(202). 409 면 이미 진행 중이라 조회로 이어 간다
+ *   GET  /api/accidents/{id}/analysis  → 2초 간격 폴링. doneStages(0~4)·currentStage 로 게이지와 문구를 갱신
+ *   COMPLETED → 4/4 를 채운 뒤 결과 화면 · FAILED → 실패 상태(다시 시도 가능)
+ * accidentId 는 라우트 쿼리(?accidentId=)로 받는다. 사고 접수·사진 업로드 화면이 연결되면 그쪽에서 넘겨 준다.
+ * 쿼리가 없으면(프로토타입 경로) 서버 없이 모의 단계 시퀀스를 흘려 화면 전환만 보여 준다.
+ */
 const router = useRouter()
-const steps = ['사진을 확인하고 있어요', '손상 부위를 찾고 있어요', '부품을 연결하고 있어요', '수리비를 계산하고 있어요']
-const cur = ref(2) // 0-based: 현재 진행 중인 단계 (디자인 기준 3/4)
-const timers = []
-const pct = computed(() => ((cur.value + 1) / steps.length) * 100)
+const route = useRoute()
+const accidentId = Number(route.query.accidentId) || null
 
-onMounted(() => {
-  timers.push(setTimeout(() => { cur.value = 3 }, 1800))
-  timers.push(setTimeout(() => { cur.value = 4 }, 3400))
-  timers.push(setTimeout(() => router.replace('/estimate'), 4200))
+// 서버 단계 코드(AnalysisStageType 선언 순서) → 화면 문구
+const STAGES = [
+  { code: 'PREPROCESS', text: '사진을 확인하고 있어요' },
+  { code: 'DETECT', text: '손상 부위를 찾고 있어요' },
+  { code: 'MATCH', text: '부품을 연결하고 있어요' },
+  { code: 'ESTIMATE', text: '수리비를 계산하고 있어요' },
+]
+const TOTAL = STAGES.length
+const POLL_MS = 2000
+const EXCLUDE_REASON = { NOT_VEHICLE: '차량이 아닌 사진', RATIO_BELOW_THRESHOLD: '차량이 너무 작게 찍힌 사진' }
+
+// 서버 상태
+const status = ref(null)        // QUEUED | PROCESSING | COMPLETED | FAILED | null(대기·미요청)
+const doneStages = ref(0)       // DONE 인 단계 수
+const currentStage = ref(null)  // RUNNING 인 단계 코드
+const failureReason = ref('')
+const excluded = ref([])        // 분석에서 제외된 사진 [{ imageId, reason }]
+const fatal = ref('')           // 요청 자체가 거절된 경우의 안내 (400·404·503 등)
+
+// 화면 파생값: cur = 진행 중인 단계 index(0-based). 완료면 TOTAL
+const cur = computed(() => {
+  if (status.value === 'COMPLETED') return TOTAL
+  const i = STAGES.findIndex((s) => s.code === currentStage.value)
+  return i >= 0 ? i : Math.min(doneStages.value, TOTAL - 1)
 })
-onUnmounted(() => timers.forEach(clearTimeout))
+const pct = computed(() => (status.value === 'COMPLETED' ? 100 : (doneStages.value / TOTAL) * 100))
+const stageText = computed(() => {
+  if (status.value === 'FAILED') return '분석을 완료하지 못했어요'
+  if (status.value === 'COMPLETED') return '분석이 끝났어요'
+  if (status.value === 'QUEUED' || !currentStage.value) return doneStages.value ? STAGES[Math.min(doneStages.value, TOTAL - 1)].text : '분석 순서를 기다리고 있어요'
+  return STAGES[cur.value].text
+})
+const failed = computed(() => status.value === 'FAILED' || !!fatal.value)
+const excludedText = computed(() => {
+  if (!excluded.value.length) return ''
+  const kinds = [...new Set(excluded.value.map((e) => EXCLUDE_REASON[e.reason] || '기준에 맞지 않는 사진'))]
+  return `사진 ${excluded.value.length}장(${kinds.join(', ')})은 분석에서 제외됐어요`
+})
+
+let timer = null
+let stopped = false
+let busy = false
+
+function apply(p) {
+  status.value = p?.status ?? null
+  doneStages.value = p?.doneStages ?? 0
+  currentStage.value = p?.currentStage ?? null
+  failureReason.value = p?.failureReason || ''
+  excluded.value = p?.excludedImages || []
+}
+
+function finish() {
+  // 4/4 가 채워지는 것을 잠깐 보여 준 뒤 결과로
+  timer = setTimeout(() => router.replace({ path: '/estimate', query: { accidentId } }), 700)
+}
+
+async function tick() {
+  if (stopped) return
+  try {
+    const p = await fetchAnalysisProgress(accidentId)
+    apply(p)
+    if (p.status === 'COMPLETED') { finish(); return }
+    if (p.status === 'FAILED') return // 재시도 버튼으로만 다시 시작
+  } catch (e) {
+    if (e.status === 401 || e.status === 404) { fatal.value = e.status === 404 ? '사고 정보를 찾을 수 없어요.' : ''; return } // 반복해도 같다 — 멈춘다
+    // 네트워크 일시 오류 등은 다음 tick 에서 다시 본다
+  }
+  // setInterval 대신 setTimeout 재귀 — 응답이 느릴 때 요청이 겹치지 않게
+  timer = setTimeout(tick, POLL_MS)
+}
+
+async function start() {
+  if (busy) return
+  busy = true
+  fatal.value = ''
+  try {
+    const p = await requestAnalysis(accidentId) // 202 — 응답이 진행 상태와 같은 모양이라 바로 그린다
+    apply(p)
+  } catch (e) {
+    if (e.status !== 409) { // 409 = 이미 진행 중 → 조회로 이어 간다
+      fatal.value = e.status === 400 ? '분석할 사진이 없어요. 사진을 먼저 올려 주세요.'
+        : e.status === 404 ? '사고 정보를 찾을 수 없어요.'
+        : e.status === 503 ? '지금은 AI 분석을 사용할 수 없어요. 잠시 후 다시 시도해 주세요.'
+        : e.message || '분석을 시작하지 못했어요.'
+      busy = false
+      return
+    }
+  }
+  busy = false
+  tick()
+}
+
+function retry() {
+  clearTimeout(timer)
+  status.value = null
+  doneStages.value = 0
+  currentStage.value = null
+  failureReason.value = ''
+  start()
+}
+
+/* 프로토타입 경로 — accidentId 없이 들어온 경우 서버 대신 모의 단계를 흘린다 (홈·사고 이력 목업 진입용) */
+function runMock() {
+  const seq = [
+    [400, { status: 'QUEUED', doneStages: 0, currentStage: null }],
+    [1000, { status: 'PROCESSING', doneStages: 0, currentStage: 'PREPROCESS' }],
+    [1400, { status: 'PROCESSING', doneStages: 1, currentStage: 'DETECT' }],
+    [1600, { status: 'PROCESSING', doneStages: 2, currentStage: 'MATCH' }],
+    [1400, { status: 'PROCESSING', doneStages: 3, currentStage: 'ESTIMATE' }],
+    [1200, { status: 'COMPLETED', doneStages: 4, currentStage: null }],
+  ]
+  let i = 0
+  const next = () => {
+    if (stopped || i >= seq.length) return
+    const [delay, p] = seq[i++]
+    timer = setTimeout(() => { apply(p); if (p.status === 'COMPLETED') router.replace('/estimate'); else next() }, delay)
+  }
+  next()
+}
+
+onMounted(() => { accidentId ? start() : runMock() })
+onUnmounted(() => { stopped = true; clearTimeout(timer) }) // 화면을 떠나면 폴링을 반드시 끈다
 </script>
 
 <template>
@@ -24,36 +147,57 @@ onUnmounted(() => timers.forEach(clearTimeout))
 
     <div class="body col scroll" style="padding:0">
       <div class="gap"></div>
-      <div class="c">
-        <svg width="72" height="72" viewBox="0 0 72 72" fill="none" aria-hidden="true" style="animation:dcspin 1.4s linear infinite">
-          <circle cx="36" cy="36" r="33" stroke="#EEEBFD" stroke-width="6"/>
-          <circle cx="36" cy="36" r="33" stroke="#4E36E4" stroke-width="6" stroke-linecap="round" stroke-dasharray="207.3" stroke-dashoffset="62.2" transform="rotate(-90 36 36)"/>
-        </svg>
-        <h1 class="h1 sm" style="margin-top:28px">손상을 분석하고 있어요</h1>
-        <p style="margin-top:8px;font-size:14px;color:var(--text-3)">{{ steps[Math.min(cur, 3)] }}</p>
-      </div>
 
-      <div style="margin-top:24px;padding:0 40px">
-        <div class="bar"><i :style="{ width: Math.min(pct, 100) + '%' }"></i></div>
-        <div style="margin-top:10px;text-align:right;font-size:12px;font-weight:600;color:var(--text-2)">{{ Math.min(cur + 1, 4) }} / 4</div>
-      </div>
-
-      <div class="list">
-        <div v-for="(s, k) in steps" :key="k" class="li">
-          <span class="ic">
-            <svg v-if="k < cur" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 9.6L7 13L14.5 5" stroke="#4E36E4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <svg v-else-if="k === cur" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="animation:dcspin 1s linear infinite"><circle cx="9" cy="9" r="7" stroke="#EEEBFD" stroke-width="2.5"/><circle cx="9" cy="9" r="7" stroke="#4E36E4" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="31"/></svg>
-            <span v-else class="pend"></span>
+      <!-- 실패 · 요청 거절 -->
+      <template v-if="failed">
+        <div class="c">
+          <span class="failic">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8v5M12 16.5h.01" stroke="#C0392B" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9.25" stroke="#C0392B" stroke-width="1.5"/></svg>
           </span>
-          <span class="tx" :class="{ now: k === cur, later: k > cur }">{{ s }}</span>
+          <h1 class="h1 sm" style="margin-top:28px">{{ fatal ? '분석을 시작할 수 없어요' : '분석을 완료하지 못했어요' }}</h1>
+          <p style="margin-top:8px;font-size:14px;color:var(--text-3);line-height:1.55;padding:0 32px">{{ fatal || failureReason || '일시적인 문제일 수 있어요. 잠시 후 다시 시도해 주세요.' }}</p>
         </div>
-      </div>
+        <div style="margin-top:28px;padding:0 40px;display:flex;flex-direction:column;gap:10px">
+          <button v-if="!fatal || fatal.includes('잠시 후')" class="btn" @click="retry">다시 분석하기</button>
+          <button class="btn outline muted" @click="router.replace('/home')">홈으로</button>
+        </div>
+      </template>
 
-      <div class="flex1"></div>
-      <div class="center" style="padding-bottom:40px">
-        <p class="sub" style="font-size:12px">창을 닫아도 분석은 계속돼요</p>
-        <p class="sub" style="font-size:12px;margin-top:4px">사고 이력에서 결과를 확인할 수 있어요</p>
-      </div>
+      <!-- 진행 중 · 완료 -->
+      <template v-else>
+        <div class="c">
+          <svg width="72" height="72" viewBox="0 0 72 72" fill="none" aria-hidden="true" :style="status === 'COMPLETED' ? '' : 'animation:dcspin 1.4s linear infinite'">
+            <circle cx="36" cy="36" r="33" stroke="#EEEBFD" stroke-width="6"/>
+            <circle cx="36" cy="36" r="33" stroke="#4E36E4" stroke-width="6" stroke-linecap="round" stroke-dasharray="207.3" :stroke-dashoffset="status === 'COMPLETED' ? 0 : 62.2" transform="rotate(-90 36 36)"/>
+          </svg>
+          <h1 class="h1 sm" style="margin-top:28px">{{ status === 'COMPLETED' ? '분석이 끝났어요' : '손상을 분석하고 있어요' }}</h1>
+          <p style="margin-top:8px;font-size:14px;color:var(--text-3)">{{ stageText }}</p>
+        </div>
+
+        <div style="margin-top:24px;padding:0 40px">
+          <div class="bar"><i :style="{ width: pct + '%' }"></i></div>
+          <div style="margin-top:10px;text-align:right;font-size:12px;font-weight:600;color:var(--text-2)">{{ Math.min(doneStages, TOTAL) }} / {{ TOTAL }}</div>
+        </div>
+
+        <div class="list">
+          <div v-for="(s, k) in STAGES" :key="s.code" class="li">
+            <span class="ic">
+              <svg v-if="k < doneStages || status === 'COMPLETED'" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 9.6L7 13L14.5 5" stroke="#4E36E4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg v-else-if="k === cur && status !== 'QUEUED'" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="animation:dcspin 1s linear infinite"><circle cx="9" cy="9" r="7" stroke="#EEEBFD" stroke-width="2.5"/><circle cx="9" cy="9" r="7" stroke="#4E36E4" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="31"/></svg>
+              <span v-else class="pend"></span>
+            </span>
+            <span class="tx" :class="{ now: k === cur && status !== 'COMPLETED', later: k > cur }">{{ s.text }}</span>
+          </div>
+        </div>
+
+        <p v-if="excludedText" class="sub" style="margin-top:20px;padding:0 40px;font-size:12px;line-height:1.5">{{ excludedText }}</p>
+
+        <div class="flex1"></div>
+        <div class="center" style="padding-bottom:40px">
+          <p class="sub" style="font-size:12px">창을 닫아도 분석은 계속돼요</p>
+          <p class="sub" style="font-size:12px;margin-top:4px">사고 이력에서 결과를 확인할 수 있어요</p>
+        </div>
+      </template>
     </div>
   </Screen>
 </template>
@@ -61,6 +205,7 @@ onUnmounted(() => timers.forEach(clearTimeout))
 <style scoped>
 .gap { flex: 0 0 clamp(60px, 22vh, 201px); }
 .c { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.failic { width: 72px; height: 72px; border-radius: 36px; background: var(--danger-bg); display: flex; align-items: center; justify-content: center; }
 .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 3px; background: var(--primary); transition: width .4s; }
 .list { margin-top: 32px; padding: 0 40px; display: flex; flex-direction: column; }

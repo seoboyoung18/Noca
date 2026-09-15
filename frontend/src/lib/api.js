@@ -125,6 +125,20 @@ export const updateVehicleYear = (vehicleId, modelYear) => http.patch(`/api/vehi
 /** 차량 삭제. 204 · 소프트 삭제 · 멱등(이미 지운 차량도 204). 사고 이력은 남는다 */
 export const deleteVehicle = (vehicleId) => http.delete(`/api/vehicles/${vehicleId}`)
 
+/* ===== AI 분석 (AnalysisRequestController · AnalysisProgressController) =====
+ * 사고 기준 경로. 서버는 퍼센트·남은 시간을 주지 않고 단계 수만 준다 — 화면은 doneStages/totalStages(항상 4)로 그린다.
+ */
+
+/** 분석 요청. 접수만 하고 202, 응답은 진행 상태와 같은 모양. 400(보낼 사진 없음)·404·409(이미 진행 중)·503(AI 설정 없음) */
+export const requestAnalysis = (accidentId) => http.post(`/api/accidents/${accidentId}/analysis`).then(data)
+
+/**
+ * 분석 진행 상태. 미요청 사고는 200 + status null(빈 상태).
+ * { jobId, status: QUEUED|PROCESSING|COMPLETED|FAILED|null, failureReason, startedAt, finishedAt,
+ *   totalStages(4), doneStages, currentStage: PREPROCESS|DETECT|MATCH|ESTIMATE|null, stages[], excludedImages[] }
+ */
+export const fetchAnalysisProgress = (accidentId) => http.get(`/api/accidents/${accidentId}/analysis`).then(data)
+
 /* ===== 사고 · 정비 체크리스트 (AccidentController · RepairChecklistController) ===== */
 
 /** 내 사고 이력. createdAt 내림차순. { accidents[], page, size, totalElements, totalPages, hasNext }. size 상한 100 */
