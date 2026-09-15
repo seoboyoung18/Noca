@@ -40,6 +40,21 @@ const years = Array.from({ length: new Date().getFullYear() + 1 - MODEL_YEAR_MIN
 const sheetTitle = computed(() => ({ maker: '제조사', model: '차량명', year: '연식' })[sheet.value] || '')
 const valid = computed(() => !!modelId.value && !!year.value)
 
+/* 검색 — 제조사·차량명을 한 입력란에서 찾는다. 51종이 이미 메모리에 있어 서버 호출 없이 거른다.
+ * "벤츠 e", "아반떼", "쏘렌토 기아" 처럼 띄어쓴 단어를 모두 포함하는 모델만 남긴다 (대소문자·공백 무시) */
+const query = ref('')
+const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, '')
+const results = computed(() => {
+  const words = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return []
+  return sortModels(vs.models.filter((m) => {
+    const hay = norm(m.manufacturer + m.modelName)
+    return words.every((w) => hay.includes(w.replace(/\s+/g, '')))
+  })).slice(0, 30)
+})
+const searching = computed(() => query.value.trim().length > 0)
+function pickResult(m) { maker.value = m.manufacturer; modelId.value = m.modelId; query.value = '' }
+
 function pickMaker(b) { if (b !== maker.value) { maker.value = b; modelId.value = null }; sheet.value = null }
 function pickModel(m) { modelId.value = m.modelId; sheet.value = null }
 function pickYear(y) { year.value = y; sheet.value = null }
@@ -74,6 +89,32 @@ async function submit() {
       </div>
 
       <template v-else>
+        <!-- 검색: 제조사·차량명 통합. 결과를 고르면 아래 제조사·차량명이 함께 채워진다 -->
+        <div class="field">
+          <span class="fl">차량 검색</span>
+          <div class="srch">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="#8B95A1" stroke-width="1.6"/><path d="M13.5 13.5L17 17" stroke="#8B95A1" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input v-model="query" class="inp" type="search" enterkeyhint="search" autocomplete="off" :disabled="state === 'loading'" placeholder="예) 아반떼, 벤츠 E, 기아 쏘렌토">
+            <button v-if="query" class="clr" aria-label="검색어 지우기" @click="query = ''">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div v-if="searching" class="res">
+            <button v-for="m in results" :key="m.modelId" class="opt" :class="{ on: m.modelId === modelId }" @click="pickResult(m)">
+              <span class="flex1"><b>{{ m.manufacturer }}</b> {{ m.modelName }}<small class="spec">{{ vehicleSpec(m) }}</small></span>
+              <svg v-if="m.modelId === modelId" width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.6L6.4 12L13 4.6" stroke="#4E36E4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <p v-if="!results.length" class="none">
+              '{{ query.trim() }}'에 해당하는 차량이 없어요.<br>
+              현재 등록할 수 있는 차량은 {{ vs.models.length }}종이며, 목록에 없는 차량은 아직 직접 등록할 수 없어요.
+            </p>
+          </div>
+          <!-- 검색 안내 — 등록 가능 범위(마스터 모델만)를 미리 알려 목록에 없는 차량을 찾다 막히는 일을 줄인다 -->
+          <p v-if="!searching" class="sub" style="margin-top:8px;font-size:12px;line-height:1.55">
+            제조사나 차량명을 입력해 찾거나, 아래에서 직접 선택할 수 있어요.
+          </p>
+        </div>
+
         <div class="field">
           <span class="fl">제조사</span>
           <button class="sel" :disabled="state === 'loading'" @click="sheet = 'maker'">
@@ -141,6 +182,14 @@ export default { components: { ChevDown } }
 
 <style scoped>
 .sel:disabled { color: var(--text-3); background: var(--bg); }
+.srch { position: relative; }
+.srch > svg { position: absolute; left: 14px; top: 50%; margin-top: 4px; transform: translateY(-50%); pointer-events: none; }
+.srch .inp { padding-left: 40px; padding-right: 40px; }
+.srch .inp::-webkit-search-cancel-button { display: none; }
+.clr { position: absolute; right: 10px; top: 50%; margin-top: 4px; transform: translateY(-50%); width: 28px; height: 28px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text-3); background: var(--bg); }
+.res { margin-top: 8px; max-height: 264px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--white); }
+.res .opt b { font-weight: 600; margin-right: 4px; }
+.none { padding: 16px; font-size: 13px; line-height: 1.55; color: var(--text-3); }
 .opts { margin-top: 12px; max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; }
 .grp { padding: 10px 16px 6px; font-size: 12px; font-weight: 600; color: var(--text-3); background: var(--bg); border-top: 1px solid var(--line); }
 .grp:first-child { border-top: 0; }
