@@ -16,8 +16,10 @@ class _FakeEmbedder:
 
     def __init__(self) -> None:
         self.images = []
+        self.calls = []
 
     def embed(self, images):
+        self.calls.append(images)
         self.images.extend(images)
         return np.ones((len(images), 768), dtype=np.float32)
 
@@ -46,6 +48,15 @@ class EmbeddingServiceTest(unittest.TestCase):
         vector = EmbeddingService(fake).embed_detection(Image.new("RGB", (300, 200)), _detection())
         self.assertEqual(vector.shape, (768,))
         self.assertEqual(fake.images[0].size, (224, 224))
+
+    def test_embeds_upload_detections_as_one_batch(self):
+        fake = _FakeEmbedder()
+        detections = [_detection(), {**_detection(), "detectionId": "501:damage:damage-002"}]
+        vectors = EmbeddingService(fake).embed_detections(Image.new("RGB", (300, 200)), detections)
+        self.assertEqual(len(vectors), 2)
+        self.assertEqual(vectors[0].shape, (768,))
+        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual(len(fake.calls[0]), 2)
 
     def test_vector_literal_requires_the_schema_dimension(self):
         value = vector_literal([0.25] * 768)

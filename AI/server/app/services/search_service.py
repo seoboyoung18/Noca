@@ -42,13 +42,14 @@ class SearchService:
                 image_path = await download_image(source.url, target_dir, image_id)
                 with Image.open(image_path) as image:
                     image.load()
-                    for detection in image_result.get("detections", []):
-                        searchability = detection.get("searchability")
-                        if searchability == "EXCLUDED":
-                            continue
-                        vector = await asyncio.to_thread(
-                            self._embedding_service.embed_detection, image, detection,
-                        )
+                    searchable_detections = [
+                        detection for detection in image_result.get("detections", [])
+                        if detection.get("searchability") != "EXCLUDED"
+                    ]
+                    vectors = await asyncio.to_thread(
+                        self._embedding_service.embed_detections, image, searchable_detections,
+                    )
+                    for detection, vector in zip(searchable_detections, vectors):
                         damage_type = _damage_code(detection.get("damageType"))
                         part_code = detection.get("partCode")
                         stage, hits = await asyncio.to_thread(
