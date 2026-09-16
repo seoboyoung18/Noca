@@ -44,7 +44,8 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
 
 <template>
   <Screen>
-    <AppHeader title="사고 이력" back="/home" />
+    <!-- 홈("전체 보기")과 마이페이지(통계 카드) 두 곳에서 들어오므로 뒤로가기는 거쳐 온 화면으로. 직접 진입이면 홈 -->
+    <AppHeader title="사고 이력" back="/home" back-history />
 
     <!-- 첫 로딩 -->
     <div v-if="!store.loaded && store.loading" class="body col" role="status">
