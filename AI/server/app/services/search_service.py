@@ -50,6 +50,7 @@ class SearchService:
                         self._embedding_service.embed_detections, image, searchable_detections,
                     )
                     for detection, vector in zip(searchable_detections, vectors):
+                        searchability = detection.get("searchability")
                         damage_type = _damage_code(detection.get("damageType"))
                         part_code = detection.get("partCode")
                         stage, hits = await asyncio.to_thread(
