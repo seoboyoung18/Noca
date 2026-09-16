@@ -3,3 +3,7 @@ dist
 .DS_Store
 *.local
 .env
+
+# Design reference / original assets (kept locally, not tracked)
+design-ref/
+public/images/_original/
