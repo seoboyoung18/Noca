@@ -9,6 +9,7 @@ from .infrastructure.vector_repository import VectorRepository
 from .services.embedding_service import EmbeddingService
 from .services.inference_service import InferenceService
 from .services.search_service import SearchService
+from .services.analysis_service import AnalysisService
 
 ensure_repo_root()
 from shared.vision.dinov2 import DinoV2Embedder, EmbeddingSpec  # noqa: E402
@@ -30,6 +31,13 @@ search_service = SearchService(
     pipeline_version_id=settings.pipeline_version_id,
     top_k=settings.search_top_k,
 )
+analysis_service = AnalysisService(settings, inference_service)
 
 app = FastAPI(title="A307 AI Server", version="0.1.0")
-app.include_router(build_router(settings, inference_service, search_service, embedding_service))
+app.include_router(build_router(
+    settings,
+    inference_service,
+    search_service,
+    embedding_service,
+    analysis_service,
+))

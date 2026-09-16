@@ -18,7 +18,9 @@ app/schemas/      HTTP 요청·응답 DTO
 - `POST /search`: 원본 URL + 표준화 detection → damage ROI → DINOv2 768d → pgvector Top-K.
   `STRICT`는 부품·손상유형, `VECTOR_ONLY`는 손상유형으로 필터한 뒤 현재 DEV corpus의
   `CAR_CLASS → ALL` 완화 단계를 적용한다.
-- `POST /estimate`, `/analyze`: 비용 통계·callback receiver가 아직 연결되지 않아 `501`을 반환한다.
+- `POST /estimate`: 비용 통계 gateway가 아직 연결되지 않아 `501`을 반환한다.
+- `POST /analyze`: `ANALYSIS_PROFILE=mock`일 때만 실제 inference 결과를 포함한
+  `202 → callback` mock 흐름을 실행한다. 기본 `production` 프로필에서는 아직 `501`이다.
 
 `app/adapters/yolo_adapter.py`는 AI 서버 소유다. batch 적재와 실시간 분석에서 같은
 판정을 보장하기 위해 부품/손상 코드·ROI 매칭·정규화 규칙만
@@ -36,6 +38,7 @@ pip install -r AI/requirements.txt -r AI/server/requirements.txt
 $env:AI_INTERNAL_TOKEN = "<백엔드와 합의한 내부 토큰>"
 $env:FEATURE_PIPELINE_VERSION_ID = "<활성 feature_pipeline_version ID>"
 $env:DATABASE_URL = "postgresql://<AI서버 읽기전용 계정>:<password>@<host>:5432/<db>"
+$env:ANALYSIS_PROFILE = "mock"  # 오늘의 BE 연동 테스트에서만 사용
 uvicorn app.main:app --app-dir AI/server --host 0.0.0.0 --port 8000 --reload
 ```
 

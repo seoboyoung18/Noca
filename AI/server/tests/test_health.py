@@ -51,6 +51,7 @@ class HealthRouteTest(unittest.TestCase):
             "embeddingModelLoaded": True,
             "dbReachable": True,
             "configured": True,
+            "analysisProfile": "production",
             "embeddingConfigured": True,
             "partWeightsPresent": False,
             "damageWeightsPresent": False,
