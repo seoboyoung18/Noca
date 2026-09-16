@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import { fetchAnalysisProgress, requestAnalysis } from '../lib/api'
+import { ANALYSIS_STAGES } from '../data/accidents'
 
 /*
  * 분석 중 (S07) — 서버가 주는 단계 수로 진행을 그린다. 퍼센트·남은 시간은 서버가 주지 않으므로 만들지 않는다.
@@ -17,12 +18,8 @@ const route = useRoute()
 const accidentId = Number(route.query.accidentId) || null
 
 // 서버 단계 코드(AnalysisStageType 선언 순서) → 화면 문구
-const STAGES = [
-  { code: 'PREPROCESS', text: '사진을 확인하고 있어요' },
-  { code: 'DETECT', text: '손상 부위를 찾고 있어요' },
-  { code: 'MATCH', text: '부품을 연결하고 있어요' },
-  { code: 'ESTIMATE', text: '수리비를 계산하고 있어요' },
-]
+// 단계 문구는 홈 "진행 중" 카드와 공유한다 (data/accidents.js)
+const STAGES = ANALYSIS_STAGES
 const TOTAL = STAGES.length
 const POLL_MS = 2000
 const EXCLUDE_REASON = { NOT_VEHICLE: '차량이 아닌 사진', RATIO_BELOW_THRESHOLD: '차량이 너무 작게 찍힌 사진' }

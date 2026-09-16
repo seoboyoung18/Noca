@@ -39,8 +39,6 @@ function defaultChecklist() {
 
 export const useAppStore = defineStore('app', {
   state: () => ({
-    // 홈 상태: busy(진행 중 분석 있음) | idle(기본) | empty(사고 없음)
-    homeMode: 'busy',
     hasAvatar: false,
     agreed: false,
     // 약관 동의 화면의 체크 상태. 전문 화면(/terms/service 등)을 보고 돌아와도 체크가 유지되도록 화면 밖에 둔다

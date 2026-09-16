@@ -59,6 +59,25 @@ export function accidentGroupLabel(createdAt, now = new Date()) {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월`
 }
 
+/* ===== 분석 진행 (GET /api/accidents/{id}/analysis) ===== */
+
+/** 서버 단계 코드 → 화면 문구. 분석 중 화면과 홈 "진행 중" 카드가 같은 문구를 쓴다. 서버는 퍼센트·남은 시간을 주지 않는다 */
+export const ANALYSIS_STAGES = [
+  { code: 'PREPROCESS', text: '사진을 확인하고 있어요' },
+  { code: 'DETECT', text: '손상 부위를 찾고 있어요' },
+  { code: 'MATCH', text: '부품을 연결하고 있어요' },
+  { code: 'ESTIMATE', text: '수리비를 계산하고 있어요' },
+]
+/** 진행 상태 응답 → { percent(0·25·50·75·100), text }. 요청 전(status null)·대기(QUEUED)는 0% */
+export function analysisProgressView(p) {
+  const total = p?.totalStages || 4
+  const done = p?.doneStages || 0
+  const percent = Math.round((done / total) * 100)
+  const stage = ANALYSIS_STAGES.find((s) => s.code === p?.currentStage)
+  const text = stage?.text || (p?.status === 'QUEUED' ? '분석 순서를 기다리고 있어요' : done >= total ? '결과를 정리하고 있어요' : '분석을 준비하고 있어요')
+  return { percent, text }
+}
+
 /* ===== 사고 사진 (GET /api/accidents/{id}/images) ===== */
 
 /** 촬영 가이드(shooting-guide.json) 각도 코드 9종의 한글 라벨. 정본은 GET /api/guides/shooting 의 shots[].title */

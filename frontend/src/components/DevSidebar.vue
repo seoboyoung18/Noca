@@ -1,17 +1,11 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
 import { screens } from '../router'
-import { useAppStore } from '../stores/app'
 
 const route = useRoute()
 const router = useRouter()
-const store = useAppStore()
 const groups = [...new Set(screens.map((s) => s.meta.group))]
-
-function setHome(mode) {
-  store.homeMode = mode
-  router.push('/home')
-}
+// 홈 상태 토글(진행 중·기본·빈 상태)은 홈이 사고 목록 API 로 상태를 정하게 되면서 제거했다
 </script>
 
 <template>
@@ -23,12 +17,6 @@ function setHome(mode) {
         <button class="pc" :aria-current="String(route.path === s.path)" @click="router.push(s.path)">
           <small>{{ s.meta.code }}</small>{{ s.meta.name }}
         </button>
-        <div v-if="s.path === '/home'" class="st8">
-          <span>홈 상태</span>
-          <button :class="{ on: store.homeMode === 'busy' }" @click="setHome('busy')">진행 중</button>
-          <button :class="{ on: store.homeMode === 'idle' }" @click="setHome('idle')">기본</button>
-          <button :class="{ on: store.homeMode === 'empty' }" @click="setHome('empty')">빈 상태</button>
-        </div>
       </template>
     </template>
   </aside>
