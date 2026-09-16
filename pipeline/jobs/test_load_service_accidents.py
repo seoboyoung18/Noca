@@ -64,6 +64,19 @@ class ContractTest(unittest.TestCase):
         for sql in (upsert_sql(limit=None), ELIGIBLE_PREVIEW_SQL):
             self.assertIn("actual_repair_cost IS NOT NULL", sql)
 
+    def test_only_approved_accidents_are_loaded(self):
+        """S15P21A307-353 — 검수에서 승인된 건만 재학습 데이터로 간다.
+
+        전에는 actual_repair_cost 만 봤다. 그래서 관리자가 반려한 사고도 그대로 적재됐고,
+        S15P21A307-352 가 만든 승인·반려가 적재에 아무 영향이 없었다.
+
+        EXISTS 가 거짓이면 빠지므로 **반려뿐 아니라 미검수(행 없음)도 함께 빠진다.**
+        """
+        for sql in (upsert_sql(limit=None), ELIGIBLE_PREVIEW_SQL):
+            self.assertIn("accident_review", sql)
+            self.assertIn("'APPROVED'", sql)
+            self.assertIn("ar.accident_id = a.accident_id", sql)
+
     def test_source_is_fixed_to_service(self):
         # 값은 SQL 에 박지 않고 바인딩한다. 그래서 SQL 본문이 아니라 파라미터를 본다.
         from load_service_accidents import _params

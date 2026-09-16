@@ -53,7 +53,22 @@ SOURCE = "SERVICE"
 EXTERNAL_REF_PREFIX = "svc-"
 
 # 적재 대상. 이 한 줄이 이 job 의 범위 전체다.
-ELIGIBLE_CONDITION = "a.actual_repair_cost IS NOT NULL"
+#
+# S15P21A307-353 — 승인된 건만 적재한다.
+#   전에는 actual_repair_cost 만 봤다. 그래서 관리자가 accident_review 에서 반려한 사고도
+#   그대로 재학습 데이터로 흘러갔다. S15P21A307-352 가 만든 승인·반려가 적재에 아무 영향이
+#   없었다는 뜻이다.
+#
+#   EXISTS 로 건다. JOIN 이 아닌 이유는 accident_review 가 사고당 한 행(uk_ar_accident)이라
+#   행이 불어나지는 않지만, 조건을 WHERE 안에 두는 편이 "적재 자격" 이라는 뜻이 분명하기
+#   때문이다. 검수 행이 아예 없는 사고(미검수)도 EXISTS 가 거짓이라 함께 빠진다.
+#
+#   ⚠️ 이미 적재된 행은 건드리지 않는다. repair_case 에 125,006건이 들어 있고 소급 삭제는
+#     되돌릴 수 없다. 소급 처리는 미결이며 answer79 에 적었다.
+ELIGIBLE_CONDITION = """a.actual_repair_cost IS NOT NULL
+       AND EXISTS (SELECT 1 FROM accident_review ar
+                    WHERE ar.accident_id = a.accident_id
+                      AND ar.status = 'APPROVED')"""
 
 # accident 의 차량 정보는 **접수 당시 불변 스냅샷**이다. vehicle·vehicle_model 마스터를
 # 다시 조회해 덮어쓰면 과거 조건이 바뀐다. vehicle_model 조인은 model_id FK 가 아직
