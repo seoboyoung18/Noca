@@ -1,6 +1,7 @@
 # 비용 통계 정책 — `repair_cost_stat` 적재·조회 기준
 
 기준일: 2026-09-15 · 작성: 강유진(비용 산출)
+개정: 2026-09-16 · `line_type` 포함 기준 정정 및 §2-6 추가 — 김경연(데이터 파이프라인)
 
 `A307_COST_DB_HANDOVER.md` §3에서 "비용 정책으로 확정하라"고 남겨둔 항목들에 대한
 결정과 그 근거다. 여기서 정한 값은 **통계 배치와 온라인 조회에 동일하게 적용**한다.
@@ -15,8 +16,11 @@
 | 항목 | 결정 |
 |---|---|
 | 출처 | AS + SC 통합. SC는 **손해사정후** 값 사용 |
+| 비용 컬럼 | AS는 `part_cost`·`labor_cost`, SC는 `post_adjustment_*` (§2-6) |
+| `WORK` | 통계 포함 |
+| `PART_PRICE` | 통계 포함 — SC 부품 명세. 교환 부품비의 원천 |
 | `NOT_APPROVED`(불인정) | 통계 제외 |
-| `REFERENCE_PRICE` | AS 제외 · SC 포함 |
+| `REFERENCE_PRICE` | 통계 제외 (출처 무관) |
 | `ANCILLARY` | 통계 제외, 총액 보정 없음 |
 | `exchange` | 교환 |
 | `sheet_metal` | 판금 |
@@ -99,6 +103,28 @@ AS와 SC 손해사정전은 **둘 다 정비소 청구액**으로 성격이 같�
 통합의 실익도 크다. AS는 항목별 부품가격이 **81.25% 결측**이라 교환 견적을 만들 수
 없는데(교환은 비용의 대부분이 부품비), SC는 부품가격이 거의 채워져 있어 이를 메운다.
 
+### 2-6. 그래서 통계 배치는 어느 컬럼에서 읽는가
+
+`repair_case_item`은 SC의 **손해사정전** 값을 공통 비용 컬럼에 두고 손해사정후는
+별도 컬럼에 보존한다(`pipeline/standardization/estimate_items.py`). 위 결정을
+구현하려면 출처별로 읽는 컬럼이 달라진다.
+
+| 값 | AS | SC(손해사정후) |
+|---|---|---|
+| 부품비 | `part_cost` | `post_adjustment_part_cost` |
+| 공임 | `labor_cost` | `post_adjustment_labor_cost` |
+| 도장 재료비 | `paint_material_cost` | `작업=도장` 행의 `post_adjustment_part_cost` |
+| 항목 총액 | `item_total` | 위 둘의 합으로 재계산 |
+
+주의할 것 둘.
+
+- **SC 행에서 `item_total`을 그대로 쓰지 않는다.** 이 컬럼은 손해사정전 합계라
+  손해사정후를 쓰기로 한 결정과 어긋난다.
+- **`작업=도장` 행의 `post_adjustment_part_cost`는 부품비가 아니라 재료비다.**
+  손해사정전 기준에는 `paint_material_cost`로 분리돼 있지만 손해사정후 기준에는
+  분리 컬럼이 없다. 배치에서 이 구분을 빠뜨리면 `part_cost_median`에 재료비가
+  섞인다. `paint_material_cost_median` 추가(§7)에도 같은 규칙을 적용한다.
+
 ---
 
 ## 3. 행 종류별 포함 기준
@@ -112,14 +138,29 @@ AS와 SC 손해사정전은 **둘 다 정비소 청구액**으로 성격이 같�
 또한 손해사정후 값이 빈 문자열로 남으므로, 손해사정후를 쓰는 이상 자연히 빠진다.
 SC 전체 7,568건.
 
-### 3-2. `REFERENCE_PRICE` — AS 제외 · SC 포함
+### 3-2. `REFERENCE_PRICE` 제외 · `PART_PRICE` 포함
 
-같은 행 종류가 출처별로 뜻이 다르다(핸드오버 문서 §2).
+출처별로 뜻이 갈리는 문제는 414에서 `line_type` 분류 단계에 이미 흡수됐다
+(핸드오버 문서 §2). 적재기(`pipeline/standardization/estimate_items.py`)가 출처에
+따라 다른 `line_type`을 매긴다.
 
-- **AS** — 정산에 포함되지 않는 참고 정가. 표본에 넣으면 총액이 부풀어 오른다.
+- **AS의 `신품가` 표기 행 → `REFERENCE_PRICE`** — 정산에 포함되지 않는 참고 정가다.
+  적재 시 `part_cost`·`item_total`이 `None`으로 덮여 들어온다.
   `as-0000011.json`에서 작업 행 합계가 헤더 `공임소계`와 정확히 일치하고
-  `부품소계`가 0인 것으로 확인됐다.
-- **SC** — 정산에 포함되는 부품 명세. 교환 부품비의 실질적 원천이므로 포함한다.
+  `부품소계`가 0인 것으로 확인됐다. **통계에서 제외한다.**
+- **SC의 `작업`이 빈 부품 명세 행 → `PART_PRICE`** — 정산에 포함되며 교환 부품비의
+  실질적 원천이다. **통계에 포함한다.**
+
+즉 SC에는 `REFERENCE_PRICE` 행 자체가 생기지 않으므로 통계 조건에서 출처로 분기하지
+않는다. 표본 행 선택 조건은 다음과 같다.
+
+```sql
+WHERE line_type IN ('WORK', 'PART_PRICE')
+  AND (assessment_status IS NULL OR assessment_status <> 'NOT_APPROVED')
+```
+
+불인정은 손해사정후 결측에 기대지 않고 `assessment_status`로 명시적으로 거른다.
+불인정 행은 `line_type='WORK'`로 적재되므로 첫 조건만으로는 걸러지지 않는다.
 
 ### 3-3. `ANCILLARY` — 제외, 총액 보정 없음
 
