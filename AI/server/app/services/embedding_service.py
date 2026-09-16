@@ -25,6 +25,10 @@ class EmbeddingService:
     def model_version(self) -> str:
         return self._embedder.spec.version
 
+    @property
+    def model_loaded(self) -> bool:
+        return self._embedder.is_loaded
+
     def embed_detection(self, image: Image.Image, detection: Mapping[str, Any]) -> np.ndarray:
         """Make a padded ROI from API geometry, then produce one normalized vector."""
         try:

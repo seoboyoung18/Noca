@@ -24,6 +24,10 @@ class SearchService:
         self._pipeline_version_id = pipeline_version_id
         self._top_k = top_k
 
+    @property
+    def repository(self) -> VectorRepository:
+        return self._repository
+
     async def search(self, request: SearchRequest) -> dict[str, Any]:
         image_by_id = {image.image_id: image for image in request.images}
         strict: dict[tuple[str, str], dict[str, Any]] = {}
