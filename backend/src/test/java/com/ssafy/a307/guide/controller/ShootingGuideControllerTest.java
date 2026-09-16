@@ -40,6 +40,7 @@ class ShootingGuideControllerTest {
     void getShootingGuide() throws Exception {
         given(shootingGuideService.getShootingGuide()).willReturn(new ShootingGuideResponse(
                 10,
+                List.of("FRONT", "DAMAGE_CLOSE"),
                 List.of(new OverlaySetMapping(VehicleType.SEDAN, "SEDAN"),
                         new OverlaySetMapping(VehicleType.TRUCK, "SUV")),
                 List.of(new ShootingShot(1, "FRONT", "전면", "차량 정면 전체가 화면에 들어오도록 촬영합니다", false),
@@ -48,6 +49,7 @@ class ShootingGuideControllerTest {
         mockMvc.perform(get("/api/guides/shooting"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.recommendedCount").value(10))
+                .andExpect(jsonPath("$.data.acceptedAngleCodes[0]").value("FRONT"))
                 .andExpect(jsonPath("$.data.shots").isArray())
                 .andExpect(jsonPath("$.data.shots[0].angleCode").value("FRONT"))
                 .andExpect(jsonPath("$.data.shots[0].closeUp").value(false))

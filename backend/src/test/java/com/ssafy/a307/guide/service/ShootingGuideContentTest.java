@@ -28,23 +28,34 @@ class ShootingGuideContentTest {
     }
 
     @Test
-    @DisplayName("권장 10장, 컷 10개, 각도 코드 9종, 근접 2컷")
+    @DisplayName("권장 1장, 컷 1개 — 파손 부위 한 장으로 분석한다")
     void shootingGuideShape() {
         ShootingGuideResponse guide = shootingGuide();
 
-        assertThat(guide.recommendedCount()).isEqualTo(10);
-        assertThat(guide.shots()).extracting(shot -> shot.order())
-                .containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        // 2026-09-16 팀 결정으로 10컷 → 1컷. 이전 값(권장 10장·컷 10개·근접 2컷)은
+        // 이 커밋 이전 이력에 있다.
+        assertThat(guide.recommendedCount()).isEqualTo(1);
+        assertThat(guide.shots()).extracting(shot -> shot.order()).containsExactly(1);
 
-        List<String> codes = guide.shots().stream().map(ShootingShot::angleCode).toList();
-        assertThat(codes).containsOnly("FRONT", "REAR", "LEFT", "RIGHT",
+        ShootingShot only = guide.shots().get(0);
+        // 나머지 8종은 차체의 특정 면에 묶여 있어 손상 위치에 따라 맞지 않는다.
+        // DAMAGE_CLOSE 만 면과 무관하게 "파손 부위" 를 가리킨다.
+        assertThat(only.angleCode()).isEqualTo("DAMAGE_CLOSE");
+        // 한 장으로 부품 식별까지 해야 하므로 근접이 아니다 — 너무 붙으면 어느 부품인지 모른다.
+        assertThat(only.closeUp()).isFalse();
+    }
+
+    @Test
+    @DisplayName("업로드가 받아 주는 각도 어휘는 shots 와 분리돼 9종을 유지한다")
+    void acceptedAngleCodesStayNine() {
+        List<String> accepted = shootingGuide().acceptedAngleCodes();
+
+        // 가이드는 "무엇을 찍으라고 안내하나" 이고 이 목록은 "무엇을 받아 주나" 다.
+        // 가이드를 1컷으로 줄였다고 어휘까지 줄이면 repair_case_image.angle_tag 와 값 집합이
+        // 어긋나고, 이미 FRONT 로 태그된 업로드가 400 이 된다.
+        assertThat(accepted).containsExactlyInAnyOrder("FRONT", "REAR", "LEFT", "RIGHT",
                 "FRONT_LEFT", "FRONT_RIGHT", "REAR_LEFT", "REAR_RIGHT", "DAMAGE_CLOSE");
-        // 컷은 10개인데 코드는 9종이다 — 근접 2컷이 DAMAGE_CLOSE 를 공유한다.
-        // 즉 각도 코드만으로는 근접 2컷을 구별할 수 없다. 누락 감지 설계에 영향이 있다.
-        assertThat(codes).hasSize(10);
-        assertThat(codes.stream().distinct()).hasSize(9);
-        assertThat(codes).filteredOn("DAMAGE_CLOSE"::equals).hasSize(2);
-        assertThat(guide.shots()).filteredOn(ShootingShot::closeUp).hasSize(2);
+        assertThat(accepted).contains(shootingGuide().shots().get(0).angleCode());
     }
 
     @Test

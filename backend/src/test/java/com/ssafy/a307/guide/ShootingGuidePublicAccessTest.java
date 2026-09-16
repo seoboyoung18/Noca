@@ -31,12 +31,14 @@ class ShootingGuidePublicAccessTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("GET /api/guides/shooting — 인증 없이 200 이고 권장 10장이 나간다")
+    @DisplayName("GET /api/guides/shooting — 인증 없이 200 이고 권장 1장이 나간다")
     void shootingGuideIsPublic() throws Exception {
         mockMvc.perform(get("/api/guides/shooting"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.recommendedCount").value(10))
-                .andExpect(jsonPath("$.data.shots.length()").value(10))
-                .andExpect(jsonPath("$.data.shots[0].angleCode").value("FRONT"));
+                .andExpect(jsonPath("$.data.recommendedCount").value(1))
+                .andExpect(jsonPath("$.data.shots.length()").value(1))
+                .andExpect(jsonPath("$.data.shots[0].angleCode").value("DAMAGE_CLOSE"))
+                // 가이드는 1컷이어도 받아 주는 어휘는 9종 그대로다
+                .andExpect(jsonPath("$.data.acceptedAngleCodes.length()").value(9));
     }
 }
