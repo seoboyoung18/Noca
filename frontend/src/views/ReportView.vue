@@ -1,11 +1,13 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import Toast from '../components/Toast.vue'
+import { fetchAccidentEstimates } from '../lib/api'
+import { useEstimatePdf } from '../lib/estimatePdf'
 
-const router = useRouter()
+const route = useRoute()
 const read = ref(false)
 const toast = ref('')
 let tt
@@ -14,11 +16,36 @@ function onScroll(e) {
   const el = e.target
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) read.value = true
 }
-function showToast(msg) {
+function showToast(msg, ms = 1600) {
   toast.value = msg
   clearTimeout(tt)
-  tt = setTimeout(() => { toast.value = '' }, 1600)
+  tt = setTimeout(() => { toast.value = '' }, ms)
 }
+
+/* ===== PDF 다운로드 — 견적 id 기준 (요청 → 생성 대기 → 302 다운로드) =====
+ * estimateId 는 라우트 쿼리 ?estimateId= 로 받는다. accidentId 만 있으면 사고의 최신 견적에서 찾는다.
+ * 둘 다 없으면(현재 목업 진입) 받을 파일이 없다고 안내한다 — 저장했다는 거짓 알림을 띄우지 않는다.
+ */
+const estimateId = ref(Number(route.query.estimateId) || null)
+const accidentId = Number(route.query.accidentId) || null
+const { step: pdfStep, busyId: pdfBusyId, message: pdfMessage, download: downloadPdf } = useEstimatePdf()
+const pdfBusy = computed(() => pdfBusyId.value !== null)
+const pdfLabel = computed(() =>
+  pdfStep.value === 'checking' ? '준비 중…' : pdfStep.value === 'generating' ? 'PDF 생성 중…' : 'PDF 다운로드')
+// 흐름이 남긴 문구(다운로드 시작·실패 사유)는 토스트로. 실패는 읽을 시간을 더 준다
+watch(pdfMessage, (m) => { if (m) showToast(m, pdfStep.value === 'error' ? 2800 : 1600) })
+
+// 정식 PDF 는 서버(EstimatePdfController)만 만든다 — 견적이 없으면 받을 파일이 없다고 안내한다
+function onPdf() {
+  if (!estimateId.value) return showToast('아직 산출된 견적이 없어 PDF를 만들 수 없어요.', 2400)
+  downloadPdf(estimateId.value)
+}
+
+onMounted(async () => {
+  if (estimateId.value || !accidentId) return
+  try { estimateId.value = (await fetchAccidentEstimates(accidentId))[0]?.estimateId ?? null }
+  catch (e) { /* 견적이 없거나 조회 실패 — 버튼을 누르면 안내 문구로 끝난다 */ }
+})
 
 const rows = [
   { name: '프론트 범퍼', sev: '심각', cls: 'red', fix: '교환', amt: '500,000' },
@@ -88,9 +115,6 @@ const rows = [
         <p class="rp">동일 차종·차급의 실제 수리 사례를 기준으로 부품별 중앙값을 산출했습니다. 손상 심각도는 AI 모델의 분류 결과를 3단계로 요약한 값입니다.</p>
         <p style="margin-top:10px;font-size:12px;color:var(--text-2)">참고 사례 34건 · 신뢰도 보통</p>
 
-        <div class="rh">6. 견적서 검증</div>
-        <p class="rp" style="color:var(--text-3)">아직 정비소 견적서 검증을 진행하지 않았습니다. 검증 후 리포트를 다시 생성하면 이 항목이 포함됩니다.</p>
-
         <div class="rnote">본 리포트는 AI가 사진을 바탕으로 추정한 참고 자료이며 법적 효력이 없습니다. 실제 수리비는 정비소 점검 결과에 따라 달라질 수 있습니다.</div>
 
         <p class="rend" :class="{ ok: read }">{{ read ? '확인 완료 · PDF로 저장할 수 있어요' : '내용을 끝까지 확인하면 다운로드할 수 있어요' }}</p>
@@ -98,9 +122,10 @@ const rows = [
     </div>
 
     <div class="foot">
-      <button class="btn" :disabled="!read" @click="showToast('리포트 PDF를 저장했어요')">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5v9M5.5 8L9 11.5L12.5 8" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 13.5h11" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round"/></svg>
-        PDF 다운로드
+      <button class="btn" :disabled="!read || pdfBusy" :aria-busy="pdfBusy" @click="onPdf">
+        <svg v-if="pdfBusy" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="animation:dcspin 1s linear infinite"><circle cx="9" cy="9" r="7" stroke="rgba(255,255,255,.35)" stroke-width="2"/><circle cx="9" cy="9" r="7" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-dasharray="12 32" transform="rotate(-90 9 9)"/></svg>
+        <svg v-else width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5v9M5.5 8L9 11.5L12.5 8" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 13.5h11" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round"/></svg>
+        {{ pdfLabel }}
       </button>
     </div>
     <Toast :show="!!toast">{{ toast }}</Toast>

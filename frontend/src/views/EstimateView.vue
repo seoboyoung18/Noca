@@ -1,11 +1,14 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import BottomSheet from '../components/BottomSheet.vue'
 
 const router = useRouter()
+const route = useRoute()
+// accidentId·estimateId 쿼리를 리포트 화면까지 그대로 넘긴다 — 리포트의 PDF 다운로드가 estimateId 로 동작한다
+function makeReport() { router.push({ path: '/report/generating', query: route.query }) }
 const photo = ref(0)
 const notice = ref(false)
 const photos = ['정면', '45도', '왼쪽', '오른콽']
@@ -85,7 +88,7 @@ const parts = [
     </div>
 
     <div class="foot">
-      <button class="btn" @click="router.push('/report/generating')">리포트 만들기</button>
+      <button class="btn" @click="makeReport">리포트 만들기</button>
     </div>
 
     <BottomSheet v-model="notice">
