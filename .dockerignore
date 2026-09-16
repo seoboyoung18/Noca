@@ -55,3 +55,28 @@ var/
 **/.aws/
 **/application-local.properties
 **/application-*.local.properties
+
+# ── AI 서버 이미지용 (AI/server/Dockerfile) ─────────────────
+# 이 파일은 백엔드·AI 두 빌드가 함께 쓴다. 아래 항목은 어느 쪽에도 필요 없다.
+#
+# 서버가 쓰는 가중치는 part 와 damage 둘뿐이다(config.py 의 part_weights·damage_weights).
+# base/ 는 학습 출발점이라 이미지에 넣지 않는다.
+AI/models/base/
+AI/training/
+AI/tools/
+AI/datasets/
+
+# 파이썬 부산물
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.venv/
+**/venv/
+
+# ── 컨텍스트 군살 ───────────────────────────────────────────
+# 2026-09-16 측정 — 이 둘만으로 170MB 다. 빼기 전에는 백엔드 빌드도 같이 끌고 갔다.
+#   output/                    137M  이미지 생성·스토리보드 산출물
+#   ubuntu@j15a307a.p.ssafy.io  33M  scp 콜론 누락으로 생긴 파일
+output/
+*@*.ssafy.io
+**/node_modules/
