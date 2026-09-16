@@ -184,3 +184,80 @@ deploy:
 
     # ── 오래된 이미지 정리 ──
     - docker image prune -f > /dev/null 2>&1 || true
+
+# ─────────────────────────────────────────────────────────────
+# 3. AI 서버 — 다른 박스, 다른 Runner
+# ─────────────────────────────────────────────────────────────
+# AI 박스(172.26.4.46)에 별도 Runner 가 있다. BE 박스 Runner 는 저 박스에 명령을
+# 내릴 수단이 없으므로 태그로 갈라 보낸다.
+#
+# changes 를 거는 이유 — 프론트만 고쳐도 3.56GB 이미지를 다시 만들 이유가 없다.
+# shared/vision 을 넣은 것은 AI 서버가 그것을 import 하기 때문이다.
+deploy-ai:
+  stage: deploy
+  tags:
+    - a307-ai-deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+      changes:
+        - AI/**/*
+        - shared/vision/**/*
+  environment:
+    name: production-ai
+  variables:
+    AI_IMAGE: "a307-ai"
+    AI_ENV: "/etc/a307/ai.env"
+    AI_HEALTH: "http://127.0.0.1:8000/health"
+  script:
+    - |
+      set -eu
+      echo "실행 사용자: $(whoami)"
+      test -r "$AI_ENV" || { echo "$AI_ENV 를 읽을 수 없다."; exit 1; }
+      docker info > /dev/null 2>&1 || { echo "docker 를 쓸 수 없다."; exit 1; }
+
+    # ── 이미지 ──
+    # 컨텍스트는 저장소 루트다. AI/server 에서 빌드하면 깨진다 —
+    # bootstrap.py 가 parents[4] 로 저장소 루트를 찾아 shared.vision 을 import 한다.
+    - |
+      set -eu
+      docker build -t "$AI_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$AI_IMAGE:latest" -f AI/server/Dockerfile .
+
+    # ── 교체 ──
+    # 🔴 메모리 상한은 선택이 아니다. 이 박스에는 PostgreSQL 이 같이 있고,
+    #    상한이 없으면 모델이 메모리를 먹다가 DB 를 끌고 내려간다.
+    #    그러면 BE 도 같이 죽는다 — ddl-auto=validate 라 DB 가 없으면 재기동도 안 된다.
+    # 포트는 사설 IP 에만 묶는다. 공인 인터페이스에는 열지 않는다.
+    - |
+      set -eu
+      docker rm -f a307-ai 2>/dev/null || true
+      docker run -d --name a307-ai \
+        -p 172.26.4.46:8000:8000 \
+        --env-file "$AI_ENV" \
+        --memory=6g --memory-swap=6g --cpus=3 \
+        --restart unless-stopped \
+        "$AI_IMAGE:$CI_COMMIT_SHORT_SHA"
+
+    # ── 기동 확인 ──
+    # modelsLoaded 로 판정하지 않는다. YOLO·DINOv2 는 지연 로드라 첫 추론 때 올라오고,
+    # 기동 직후에는 정상적으로 false 다. status 와 configured 를 본다.
+    - |
+      set -eu
+      for i in $(seq 1 30); do
+        if curl -sf "$AI_HEALTH" > /dev/null 2>&1; then
+          echo "기동 확인 (${i}회차)"
+          break
+        fi
+        if [ "$i" = "30" ]; then
+          echo "기동하지 못했다. 최근 로그 80줄:"
+          docker logs --tail 80 a307-ai || true
+          exit 1
+        fi
+        sleep 3
+      done
+      H=$(curl -s "$AI_HEALTH")
+      echo "$H"
+      echo "$H" | grep -q '"status":"ok"'     || { echo "status 가 ok 가 아니다.";               exit 1; }
+      echo "$H" | grep -q '"configured":true' || { echo "환경변수 누락. $AI_ENV 확인.";          exit 1; }
+      echo "$H" | grep -q '"dbReachable":true'|| { echo "DB 에 닿지 못한다. DATABASE_URL 확인."; exit 1; }
+
+    - docker image prune -f > /dev/null 2>&1 || true
