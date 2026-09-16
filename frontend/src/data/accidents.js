@@ -59,6 +59,33 @@ export function accidentGroupLabel(createdAt, now = new Date()) {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월`
 }
 
+/* ===== 사고 사진 (GET /api/accidents/{id}/images) ===== */
+
+/** 촬영 가이드(shooting-guide.json) 각도 코드 9종의 한글 라벨. 정본은 GET /api/guides/shooting 의 shots[].title */
+export const ANGLE_LABEL = {
+  FRONT: '전면', REAR: '후면', LEFT: '좌측', RIGHT: '우측',
+  FRONT_LEFT: '좌전방 45°', FRONT_RIGHT: '우전방 45°', REAR_LEFT: '좌후방 45°', REAR_RIGHT: '우후방 45°',
+  DAMAGE_CLOSE: '손상 근접',
+}
+/** angleCode 는 nullable — 가이드를 건너뛴 업로드나 컬럼 생성 전 사진은 각도가 없다 */
+export const angleLabel = (code) => (code ? ANGLE_LABEL[code] || code : '각도 미지정')
+
+/** 이미지 한 장의 표시용 URL. THUMBNAIL 우선, 없으면 RESIZED. 서명 실패면 '' */
+export function imageThumb(image, prefer = 'THUMBNAIL') {
+  const assets = image?.assets || []
+  return (assets.find((a) => a.variant === prefer && a.url) || assets.find((a) => a.url))?.url || ''
+}
+
+/** 대표 이미지 — 업로드가 끝난 첫 사진의 썸네일. 사고 이력 목록의 thumbnailUrl 과 같은 사진이다 */
+export function firstThumbnail(images) {
+  for (const im of images || []) {
+    if (im.uploadState !== 'COMPLETED') continue
+    const url = imageThumb(im)
+    if (url) return url
+  }
+  return ''
+}
+
 /** 내림차순 목록을 라벨 순서대로 묶는다. [{ label, items }] */
 export function groupAccidents(list, now = new Date()) {
   const groups = []

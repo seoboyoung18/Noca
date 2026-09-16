@@ -169,6 +169,22 @@ export const fetchMyAccidents = (page = 0, size = 100) =>
   http.get('/api/accidents/me', { params: { page, size } }).then(data)
 
 /**
+ * 사고 상세. 목록 항목의 공통 10필드와 같은 모양이고 목록 전용 8필드(status·썸네일·견적)는 없다.
+ * 차량 필드는 접수 당시 스냅샷. 없는 사고·남의 사고 모두 404 (403 은 존재 사실을 새기므로 쓰지 않음)
+ */
+export const fetchAccident = (accidentId) => http.get(`/api/accidents/${accidentId}`).then(data)
+
+/**
+ * 사고 이미지 목록 (AccidentImageController). 화면을 새로 열어도 무엇이 올라갔는지 알 수 있게 한다.
+ * { total, completed, pending, maxCountPerAccident(20), remainingSlots,
+ *   images[{ imageId, originalFilename, angleCode(null 가능), uploadState: PENDING|COMPLETED,
+ *            qualityStatus: PASS|WARN, qualityReason, createdAt,
+ *            assets[{ variant: RESIZED|THUMBNAIL, url, expiresAt, width, height, fileSize }] }] }
+ * assets.url 은 조회용 서명 GET — 저장소 미구성·서명 실패면 null 이고 메타만 온다. 원본(ORIGINAL)은 EXIF 때문에 절대 오지 않는다.
+ */
+export const fetchAccidentImages = (accidentId) => http.get(`/api/accidents/${accidentId}/images`).then(data)
+
+/**
  * 사고별 정비 체크리스트 상태. 아직 요청하지 않은 사고는 200 + status null.
  * { checklistId, status: QUEUED|PROCESSING|COMPLETED|FAILED|null, failureReason, items[], notice, ... }
  */
