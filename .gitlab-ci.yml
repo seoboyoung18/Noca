@@ -84,11 +84,16 @@ deploy:
     name: production
     url: https://j15a307.p.ssafy.io
   script:
+    # Runner 는 root 로 돈다. --user=ubuntu 로 설치하면 19.x 의 "new shell command
+    # execution" 이 스크립트 임시 파일을 root 600 으로 만들어 두고 su 로 내려가는 바람에
+    # prepare environment 에서 0.03초 만에 exit 1 이 난다.
+    # 어차피 ubuntu 도 docker 그룹이라 권한 경계가 새로 생기는 것은 아니다.
+    # 중요한 것은 사용자 이름이 아니라 아래 두 가지가 되느냐다.
     - |
       set -eu
       echo "실행 사용자: $(whoami)"
-      test "$(whoami)" = "ubuntu" || { echo "ubuntu 로 돌아야 한다. Runner 설치 시 --user=ubuntu 확인."; exit 1; }
       test -r /etc/a307/backend.env || { echo "/etc/a307/backend.env 를 읽을 수 없다."; exit 1; }
+      docker info > /dev/null 2>&1 || { echo "docker 를 쓸 수 없다."; exit 1; }
 
     # ── 백엔드 jar ──
     - |
