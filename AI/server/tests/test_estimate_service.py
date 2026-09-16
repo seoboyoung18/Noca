@@ -1,0 +1,366 @@
+from __future__ import annotations
+
+import logging
+import statistics
+
+import pytest
+
+from app.infrastructure.cost_repository import CostCaseRow, InMemoryCostCaseRepository
+from app.schemas.contracts import EstimateRequest, Vehicle
+from app.services.estimate_service import EstimateService, _aggregate_case
+
+
+def _row(case_id, part_code, line_type, *, source="AIHUB_AS", work_code=None,
+         assessment_status=None, part_cost=None, paint_material_cost=None,
+         labor_cost=None, post_adjustment_part_cost=None, post_adjustment_labor_cost=None):
+    return CostCaseRow(
+        case_id=case_id, source=source, part_code=part_code, line_type=line_type,
+        work_code=work_code, assessment_status=assessment_status,
+        part_cost=part_cost, paint_material_cost=paint_material_cost, labor_cost=labor_cost,
+        post_adjustment_part_cost=post_adjustment_part_cost,
+        post_adjustment_labor_cost=post_adjustment_labor_cost,
+    )
+
+
+def _part(part_code="REAR_BUMPER", damage_type="Scratched", searchability="STRICT",
+          confidence=0.9321, referenced_case_ids=None, detection_ids=None, fallback_stage="CAR_CLASS"):
+    return {
+        "partCode": part_code,
+        "damageType": damage_type,
+        "confidence": confidence,
+        "detectionIds": detection_ids or ["501:damage:damage-001"],
+        "pairStatus": "PAIRED",
+        "searchability": searchability,
+        "fallbackStage": fallback_stage,
+        "referencedCaseIds": referenced_case_ids or [],
+    }
+
+
+def _request(parts):
+    return EstimateRequest(
+        vehicle=Vehicle(model_id=41, car_class="Compact", model_year=2021), parts=parts,
+    )
+
+
+def test_happy_path_matches_document_example_shape():
+    # 문서 §3 입력 예시(REAR_BUMPER/Scratched/coating)를 그대로 쓰되, 총액은 직접
+    # 검증 가능한 값으로 구성한다(문서 §4.3/§5 예시 수치는 서로 다른 사례 수를
+    # 전제해 자체 일관되지 않으므로 그대로 재현하지 않는다).
+    repository = InMemoryCostCaseRepository([
+        _row(121381, "REAR_BUMPER", "WORK", work_code="COATING",
+             paint_material_cost=80000, labor_cost=220000),   # total 300000
+        _row(121414, "REAR_BUMPER", "WORK", work_code="COATING",
+             paint_material_cost=85500, labor_cost=250000),   # total 335500
+        _row(999999, "REAR_BUMPER", "WORK", work_code="COATING",
+             paint_material_cost=100000, labor_cost=280000),  # total 380000, 3rd case
+    ])
+    service = EstimateService(repository)
+    part = _part(referenced_case_ids=[121381, 121414, 999999])
+
+    result = service.calculate(_request([part]))
+
+    assert result["estimable"] is True
+    assert result["nonEstimableReason"] is None
+    assert result["unresolvedParts"] == []
+    assert len(result["items"]) == 1
+    item = result["items"][0]
+    assert item["partCode"] == "REAR_BUMPER"
+    assert item["repairMethod"] == "coating"
+    assert item["partCost"] is None  # coating 항목은 부품비가 없다
+    assert item["paintMaterialCost"] == round(statistics.median([80000, 85500, 100000]))
+    assert item["laborCost"] == round(statistics.median([220000, 250000, 280000]))
+    assert item["refCaseCount"] == 3
+    assert set(item["referencedCaseIds"]) == {121381, 121414, 999999}
+    totals = [300000, 335500, 380000]
+    q1, _, q3 = statistics.quantiles(totals, n=4, method="inclusive")
+    assert item["costDistribution"] == {
+        "p25": round(q1), "median": round(statistics.median(totals)), "p75": round(q3),
+    }
+    assert item["itemTotal"] == item["costDistribution"]["median"]
+    assert result["totals"] == {
+        "min": item["costDistribution"]["p25"],
+        "median": item["costDistribution"]["median"],
+        "max": item["costDistribution"]["p75"],
+    }
+    assert result["refCaseTotal"] == 3
+
+
+def test_part_not_resolved_when_everything_is_vector_only():
+    repository = InMemoryCostCaseRepository([])
+    service = EstimateService(repository)
+    part = _part(searchability="VECTOR_ONLY", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    assert result["estimable"] is False
+    assert result["nonEstimableReason"] == "PART_NOT_RESOLVED"
+    assert result["items"] == []
+    assert result["unresolvedParts"] == []
+
+
+def test_insufficient_cases_when_no_cost_rows_match():
+    # referencedCaseIds가 있어도 저장소에 해당 case_id+part_code 행이 전혀 없다.
+    repository = InMemoryCostCaseRepository([
+        _row(1, "OTHER_PART", "WORK", work_code="REPAIR", part_cost=10000, labor_cost=10000),
+    ])
+    service = EstimateService(repository)
+    part = _part(referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    assert result["estimable"] is False
+    assert result["nonEstimableReason"] == "INSUFFICIENT_CASES"
+    assert result["items"] == []
+    assert result["unresolvedParts"] == [
+        {"partCode": "REAR_BUMPER", "damageType": "Scratched", "reason": "INSUFFICIENT_CASES"},
+    ]
+
+
+def test_removal_installation_rows_are_excluded_from_cost():
+    # 같은 사례에 정상 수리 행과 탈착(REMOVE_INSTALL) 행이 섞여 있으면 탈착은 빠져야 한다.
+    rows = [
+        _row(1, "FRONT_DOOR", "WORK", work_code="REPAIR", part_cost=100000, labor_cost=50000),
+        _row(1, "FRONT_DOOR", "WORK", work_code="REMOVE_INSTALL", labor_cost=7000),
+        _row(2, "FRONT_DOOR", "WORK", work_code="REPAIR", part_cost=100000, labor_cost=50000),
+        _row(3, "FRONT_DOOR", "WORK", work_code="REPAIR", part_cost=100000, labor_cost=50000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="FRONT_DOOR", damage_type="Crushed", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    # 탈착의 7000원이 섞였다면 case 1의 총액은 157000이 되어 분포가 달라진다.
+    assert item["itemTotal"] == 150000
+    assert item["costDistribution"] == {"p25": 150000, "median": 150000, "p75": 150000}
+
+
+def test_excluded_work_codes_are_dropped_silently_but_unmapped_codes_warn(caplog):
+    # _is_included_row가 REMOVE_INSTALL을 먼저 걸러내므로, _aggregate_case 자체의
+    # 방어 로직(정책 제외 코드 vs 진짜 미매핑 코드 구분)을 보려면 그 필터를 우회해서
+    # _aggregate_case를 직접 호출해야 한다.
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+        _row(1, "PART_A", "WORK", work_code="REMOVE_INSTALL", labor_cost=7000),
+        _row(1, "PART_A", "WORK", work_code="TRULY_UNKNOWN", part_cost=99999),
+    ]
+
+    with caplog.at_level(logging.DEBUG, logger="app.services.estimate_service"):
+        case_cost = _aggregate_case(1, "PART_A", rows)
+
+    # 탈착 비용(7000)이 안 섞여야 한다.
+    assert case_cost.total == 100000
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    debug_records = [r for r in caplog.records if r.levelname == "DEBUG"]
+    assert len(warning_records) == 1
+    assert "TRULY_UNKNOWN" in warning_records[0].getMessage()
+    assert any("REMOVE_INSTALL" in r.getMessage() for r in debug_records)
+    assert not any("REMOVE_INSTALL" in r.getMessage() for r in warning_records)
+
+
+def test_multiple_rows_in_one_case_are_summed_exchange_part_price_plus_work_labor():
+    # EXCHANGE WORK 행(공임만) + PART_PRICE 행(부품비만) → 같은 사례에서 합산되어야 한다.
+    rows = [
+        _row(1, "REAR_FENDER", "WORK", work_code="EXCHANGE", labor_cost=50000),
+        _row(1, "REAR_FENDER", "PART_PRICE", part_cost=200000),
+        _row(2, "REAR_FENDER", "WORK", work_code="EXCHANGE", labor_cost=55000),
+        _row(2, "REAR_FENDER", "PART_PRICE", part_cost=210000),
+        _row(3, "REAR_FENDER", "WORK", work_code="EXCHANGE", labor_cost=48000),
+        _row(3, "REAR_FENDER", "PART_PRICE", part_cost=190000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="REAR_FENDER", damage_type="Separated", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    assert item["repairMethod"] == "exchange"
+    assert item["refCaseCount"] == 3
+    # case 1 total = 250000, case 2 = 265000, case 3 = 238000
+    assert item["itemTotal"] == round(statistics.median([250000, 265000, 238000]))
+    assert item["partCost"] == round(statistics.median([200000, 210000, 190000]))
+    assert item["laborCost"] == round(statistics.median([50000, 55000, 48000]))
+
+
+def test_mixed_repair_methods_in_one_case_are_summed_not_majority_voted():
+    # case 1: 같은 사례·같은 부품에 판금(SHEET_METAL) + 도장(COATING) 행이 모두 있음.
+    # 실제 수리가 여러 단계로 나뉜 정상 케이스이므로 둘 다 합산되어야 한다.
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="SHEET_METAL", part_cost=100000, labor_cost=50000),
+        _row(1, "PART_A", "WORK", work_code="COATING", paint_material_cost=60000, labor_cost=30000),
+        _row(2, "PART_A", "WORK", work_code="SHEET_METAL", part_cost=110000, labor_cost=50000),
+        _row(3, "PART_A", "WORK", work_code="SHEET_METAL", part_cost=120000, labor_cost=50000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", damage_type="Crushed", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    # case 1의 도장 몫(90000)이 다수결로 버려졌다면 case1 total은 150000이 된다.
+    case_totals = [240000, 160000, 170000]
+    assert item["refCaseCount"] == 3
+    assert item["itemTotal"] == round(statistics.median(case_totals))
+    assert item["repairMethod"] == "sheet_metal"  # exchange 없음 → sheet_metal 우선
+    assert item["repairMethodReason"] == {"candidates": ["sheet_metal", "coating"]}
+    assert item["laborCost"] == round(statistics.median([80000, 50000, 50000]))
+    assert item["paintMaterialCost"] == round(statistics.median([60000, 0, 0]))
+
+
+def test_repair_method_priority_prefers_exchange_over_others_present():
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="EXCHANGE", labor_cost=50000),
+        _row(1, "PART_A", "PART_PRICE", part_cost=200000),
+        _row(1, "PART_A", "WORK", work_code="SHEET_METAL", part_cost=30000, labor_cost=20000),
+        _row(2, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    assert item["repairMethod"] == "exchange"
+    assert item["repairMethodReason"] == {"candidates": ["exchange", "sheet_metal", "repair"]}
+    # case 1 total = 50000(exchange labor) + 200000(part_price) + 30000+20000(sheet_metal) = 300000
+    assert item["refCaseCount"] == 3
+
+
+def test_part_price_without_sibling_work_row_is_dropped_not_guessed_as_exchange():
+    # PART_PRICE 행만 있고 같은 case+part에 WORK 행이 하나도 없으면, exchange로
+    # 추정하지 않고 그 행만 제외한다(폴백 금지 — 사용자 확인 사항).
+    rows = [
+        _row(1, "PART_A", "PART_PRICE", part_cost=200000),  # WORK 행 없음 → 제외
+        _row(2, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", part_cost=70000, labor_cost=40000),
+        _row(4, "PART_A", "WORK", work_code="REPAIR", part_cost=80000, labor_cost=40000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", referenced_case_ids=[1, 2, 3, 4])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    # case 1은 표본에서 완전히 빠져야 한다 — 포함됐다면 refCaseCount가 4가 된다.
+    assert item["refCaseCount"] == 3
+    assert 1 not in item["referencedCaseIds"]
+    assert item["repairMethod"] == "repair"
+
+
+def test_totals_sum_each_items_p25_median_p75_across_multiple_parts():
+    rows = [
+        # part A: REPAIR, totals 100000/110000/120000
+        _row(1, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+        _row(2, "PART_A", "WORK", work_code="REPAIR", part_cost=70000, labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", part_cost=80000, labor_cost=40000),
+        # part B: SHEET_METAL, totals 50000/60000/70000
+        _row(4, "PART_B", "WORK", work_code="SHEET_METAL", part_cost=30000, labor_cost=20000),
+        _row(5, "PART_B", "WORK", work_code="SHEET_METAL", part_cost=40000, labor_cost=20000),
+        _row(6, "PART_B", "WORK", work_code="SHEET_METAL", part_cost=50000, labor_cost=20000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part_a = _part(part_code="PART_A", damage_type="Scratched", confidence=0.95,
+                    referenced_case_ids=[1, 2, 3])
+    part_b = _part(part_code="PART_B", damage_type="Crushed", confidence=0.5,
+                    referenced_case_ids=[4, 5, 6])
+
+    result = service.calculate(_request([part_a, part_b]))
+
+    assert len(result["items"]) == 2
+    item_a, item_b = result["items"]
+    expected_min = item_a["costDistribution"]["p25"] + item_b["costDistribution"]["p25"]
+    expected_median = item_a["costDistribution"]["median"] + item_b["costDistribution"]["median"]
+    expected_max = item_a["costDistribution"]["p75"] + item_b["costDistribution"]["p75"]
+    assert result["totals"] == {"min": expected_min, "median": expected_median, "max": expected_max}
+    assert result["refCaseTotal"] == 6
+    # part_b의 confidence(0.5)가 낮아 전체 등급은 두 항목 중 더 낮은 쪽을 따른다.
+    assert result["confidenceGrade"] == min(
+        item_a["confidenceGrade"], item_b["confidenceGrade"],
+        key=lambda grade: {"LOW": 0, "MEDIUM": 1, "HIGH": 2}[grade],
+    )
+
+
+def test_partial_success_keeps_resolved_items_and_lists_unresolved_parts():
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+        _row(2, "PART_A", "WORK", work_code="REPAIR", part_cost=70000, labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", part_cost=80000, labor_cost=40000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    resolvable = _part(part_code="PART_A", damage_type="Scratched", referenced_case_ids=[1, 2, 3])
+    unresolvable = _part(part_code="PART_B", damage_type="Crushed", referenced_case_ids=[99])
+
+    result = service.calculate(_request([resolvable, unresolvable]))
+
+    assert result["estimable"] is True
+    assert len(result["items"]) == 1
+    assert result["items"][0]["partCode"] == "PART_A"
+    assert result["unresolvedParts"] == [
+        {"partCode": "PART_B", "damageType": "Crushed", "reason": "INSUFFICIENT_CASES"},
+    ]
+
+
+@pytest.mark.parametrize("assessment_status", ["NOT_APPROVED"])
+def test_not_approved_rows_are_excluded(assessment_status):
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000,
+             assessment_status=assessment_status),
+        _row(2, "PART_A", "WORK", work_code="REPAIR", part_cost=70000, labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", part_cost=80000, labor_cost=40000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    # case 1이 불인정으로 빠지므로 최소 사례 수(3) 미달 → 미해결 처리.
+    assert result["estimable"] is False
+    assert result["unresolvedParts"][0]["reason"] == "INSUFFICIENT_CASES"
+
+
+def test_reference_price_and_ancillary_rows_are_excluded():
+    rows = [
+        _row(1, "PART_A", "REFERENCE_PRICE", part_cost=999999),
+        _row(1, "PART_A", "ANCILLARY", part_cost=999999),
+        _row(1, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+        _row(2, "PART_A", "WORK", work_code="REPAIR", part_cost=70000, labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", part_cost=80000, labor_cost=40000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    assert item["itemTotal"] == round(statistics.median([100000, 110000, 120000]))
+
+
+def test_source_aware_columns_read_post_adjustment_for_sc():
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="REPAIR", source="AIHUB_SC",
+             part_cost=999999, labor_cost=999999,  # 손해사정전 값 — 쓰이면 안 된다
+             post_adjustment_part_cost=60000, post_adjustment_labor_cost=40000),
+        _row(2, "PART_A", "WORK", work_code="REPAIR", source="AIHUB_SC",
+             post_adjustment_part_cost=70000, post_adjustment_labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", source="AIHUB_SC",
+             post_adjustment_part_cost=80000, post_adjustment_labor_cost=40000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    assert item["itemTotal"] == round(statistics.median([100000, 110000, 120000]))
