@@ -1,67 +1,83 @@
 <script setup>
-import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 
+/* ===== 촬영 가이드 (S05) — 목업 "NOCA 목업_촬영 가이드 수정" S05_촬영가이드 기준 =====
+ * 2026-09-16 팀 결정으로 촬영 컷이 10장 → 1장이 됐다(backend S15P21A307-519, shooting-guide.json recommendedCount 1).
+ * 사용자는 파손 부위가 보이는 사진 한 장만 올리므로 각도별 슬라이드 대신
+ * 올바른 예시 1장 + 촬영 요령 2가지 + 분석이 어려운 사진 예시 2장으로 구성한다.
+ * 예시 이미지는 서버가 주지 않고 FE 번들(public/assets/guide-*.jpg, 목업 원본 PNG 를 960px JPEG 로 축소)에 둔다 — 가이드 API 는 코드·문구만 준다.
+ */
 const router = useRouter()
-const steps = [
-  { title: '정면', desc: '파손 부위가 화면의 절반 이상 차도록<br>가까이서 찍어주세요' },
-  { title: '45도', desc: '파손 부위를 45도 방향에서<br>비스듬히 찍어주세요' },
-  { title: '왼쪽', desc: '파손 부위의 왼쪽으로 이동해<br>측면이 보이도록 찍어주세요' },
-  { title: '오른쪽', desc: '파손 부위의 오른쪽으로 이동해<br>측면이 보이도록 찍어주세요' },
+
+const TIPS = [
+  '파손 부위가 화면의 절반 이상 차도록 가까이서',
+  '밝은 곳에서 초점을 맞춰 선명하게',
 ]
-const i = ref(0)
-const last = computed(() => i.value === steps.length - 1)
-function next() { last.value ? router.push('/claim/upload') : i.value++ }
-function back() { i.value > 0 ? i.value-- : router.push('/claim/vehicle') }
+const BAD = [
+  { src: '/assets/guide-bad-blur.jpg', alt: '흔들림과 빛 반사가 심한 사진', text: '흔들림·빛 반사가 심함' },
+  { src: '/assets/guide-bad-far.jpg', alt: '촬영 거리가 너무 먼 사진', text: '촬영 거리가 너무 멂' },
+]
+
+function toUpload() { router.push('/claim/upload') }
 </script>
 
 <template>
   <Screen>
-    <AppHeader title="촬영 가이드">
-      <template #left>
-        <button class="back" aria-label="뒤로가기" @click="back">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M12.5 3.5L6 10l6.5 6.5" stroke="#191F28" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </template>
-      <template #right>
-        <button class="act" @click="router.push('/claim/upload')">건너뛰기</button>
-      </template>
-    </AppHeader>
+    <!-- 건너뛰기는 하단 "사진 올리기" 와 동작이 같아 두지 않는다 -->
+    <AppHeader title="촬영 가이드" back="/claim/vehicle" />
     <div class="prog"><i style="width:50%"></i></div>
 
-    <div class="body" style="padding-top:20px">
+    <div class="body scroll" style="padding-top:20px">
       <p class="step">2 / 4 · 촬영 가이드</p>
-      <div :key="i" class="slide">
-        <div class="shot">
-          <img src="/assets/front-shot-example.png" :alt="steps[i].title + ' 촬영 예시'">
-          <span class="badge">{{ i + 1 }} / {{ steps.length }}</span>
-        </div>
-        <div class="center" style="margin-top:24px">
-          <div class="gt">{{ steps[i].title }}</div>
-          <p class="gd" v-html="steps[i].desc"></p>
-        </div>
+      <h1 class="h1 sm" style="margin-top:6px">파손 부위가 잘 보이게<br>한 장만 찍어주세요</h1>
+
+      <!-- 올바른 예시 -->
+      <div class="shot">
+        <img src="/assets/guide-good.jpg" alt="올바른 촬영 예시">
+        <span class="badge">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.6L6.4 12L13 4.6" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          올바른 예시
+        </span>
       </div>
-      <div class="dots">
-        <span v-for="(s, k) in steps" :key="k" :class="{ on: k === i }" @click="i = k"></span>
+      <ul class="tips">
+        <li v-for="t in TIPS" :key="t"><i></i>{{ t }}</li>
+      </ul>
+
+      <!-- 분석이 어려운 사진 -->
+      <div class="lbl" style="margin-top:24px">이런 사진은 분석이 어려워요</div>
+      <div class="bad">
+        <figure v-for="b in BAD" :key="b.src">
+          <span class="thumb">
+            <img :src="b.src" :alt="b.alt">
+            <span class="x" aria-hidden="true">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round"/></svg>
+            </span>
+          </span>
+          <figcaption>{{ b.text }}</figcaption>
+        </figure>
       </div>
+      <div style="height:16px"></div>
     </div>
 
     <div class="foot">
-      <button class="btn" @click="next">{{ last ? '사진 올리기' : '다음 각도' }}</button>
+      <button class="btn" @click="toUpload">사진 올리기</button>
     </div>
   </Screen>
 </template>
 
 <style scoped>
-.slide { animation: fadein .25s ease-out; }
-.shot { position: relative; margin-top: 20px; width: 100%; aspect-ratio: 4 / 3; border-radius: 16px; background: var(--bg-2); overflow: hidden; display: flex; align-items: center; justify-content: center; }
-.shot img { width: 100%; height: 100%; object-fit: contain; }
-.badge { position: absolute; left: 12px; top: 12px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 500; padding: 5px 10px; border-radius: 6px; }
-.gt { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
-.gd { margin-top: 8px; font-size: 14px; line-height: 1.5; color: var(--text-3); }
-.dots { margin-top: 24px; display: flex; gap: 6px; justify-content: center; align-items: center; }
-.dots span { width: 6px; height: 6px; border-radius: 3px; background: var(--line-2); transition: .25s; cursor: pointer; }
-.dots span.on { width: 18px; background: var(--primary); }
+.shot { position: relative; margin-top: 20px; width: 100%; aspect-ratio: 8 / 5; border-radius: 16px; background: var(--bg-2); overflow: hidden; }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.badge { position: absolute; left: 10px; top: 10px; height: 26px; padding: 0 9px; border-radius: 6px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.tips { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.tips li { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); }
+.tips i { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 3px; background: var(--primary); }
+.bad { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bad figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.thumb { position: relative; width: 100%; aspect-ratio: 156 / 110; border-radius: 12px; overflow: hidden; background: var(--bg-2); display: block; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.x { position: absolute; left: 8px; top: 8px; width: 22px; height: 22px; border-radius: 11px; background: var(--danger); display: flex; align-items: center; justify-content: center; }
+.bad figcaption { font-size: 13px; line-height: 1.4; color: var(--text-2); }
 </style>

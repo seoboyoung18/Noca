@@ -10,14 +10,15 @@ from ..core.security import require_internal_token
 from ..infrastructure.image_fetcher import ImageFetchError
 from ..schemas.contracts import AnalyzeRequest, EstimateRequest, InferenceRequest, SearchRequest
 from ..services.inference_service import InferenceService
-from ..services.embedding_service import QueryEmbeddingError
+from ..services.embedding_service import EmbeddingService, QueryEmbeddingError
 from ..services.search_service import SearchService
 from ..services.analysis_service import AnalysisService
 from ..infrastructure.vector_repository import VectorSearchError
 
 
 def build_router(settings: Settings, inference_service: InferenceService,
-                 search_service: SearchService, analysis_service: AnalysisService) -> APIRouter:
+                 search_service: SearchService, embedding_service: EmbeddingService,
+                 analysis_service: AnalysisService) -> APIRouter:
     router = APIRouter()
 
     def authenticated(token: str | None = Header(default=None, alias="X-Internal-Token")) -> None:
@@ -27,8 +28,9 @@ def build_router(settings: Settings, inference_service: InferenceService,
     def health() -> dict[str, bool | str]:
         return {
             "status": "ok",
-            "modelsLoaded": False,
-            "dbReachable": False,
+            "modelsLoaded": inference_service.models_loaded,
+            "embeddingModelLoaded": embedding_service.model_loaded,
+            "dbReachable": search_service.repository.is_reachable(),
             "configured": settings.has_required_runtime_config,
             "analysisProfile": settings.analysis_profile,
             "embeddingConfigured": bool(settings.database_url),

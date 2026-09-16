@@ -43,6 +43,7 @@ class AnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
             settings,
             SimpleNamespace(),
             SimpleNamespace(),
+            SimpleNamespace(model_loaded=False),
             analysis_service,
         ))
 

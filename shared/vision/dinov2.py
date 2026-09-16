@@ -49,6 +49,11 @@ class DinoV2Embedder:
     def device(self) -> str:
         return self._device
 
+    @property
+    def is_loaded(self) -> bool:
+        """Whether the lazy Hugging Face model has been loaded into this process."""
+        return self._model is not None
+
     def _load_model(self) -> object:
         if self._model is None:
             try:

@@ -24,7 +24,7 @@ app/schemas/      HTTP 요청·응답 DTO
 
 `app/adapters/yolo_adapter.py`는 AI 서버 소유다. batch 적재와 실시간 분석에서 같은
 판정을 보장하기 위해 부품/손상 코드·ROI 매칭·정규화 규칙만
-`pipeline/standardization`의 공용 도메인 기준을 참조한다.
+`shared/vision`의 공용 도메인 기준을 참조한다.
 
 `damage_part_best-35ep.pt`는 현재 **segmentation** 가중치다. 서버 adapter는 bbox만
 읽어 API에는 `detect` 결과로 내보내지만, 운영 전에는 명세대로 학습한 part detection

@@ -2,6 +2,7 @@ package com.ssafy.a307.repaircase.image;
 
 import com.ssafy.a307.common.storage.ObjectStorageProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.regions.Region;
@@ -36,6 +37,15 @@ public class S3RepairCaseImageStorage implements RepairCaseImageStoragePort {
     private final S3Presigner presigner;
     private final String serviceBucket;
 
+    /**
+     * 생성자가 둘이라 {@code @Autowired} 를 명시한다 — 생성자가 하나일 때만 자동으로 골라진다.
+     * 아래 생성자는 테스트 전용이다.
+     *
+     * <p>이것이 없으면 스프링이 기본 생성자를 찾다가 {@code NoSuchMethodException} 으로 기동이
+     * 실패한다. service 버킷이 설정된 환경에서만 이 빈이 뜨므로 버킷이 빈 로컬에서는 드러나지 않고
+     * 배포에서 처음 터진다. {@code S3AccidentImageStorage} · {@code S3DocumentStorage} 와 같은 이유다.
+     */
+    @Autowired
     public S3RepairCaseImageStorage(ObjectStorageProperties properties) {
         this.presigner = S3Presigner.builder().region(Region.of(properties.region())).build();
         this.serviceBucket = properties.serviceBucket();
