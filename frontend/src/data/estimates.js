@@ -28,6 +28,22 @@ export const wonOne = (won) => (won == null ? '' : `${man(won)}만원`)
 /** 42~58만 (항목 부가 표기) */
 export const wonShort = (min, max) => (min == null || max == null ? '' : `${man(min)}~${man(max)}만`)
 
+/** 500000 → "500,000" (리포트 표기). null 이면 '' */
+export const wonComma = (won) => (won == null ? '' : Number(won).toLocaleString('ko-KR'))
+
+/** ISO 시각 → "2026년 9월 5일 14:32" · compact 면 "2026.09.05 14:31" */
+export function formatDateTime(iso, compact = false) {
+  const d = new Date(iso)
+  if (!iso || Number.isNaN(d.getTime())) return ''
+  const p = (n) => String(n).padStart(2, '0')
+  if (compact) return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** 산정 근거 완화 단계 → 문구. MODEL(동일 차량명) · CAR_CLASS(동일 차급) · ALL(전체 사례) */
+export const FALLBACK_LABEL = { MODEL: '동일 차량명 사례 기준', CAR_CLASS: '동일 차급 사례 기준', ALL: '전체 사례 기준' }
+export const fallbackLabel = (stage) => FALLBACK_LABEL[stage] || ''
+
 /* ----- 좌표 환산 ----- */
 /**
  * AI 검출 한 건의 bbox 를 사진 대비 퍼센트 사각형으로. 좌표는 원본 픽셀·좌상단 원점, bbox 는 XYWH(계약 ⑥).

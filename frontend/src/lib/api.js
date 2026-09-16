@@ -162,6 +162,16 @@ export const fetchAnalysisResult = (accidentId) => http.get(`/api/accidents/${ac
  */
 export const fetchEstimate = (estimateId) => http.get(`/api/estimates/${estimateId}`).then(data)
 
+/**
+ * 사고 분석 견적 리포트 (EstimateReportController). 견적 기준 — PDF(/api/estimates/{id}/pdf)와 1:1. 동기 GET, 저장하지 않고 매번 조립.
+ * { vehicle{ manufacturer, modelName, vehicleType, carClass, modelYear }(접수 당시 스냅샷), accident{ accidentId, createdAt },
+ *   images[{ imageId, angleCode, overlayUrl(없으면 null → "분석 이미지 없음") }](제외 사진은 없음),
+ *   estimate(EstimateResponse 그대로), basis(EstimateBasisResponse — items[].narrative·fallbackStage·costDistribution·refYearFrom/To),
+ *   validation(견적서 검증 결과, 없으면 null → 섹션 생략), legalNotice(필수 고지), guidanceNotice(null 가능), generatedAt }
+ * 남의 견적·없는 견적은 404.
+ */
+export const fetchEstimateReport = (estimateId) => http.get(`/api/estimates/${estimateId}/report`).then(data)
+
 /** 사고의 견적 목록. 기본은 최신 1건만(latest=true). data 가 배열이며 견적이 없으면 [] — 첫 원소의 estimateId 가 PDF 입구 */
 export const fetchAccidentEstimates = (accidentId, latest = true) =>
   http.get(`/api/accidents/${accidentId}/estimates`, { params: { latest } }).then((r) => r.data.data || [])
