@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import Toast from '../components/Toast.vue'
+import LogoMark from '../components/LogoMark.vue'
 import { fetchAccidentEstimates, fetchEstimateReport } from '../lib/api'
 import { useEstimatePdf } from '../lib/estimatePdf'
 import { carClassLabel, vehicleName, vehicleTypeLabel } from '../data/vehicles'
@@ -134,7 +135,8 @@ const MOCK_REPORT = {
         <div class="row between">
           <span style="font-size:12px;font-weight:500;color:var(--primary)">AI 차량 파손 견적 리포트</span>
           <span class="row" style="gap:6px">
-            <span class="mk"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.6L6.4 12L13 4.6" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <!-- 홈 헤더와 같은 노카 로고 마크 (LogoMark) -->
+            <LogoMark :size="20" :radius="5" :icon="12" />
             <span style="font-size:12px;font-weight:600">노카</span>
           </span>
         </div>
@@ -229,7 +231,6 @@ const MOCK_REPORT = {
 <style scoped>
 .rbody { background: var(--bg-2); padding: 16px; }
 .paper { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-.mk { width: 20px; height: 20px; border-radius: 5px; background: var(--primary); display: flex; align-items: center; justify-content: center; }
 .rh { margin-top: 24px; font-size: 14px; font-weight: 700; color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--text); }
 .rt { min-height: 40px; padding: 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px dashed var(--line); font-size: 13px; }
 .rt span { color: var(--text-3); flex: 0 0 auto; }
