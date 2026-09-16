@@ -154,6 +154,9 @@ deploy:
       set -eu
       rm -rf "${WEB_ROOT:?}"/*
       cp -r frontend/dist/* "$WEB_ROOT"/
+      # Runner 가 root 라 복사본이 root 소유가 된다. 그대로 두면 나중에 ubuntu 로
+      # 손수 배포할 때 덮어쓰지 못한다. 수동 경로를 살려 두려고 되돌린다.
+      chown -R ubuntu:www-data "$WEB_ROOT"
       sudo /usr/bin/systemctl reload nginx
 
     # ── 배포 후 확인 ──
