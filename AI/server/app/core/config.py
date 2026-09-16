@@ -12,6 +12,7 @@ AI_ROOT = Path(__file__).resolve().parents[3]
 class Settings:
     internal_token: str
     pipeline_version_id: int
+    analysis_profile: str
     inference_concurrency: int
     model_imgsz: int
     part_weights: Path
@@ -33,6 +34,7 @@ def load_settings() -> Settings:
     return Settings(
         internal_token=os.getenv("AI_INTERNAL_TOKEN", ""),
         pipeline_version_id=int(os.getenv("FEATURE_PIPELINE_VERSION_ID", "0")),
+        analysis_profile=os.getenv("ANALYSIS_PROFILE", "production").strip().lower(),
         inference_concurrency=int(os.getenv("MAX_INFERENCE_CONCURRENCY", "1")),
         model_imgsz=int(os.getenv("YOLO_IMAGE_SIZE", "960")),
         part_weights=Path(os.getenv(

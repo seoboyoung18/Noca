@@ -58,5 +58,6 @@ python AI/tools/export_yolo_json.py
 설치·환경 변수·현재 구현 범위는 [server/README.md](server/README.md)를 따른다.
 `/inference`는 YOLO 실행과 서버 소유 `app/adapters/yolo_adapter.py`까지 연결한다.
 adapter는 batch 적재와 온라인 추론의 판정을 일치시키기 위해 공용 표준 코드·ROI 매칭 규칙을 참조한다.
-`/search`는 공용 `shared/vision/dinov2.py`의 DINOv2 ROI 임베딩과 pgvector gateway까지 연결한다. 비용 통계·비동기 callback이
-필요한 `/estimate`·`/analyze`는 gateway를 연결하기 전까지 명시적으로 `501`을 반환한다.
+`/search`는 공용 `shared/vision/dinov2.py`의 DINOv2 ROI 임베딩과 pgvector gateway까지 연결한다. 비용 통계가
+필요한 `/estimate`는 아직 `501`을 반환하며, `/analyze`는 `ANALYSIS_PROFILE=mock`에서만 실제 inference 후
+`202 → callback` 연동을 검증할 수 있다. 기본 `production` 프로필에서는 아직 `501`을 반환한다.

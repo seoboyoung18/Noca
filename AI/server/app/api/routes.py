@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 
 from ..adapters.ultralytics_yolo import ModelRunError
 from ..core.config import Settings
@@ -10,11 +12,12 @@ from ..schemas.contracts import AnalyzeRequest, EstimateRequest, InferenceReques
 from ..services.inference_service import InferenceService
 from ..services.embedding_service import QueryEmbeddingError
 from ..services.search_service import SearchService
+from ..services.analysis_service import AnalysisService
 from ..infrastructure.vector_repository import VectorSearchError
 
 
 def build_router(settings: Settings, inference_service: InferenceService,
-                 search_service: SearchService) -> APIRouter:
+                 search_service: SearchService, analysis_service: AnalysisService) -> APIRouter:
     router = APIRouter()
 
     def authenticated(token: str | None = Header(default=None, alias="X-Internal-Token")) -> None:
@@ -27,6 +30,7 @@ def build_router(settings: Settings, inference_service: InferenceService,
             "modelsLoaded": False,
             "dbReachable": False,
             "configured": settings.has_required_runtime_config,
+            "analysisProfile": settings.analysis_profile,
             "embeddingConfigured": bool(settings.database_url),
             "partWeightsPresent": settings.part_weights.is_file(),
             "damageWeightsPresent": settings.damage_weights.is_file(),
@@ -62,8 +66,19 @@ def build_router(settings: Settings, inference_service: InferenceService,
     async def estimate(_: EstimateRequest) -> dict:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail={"code": "ESTIMATE_GATEWAY_NOT_IMPLEMENTED"})
 
-    @router.post("/analyze", dependencies=[Depends(authenticated)], status_code=status.HTTP_501_NOT_IMPLEMENTED)
-    async def analyze(_: AnalyzeRequest) -> dict:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail={"code": "ANALYSIS_ORCHESTRATOR_NOT_IMPLEMENTED"})
+    @router.post("/analyze", dependencies=[Depends(authenticated)], status_code=status.HTTP_202_ACCEPTED)
+    async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+        if settings.pipeline_version_id <= 0:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "PIPELINE_NOT_CONFIGURED"},
+            )
+        if settings.analysis_profile != "mock":
+            raise HTTPException(
+                status.HTTP_501_NOT_IMPLEMENTED,
+                detail={"code": "ANALYSIS_ORCHESTRATOR_NOT_IMPLEMENTED"},
+            )
+        background_tasks.add_task(analysis_service.run_mock, request)
+        return {"accepted": True, "jobId": request.job_id, "requestId": request.request_id}
 
     return router
