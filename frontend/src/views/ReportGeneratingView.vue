@@ -1,11 +1,13 @@
 <script setup>
 import { onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 
 const router = useRouter()
+const route = useRoute()
 let t
-onMounted(() => { t = setTimeout(() => router.replace('/report'), 1600) })
+// 쿼리(accidentId·estimateId)를 리포트 화면으로 그대로 넘긴다
+onMounted(() => { t = setTimeout(() => router.replace({ path: '/report', query: route.query }), 1600) })
 onUnmounted(() => clearTimeout(t))
 </script>
 

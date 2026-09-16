@@ -1,29 +1,47 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import Toast from '../components/Toast.vue'
 import { useAppStore } from '../stores/app'
+import { useEstimatePdf } from '../lib/estimatePdf'
 
 const router = useRouter()
 const store = useAppStore()
 const editing = ref(false)
-const toast = ref(false)
+const toast = ref('')
 let tt
 
 const statusTag = { done: { text: '견적 완료', cls: '' }, busy: { text: '분석 중', cls: 'gray' }, fail: { text: '분석 실패', cls: 'red' } }
 
+function showToast(msg, ms = 1600) {
+  toast.value = msg
+  clearTimeout(tt)
+  tt = setTimeout(() => { toast.value = '' }, ms)
+}
+
+// 항목에 accidentId·estimateId 가 있으면(서버 목록 연결 뒤) 다음 화면으로 쿼리로 넘긴다. 목업 항목은 예전처럼 경로만 이동
 function open(h) {
   if (editing.value) return
-  if (h.status === 'done') router.push('/estimate')
-  else if (h.status === 'busy') router.push('/claim/analyzing')
+  const query = {}
+  if (h.accidentId) query.accidentId = h.accidentId
+  if (h.estimateId) query.estimateId = h.estimateId
+  if (h.status === 'done') router.push({ path: '/estimate', query })
+  else if (h.status === 'busy') router.push({ path: '/claim/analyzing', query: h.accidentId ? { accidentId: h.accidentId } : {} })
 }
+
+/* ===== PDF 파일 받기 — 견적 id 기준 (요청 → 생성 대기 → 302 다운로드) =====
+ * 사고 이력 목록의 estimateId(GET /api/accidents/me) 가 입구다. null 이면 받을 PDF 가 없다는 뜻이라 버튼을 끈다.
+ * 한 번에 한 건만 진행하고, 진행 중인 행은 "생성 중…" 으로 표시한다.
+ */
+const { step: pdfStep, busyId: pdfBusyId, message: pdfMessage, download: downloadPdf } = useEstimatePdf()
+watch(pdfMessage, (m) => { if (m) showToast(m, pdfStep.value === 'error' ? 2800 : 1600) })
+
 function pdf(h) {
   if (h.status !== 'done') return
-  toast.value = true
-  clearTimeout(tt)
-  tt = setTimeout(() => { toast.value = false }, 1600)
+  if (!h.estimateId) return showToast('아직 산출된 견적이 없어 PDF를 만들 수 없어요.', 2400)
+  downloadPdf(h.estimateId)
 }
 </script>
 
@@ -57,8 +75,8 @@ function pdf(h) {
             <button v-if="editing" class="del" aria-label="이력 삭제" @click.stop="store.deleteHistory(h.id)">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 8h8" stroke="#D14343" stroke-width="1.8" stroke-linecap="round"/></svg>
             </button>
-            <button v-else class="pdf" :disabled="h.status !== 'done'" @click.stop="pdf(h)">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>PDF 파일 받기
+            <button v-else class="pdf" :disabled="h.status !== 'done' || pdfBusyId !== null" :aria-busy="pdfBusyId === h.estimateId" @click.stop="pdf(h)">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ h.estimateId && pdfBusyId === h.estimateId ? (pdfStep === 'generating' ? 'PDF 생성 중…' : '준비 중…') : 'PDF 파일 받기' }}
             </button>
           </div>
         </div>
@@ -74,7 +92,7 @@ function pdf(h) {
       </div>
     </div>
     <div class="spacer"></div>
-    <Toast :show="toast">리포트 PDF를 저장했어요</Toast>
+    <Toast :show="!!toast">{{ toast }}</Toast>
   </Screen>
 </template>
 

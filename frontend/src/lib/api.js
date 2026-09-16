@@ -139,6 +139,29 @@ export const requestAnalysis = (accidentId) => http.post(`/api/accidents/${accid
  */
 export const fetchAnalysisProgress = (accidentId) => http.get(`/api/accidents/${accidentId}/analysis`).then(data)
 
+/* ===== 견적 · 견적 PDF (EstimateController · EstimatePdfController) ===== */
+
+/** 사고의 견적 목록. 기본은 최신 1건만(latest=true). data 가 배열이며 견적이 없으면 [] — 첫 원소의 estimateId 가 PDF 입구 */
+export const fetchAccidentEstimates = (accidentId, latest = true) =>
+  http.get(`/api/accidents/${accidentId}/estimates`, { params: { latest } }).then((r) => r.data.data || [])
+
+/**
+ * PDF 생성 요청. 워커가 만들므로 202 로 접수만 되고 응답은 상태 조회와 같은 모양이다.
+ * 409 = 이미 생성 중(정상 흐름으로 보고 상태 조회로 이어 간다) · 404 = 내 견적이 아님.
+ * { reportNo, status: QUEUED|PROCESSING|COMPLETED|FAILED, retryCount(최대 3), failureReason(사용자용 문구), createdAt, completedAt }
+ */
+export const requestEstimatePdf = (estimateId) => http.post(`/api/estimates/${estimateId}/pdf`).then(data)
+
+/** 가장 최근 PDF 요청 상태. 요청한 적이 없으면 200 + data null (오류 아님) */
+export const fetchEstimatePdfStatus = (estimateId) => http.get(`/api/estimates/${estimateId}/pdf`).then(data)
+
+/**
+ * PDF 다운로드 진입 URL. 서버가 302 로 S3 서명 URL(5분 · attachment · 파일명 예상견적_{reportNo}.pdf)로 보낸다.
+ * XHR 로 부르면 안 된다 — 리다이렉트를 따라간 S3 응답에 CORS 헤더가 없어 실패한다. 브라우저 이동으로만 쓴다.
+ * 완료본이 없으면 409 · 보관소 미구성이면 503 이라, 상태가 COMPLETED 인 것을 확인한 뒤에만 이동한다.
+ */
+export const estimatePdfDownloadUrl = (estimateId) => `${API_BASE}/api/estimates/${estimateId}/pdf/download`
+
 /* ===== 사고 · 정비 체크리스트 (AccidentController · RepairChecklistController) ===== */
 
 /** 내 사고 이력. createdAt 내림차순. { accidents[], page, size, totalElements, totalPages, hasNext }. size 상한 100 */
