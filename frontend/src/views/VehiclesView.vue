@@ -14,6 +14,8 @@ const vs = useVehicleStore()
 
 // idle | loading | error
 const state = ref('idle')
+// 로딩·오류가 아닌데 차량이 없을 때만 빈 상태 화면
+const isEmpty = computed(() => state.value !== 'loading' && state.value !== 'error' && !vs.vehicles.length)
 const loadError = ref('')
 onMounted(load)
 async function load() {
@@ -65,7 +67,17 @@ async function doDelete() {
       </template>
     </AppHeader>
 
-    <div class="body scroll" style="padding-top:20px">
+    <!-- 빈 상태 — 사고 이력 화면과 같이 별도 컨테이너(.body.col)에 두어 화면 세로 중앙에 놓는다 -->
+    <div v-if="isEmpty" class="body col">
+      <div class="empty">
+        <img src="/assets/logo-small.png" alt="">
+        <b>등록된 차량이 없어요</b>
+        <p>차량을 등록하면<br>더 정확한 견적을 받을 수 있어요</p>
+        <button class="btn" style="margin-top:20px;width:auto;padding:0 24px;height:44px" @click="router.push('/vehicles/new?from=my')">차량 등록하기</button>
+      </div>
+    </div>
+
+    <div v-else class="body scroll" style="padding-top:20px">
       <!-- 로딩 -->
       <div v-if="state === 'loading' && !vs.vehicles.length" class="stack">
         <div v-for="i in 2" :key="i" class="card skel" style="height:96px"></div>
@@ -78,7 +90,7 @@ async function doDelete() {
       </div>
 
       <!-- 목록 -->
-      <div v-else-if="vs.vehicles.length" class="stack">
+      <div v-else class="stack">
         <div v-for="v in vs.vehicles" :key="v.vehicleId" class="card" style="padding:16px">
           <div class="row between">
             <span class="row" style="gap:8px;min-width:0">
@@ -91,14 +103,6 @@ async function doDelete() {
           </div>
           <div class="sub" style="margin-top:6px">{{ v.modelYear }}년식 · {{ vehicleSpec(v) }}</div>
         </div>
-      </div>
-
-      <!-- 빈 상태 -->
-      <div v-else class="empty" style="margin-top:80px">
-        <img src="/assets/logo-small.png" alt="">
-        <b>등록된 차량이 없어요</b>
-        <p>차량을 등록하면<br>더 정확한 견적을 받을 수 있어요</p>
-        <button class="btn" style="margin-top:20px;width:auto;padding:0 24px;height:44px" @click="router.push('/vehicles/new?from=my')">차량 등록하기</button>
       </div>
 
       <p v-if="vs.vehicles.length" class="sub center" style="margin-top:16px;font-size:12px">차량을 삭제해도 사고 이력은 남아요</p>
