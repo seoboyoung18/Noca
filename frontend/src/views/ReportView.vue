@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import Toast from '../components/Toast.vue'
@@ -8,6 +8,9 @@ import { fetchAccidentEstimates } from '../lib/api'
 import { useEstimatePdf } from '../lib/estimatePdf'
 
 const route = useRoute()
+const router = useRouter()
+// 리포트는 접수 흐름의 끝이라 홈으로는 replace — 뒤로가기로 생성 중 화면에 되돌아가지 않게
+function goHome() { router.replace('/home') }
 const read = ref(false)
 const toast = ref('')
 let tt
@@ -57,13 +60,8 @@ const rows = [
 
 <template>
   <Screen>
-    <AppHeader title="리포트 미리보기" back="/estimate" line>
-      <template #right>
-        <button class="icn" aria-label="공유" @click="showToast('리포트 링크를 복사했어요')">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 13.5V3.5M6.5 7L10 3.5L13.5 7" stroke="#191F28" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 12.5v3a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3" stroke="#191F28" stroke-width="1.7" stroke-linecap="round"/></svg>
-        </button>
-      </template>
-    </AppHeader>
+    <!-- 공유(링크 복사) 버튼은 서버 공유 링크 API(3차·미구현)가 없어 제거. 생기면 #right 슬롯에 다시 둔다 -->
+    <AppHeader title="리포트 미리보기" back="/estimate" line />
 
     <div class="body rbody scroll" @scroll="onScroll">
       <div class="paper">
@@ -121,11 +119,15 @@ const rows = [
       </div>
     </div>
 
-    <div class="foot">
-      <button class="btn" :disabled="!read || pdfBusy" :aria-busy="pdfBusy" @click="onPdf">
+    <div class="foot row">
+      <button class="btn" style="flex:1 1 auto" :disabled="!read || pdfBusy" :aria-busy="pdfBusy" @click="onPdf">
         <svg v-if="pdfBusy" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="animation:dcspin 1s linear infinite"><circle cx="9" cy="9" r="7" stroke="rgba(255,255,255,.35)" stroke-width="2"/><circle cx="9" cy="9" r="7" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-dasharray="12 32" transform="rotate(-90 9 9)"/></svg>
         <svg v-else width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5v9M5.5 8L9 11.5L12.5 8" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 13.5h11" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round"/></svg>
         {{ pdfLabel }}
+      </button>
+      <!-- 홈으로 — 다운로드 여부와 무관하게 언제나 나갈 수 있어야 하므로 read 조건을 걸지 않는다 -->
+      <button class="btn outline home" aria-label="홈으로" @click="goHome">
+        <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 8.5L9 3l6.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 7.5v7h9v-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 14.5v-4h3v4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
       </button>
     </div>
     <Toast :show="!!toast">{{ toast }}</Toast>
@@ -148,4 +150,5 @@ const rows = [
 .rnote { margin-top: 20px; background: var(--warn-bg); border-radius: 8px; padding: 14px; font-size: 12px; line-height: 1.6; color: var(--warn); }
 .rend { margin-top: 16px; font-size: 12px; color: var(--text-3); text-align: center; }
 .rend.ok { color: var(--primary); font-weight: 500; }
+.home { flex: 0 0 52px; width: 52px; padding: 0; color: var(--text-2); } /* 아이콘만 — 이름은 aria-label 로 */
 </style>
