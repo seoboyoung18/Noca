@@ -1,0 +1,173 @@
+# A307 자동배포
+#
+# develop 에 머지되면 BE 박스에서 빌드하고 배포한다.
+# Runner 는 그 박스에 shell executor 로 설치돼 있고 태그는 a307-deploy 다.
+#
+# ── 비밀값을 여기 두지 않는 이유 ──────────────────────────────
+#   백엔드 비밀값(DB·OAuth·AWS 키)은 서버의 /etc/a307/backend.env 에만 있고
+#   컨테이너에 --env-file 로 들어간다. CI 변수로 옮기면 파이프라인 로그·아티팩트·
+#   포크 MR 로 새어 나갈 경로가 늘어난다.
+#   GitLab CI/CD Variables 에 두는 것은 프론트 빌드값 둘뿐이다. 이 둘은 어차피
+#   번들에 박혀 브라우저로 나가는 값이라 비밀이 아니다.
+#     VITE_API_BASE_URL · VITE_KAKAO_JS_KEY
+#
+# ── 왜 태그를 쓰나 ────────────────────────────────────────────
+#   SSAFY GitLab 에는 공용 Runner 가 붙어 있다. 태그가 없으면 공용 Runner 가
+#   작업을 가져가는데, 그 Runner 는 우리 서버에 닿지 못해 배포가 실패한다.
+#
+# ── 되돌리기 ──────────────────────────────────────────────────
+#   이미지를 커밋 SHA 로도 태그한다. 직전 버전으로 되돌리려면 서버에서
+#     docker rm -f a307-backend
+#     docker run -d --name a307-backend --network a307-net \
+#       -p 127.0.0.1:8080:8080 --env-file /etc/a307/backend.env \
+#       --restart unless-stopped a307-backend:<이전 SHA>
+
+stages:
+  - guard
+  - deploy
+
+default:
+  tags:
+    - a307-deploy
+
+variables:
+  # guard 가 이전 배포 커밋과 비교해야 한다. 기본값(얕은 클론)이면 옛 커밋이 없어 비교가 깨진다.
+  GIT_DEPTH: "0"
+  # 마지막으로 배포한 커밋을 적어 두는 곳. ubuntu 홈이라 Runner 가 쓸 수 있다.
+  DEPLOY_MARK: "/home/ubuntu/.a307-deployed-commit"
+  IMAGE: "a307-backend"
+  WEB_ROOT: "/var/www/a307"
+  HEALTH_URL: "http://127.0.0.1:8080/actuator/health"
+
+# ─────────────────────────────────────────────────────────────
+# 1. 마이그레이션 가드 — 새 SQL 이 있으면 배포를 멈춘다
+# ─────────────────────────────────────────────────────────────
+# 스키마 변경은 사람이 적용한다. 자동으로 돌리면 실패했을 때 조용히 지나가고,
+# ddl-auto=validate 라서 어긋나면 그 API 만이 아니라 앱 전체가 안 뜬다.
+migration-guard:
+  stage: guard
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  script:
+    - |
+      set -eu
+      LAST=$(cat "$DEPLOY_MARK" 2>/dev/null || true)
+      if [ -z "$LAST" ]; then
+        echo "이전 배포 기록이 없다. 첫 배포로 보고 검사를 건너뛴다."
+        exit 0
+      fi
+      echo "이전 배포 커밋: $LAST"
+      echo "이번 커밋:      $CI_COMMIT_SHA"
+      NEW=$(git diff --name-only --diff-filter=AM "$LAST" "$CI_COMMIT_SHA" \
+            -- Docs/Erd/migrations pipeline/sql | grep -E '\.sql$' || true)
+      if [ -n "$NEW" ]; then
+        echo ""
+        echo "새로 추가되거나 바뀐 마이그레이션이 있어 배포를 멈춘다."
+        echo "$NEW"
+        echo ""
+        echo "운영 DB 에 직접 적용한 뒤 이 파이프라인을 다시 실행하라."
+        exit 1
+      fi
+      echo "새 마이그레이션 없음."
+
+# ─────────────────────────────────────────────────────────────
+# 2. 빌드 + 배포
+# ─────────────────────────────────────────────────────────────
+# 빌드와 배포를 한 잡에 두는 이유 — Runner 가 서버에 직접 있어서 도커 이미지도
+# dist 도 같은 기계에 남는다. 잡을 나누면 dist 를 아티팩트로 실어 날라야 하는데
+# 얻는 것이 없다.
+deploy:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  environment:
+    name: production
+    url: https://j15a307.p.ssafy.io
+  script:
+    - |
+      set -eu
+      echo "실행 사용자: $(whoami)"
+      test "$(whoami)" = "ubuntu" || { echo "ubuntu 로 돌아야 한다. Runner 설치 시 --user=ubuntu 확인."; exit 1; }
+      test -r /etc/a307/backend.env || { echo "/etc/a307/backend.env 를 읽을 수 없다."; exit 1; }
+
+    # ── 백엔드 jar ──
+    - |
+      set -eu
+      cd backend
+      ./gradlew bootJar -x test
+      cd ..
+
+    # ── 도커 이미지 (컨텍스트는 저장소 루트다. backend/ 에서 빌드하지 않는다) ──
+    - |
+      set -eu
+      docker build -t "$IMAGE:$CI_COMMIT_SHORT_SHA" -t "$IMAGE:latest" -f backend/Dockerfile .
+
+    # ── 프론트 ──
+    # .env.production 은 저장소에 없다(.gitignore). CI 변수로 매번 만든다.
+    - |
+      set -eu
+      test -n "${VITE_API_BASE_URL:-}" || { echo "CI 변수 VITE_API_BASE_URL 이 없다."; exit 1; }
+      test -n "${VITE_KAKAO_JS_KEY:-}" || { echo "CI 변수 VITE_KAKAO_JS_KEY 가 없다."; exit 1; }
+      cd frontend
+      printf 'VITE_API_BASE_URL=%s\nVITE_KAKAO_JS_KEY=%s\n' "$VITE_API_BASE_URL" "$VITE_KAKAO_JS_KEY" > .env.production
+      npm ci
+      npm run build
+      # 주소가 실제로 번들에 박혔는지 본다. 빠지면 화면은 뜨는데 API 가 전부 죽는다.
+      grep -rq "$VITE_API_BASE_URL" dist/assets/ || { echo "번들에 API 주소가 없다. .env 우선순위를 확인하라."; exit 1; }
+      cd ..
+
+    # ── 백엔드 교체 ──
+    - |
+      set -eu
+      docker rm -f a307-backend 2>/dev/null || true
+      docker run -d --name a307-backend \
+        --network a307-net \
+        -p 127.0.0.1:8080:8080 \
+        --env-file /etc/a307/backend.env \
+        --restart unless-stopped \
+        "$IMAGE:$CI_COMMIT_SHORT_SHA"
+
+    # ── 기동 대기 ──
+    # Dockerfile 의 HEALTHCHECK start-period 가 90초다. 넉넉히 120초까지 본다.
+    - |
+      set -eu
+      for i in $(seq 1 40); do
+        if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
+          echo "기동 확인 (${i}회차)"
+          break
+        fi
+        if [ "$i" = "40" ]; then
+          echo "기동하지 못했다. 최근 로그 80줄:"
+          docker logs --tail 80 a307-backend || true
+          exit 1
+        fi
+        sleep 3
+      done
+
+    # ── 프론트 배치 ──
+    - |
+      set -eu
+      rm -rf "${WEB_ROOT:?}"/*
+      cp -r frontend/dist/* "$WEB_ROOT"/
+      sudo /usr/bin/systemctl reload nginx
+
+    # ── 배포 후 확인 ──
+    # health 만 보면 안 된다. 어댑터가 없어도 UP 이 뜬다 (배포 준비 체크리스트 §5).
+    - |
+      set -eu
+      fail=0
+      check() {
+        code=$(curl -s -o /dev/null -w '%{http_code}' "$1")
+        if [ "$code" = "$2" ]; then echo "  OK   $3 ($code)"; else echo "  실패 $3 (기대 $2, 실제 $code)"; fail=1; fi
+      }
+      check https://j15a307.p.ssafy.io/                      200 "메인 페이지"
+      check https://j15a307.p.ssafy.io/mypage                200 "SPA 딥링크"
+      check https://j15a307.p.ssafy.io/api/guides/checklist  200 "공개 API"
+      check https://j15a307.p.ssafy.io/api/vehicles/me       401 "인증 요구"
+      test "$fail" = "0" || exit 1
+
+    # ── 배포 커밋 기록 (다음 실행의 guard 기준) ──
+    - echo "$CI_COMMIT_SHA" > "$DEPLOY_MARK"
+
+    # ── 오래된 이미지 정리 ──
+    - docker image prune -f > /dev/null 2>&1 || true
