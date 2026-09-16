@@ -8,6 +8,11 @@
 만드는 사람이 알아야 할 것**만 모았다. 검색 쪽(`repair_case`·`repair_case_image`)은
 `A307_SEARCH_LOAD_SCOPE.md`를 본다.
 
+> **MVP 변경 안내 (2026-09-16):** MVP에서는 `repair_cost_stat`을 만들지 않고, 검색된
+> `referencedCaseIds`의 `repair_case_item`을 실시간으로 조회해 해당 부품 비용을 계산한다.
+> 아래 `repair_cost_stat` 내용은 MVP 이후 운영 안정화 단계의 통계 배치 설계다.
+> MVP 입출력 계약은 [`견적 산출 입출력 형식_update.md`](../AI/견적%20산출%20입출력%20형식_update.md)를 따른다.
+
 ## 1. 지금 쓸 수 있는 것
 
 ### 원천 견적 원문 — `aihub_estimate_raw`
@@ -117,22 +122,22 @@ AS는 별도 불변식이다 — as-0000011에서 작업 행 합계 3,945,120원
   매핑 테이블의 소유권과 `mapping_rule_version` 관리는 검색·비용 양쪽이 공유한다
 - **`repair_cost_stat`** (P25/P50/P75) 생성
 
-### 온라인 견적용 `repair_cost_stat` 설계
+### 후속 운영 전환용 `repair_cost_stat` 설계
 
-온라인 분석 요청마다 `repair_case_item` 원천 행을 다시 집계하지 않는다. 비용 산출
-모듈은 사전 집계한 `repair_cost_stat`을 `(car_class, part_code, damage_type,
-repair_method, source)`로 일괄 조회해 P25·중앙값·P75 비용 범위를 만든다. 이 유니크
-키는 한 사고의 여러 STRICT 부품을 N+1 조회하지 않고 batch 조회하는 기준이다.
+MVP에서는 온라인 분석 요청마다 검색된 `referencedCaseIds`의 `repair_case_item`을
+일괄 조회해 사례별 비용을 계산한다. 이 MVP 계산이 안정화되면 같은 규칙을 배치로
+옮겨 `repair_cost_stat`을 만들고, 운영에서는 사전 집계 통계를 조회한다.
 
-벡터 검색과 비용 통계의 책임은 분리한다.
+운영 전환 후에는 벡터 검색과 비용 통계의 책임을 분리한다.
 
 ```text
 repair_case_roi_embedding → 화면용 유사 사례 최대 10건
 repair_cost_stat          → 견적 금액과 통계 표본 수
 ```
 
-따라서 화면용 `referencedCaseIds`와 통계의 `case_count`는 같은 집합일 필요가 없다.
-전자는 유사 사진을 보여 주기 위한 대표 사례이고, 후자는 비용 분포를 만든 전체 표본이다.
+MVP에서는 `referencedCaseIds`가 비용 계산에 사용하는 참조 사례 집합이다. 운영 전환
+후에는 `referencedCaseIds`는 화면용 사례가 되고, `repair_cost_stat.case_count`는
+전체 통계 표본 수가 된다.
 
 통계 배치는 다음 단위로 비용 표본을 만든다.
 
@@ -154,8 +159,8 @@ repair_cost_stat          → 견적 금액과 통계 표본 수
 반환하려면 이 컬럼 추가와 배치 적재가 필요하다.
 
 검색 ROI의 직접 부품 확정 규칙은
-[damage_part 중심 유사 사례 검색 스키마](A307_DAMAGE_SEARCH_SCHEMA.md), AI 서버 내부
-입·출력은 [견적 산출 입출력 형식](../AI/견적%20산출%20입출력%20형식.md)을 따른다.
+[damage_part 중심 유사 사례 검색 스키마](A307_DAMAGE_SEARCH_SCHEMA.md), MVP AI 서버
+입·출력은 [견적 산출 입출력 형식_update](../AI/견적%20산출%20입출력%20형식_update.md)을 따른다.
 
 ## 4. 이어받을 때 먼저 볼 것
 
