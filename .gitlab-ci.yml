@@ -19,7 +19,8 @@
 #   이미지를 커밋 SHA 로도 태그한다. 직전 버전으로 되돌리려면 서버에서
 #     docker rm -f a307-backend
 #     docker run -d --name a307-backend --network a307-net \
-#       -p 127.0.0.1:8080:8080 --env-file /etc/a307/backend.env \
+#       -p 127.0.0.1:8080:8080 -p 172.26.8.28:8080:8080 \
+#       --env-file /etc/a307/backend.env \
 #       --restart unless-stopped a307-backend:<이전 SHA>
 
 stages:
@@ -38,6 +39,9 @@ variables:
   IMAGE: "a307-backend"
   WEB_ROOT: "/var/www/a307"
   HEALTH_URL: "http://127.0.0.1:8080/actuator/health"
+  # BE 박스 사설 IP. AI 서버가 결과 콜백(/internal/analysis-jobs/*/result)을 보낼 때
+  # 여기로 온다. 8080 을 127.0.0.1 에만 묶으면 AI 박스에서 닿지 못한다.
+  PRIVATE_IP: "172.26.8.28"
 
 # ─────────────────────────────────────────────────────────────
 # 1. 마이그레이션 가드 — 새 SQL 이 있으면 배포를 멈춘다
@@ -128,6 +132,7 @@ deploy:
       docker run -d --name a307-backend \
         --network a307-net \
         -p 127.0.0.1:8080:8080 \
+        -p "$PRIVATE_IP":8080:8080 \
         --env-file /etc/a307/backend.env \
         --restart unless-stopped \
         "$IMAGE:$CI_COMMIT_SHORT_SHA"
