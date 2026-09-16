@@ -63,7 +63,8 @@ async function doDelete() {
   <Screen>
     <AppHeader title="차량 관리" back="/my" line>
       <template #right>
-        <button class="act" @click="router.push('/vehicles/new?from=my')">+ 추가</button>
+        <!-- 차량이 한 대 이상일 때만. 빈 상태에서는 본문의 "차량 등록하기" 가 유일한 진입점 -->
+        <button v-if="vs.vehicles.length" class="act" @click="router.push('/vehicles/new?from=my')">+ 추가</button>
       </template>
     </AppHeader>
 
