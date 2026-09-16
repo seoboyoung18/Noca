@@ -86,6 +86,56 @@ export function firstThumbnail(images) {
   return ''
 }
 
+/* ===== 사고 이미지 업로드 — 검증·오류 문구 (이미지 업로드 API — FE 인수인계.md §2-3·§3·§4) ===== */
+
+/** 발급 400 의 error.code 와 완료 통보 results[].failureCode 가 같은 이름을 쓴다 — 매핑 한 벌 */
+export const IMAGE_FAIL_TEXT = {
+  TOO_MANY_IMAGES: '올릴 수 있는 사진 수를 넘었어요.',
+  FILE_TOO_LARGE: '사진은 20MB 이하만 올릴 수 있어요. 크기를 줄여 주세요.',
+  UNSUPPORTED_EXTENSION: 'JPG 또는 PNG 사진만 올릴 수 있어요.',
+  UNSUPPORTED_CONTENT_TYPE: '파일이 손상된 것 같아요. 다른 사진을 골라 주세요.',
+  SERVER_CONVERSION_UNSUPPORTED: 'HEIC 사진은 올릴 수 없어요. JPG로 변환한 뒤 올려 주세요.',
+  INVALID_FILE_NAME: '파일 이름을 바꾼 뒤 다시 올려 주세요.',
+  MISSING_FILE: '사진이 올라가지 않았어요. 다시 시도해 주세요.',
+  SIGNATURE_MISMATCH: '이미지 파일이 아닌 것 같아요. 다른 사진을 골라 주세요.',
+  SIZE_MISMATCH: '전송 중 문제가 있었어요. 다시 시도해 주세요.',
+  PROCESSING_ERROR: '사진을 처리하지 못했어요. 다시 시도해 주세요.',
+}
+export const imageFailText = (code, fallback) => IMAGE_FAIL_TEXT[code] || fallback || '사진을 올리지 못했어요. 잠시 후 다시 시도해 주세요.'
+
+/**
+ * 품질 판정 WARN 의 사용자 문구. 서버 qualityReason 은 "해상도 부족 — 짧은 변 600px (기준 720px)" 같은 개발자용 표기라
+ * 앞머리로 종류를 가려 사용자용으로 바꾼다. 알 수 없는 사유는 일반 문구. (backend ImageQualityAssessor)
+ */
+export function qualityWarnText(reason = '') {
+  if (reason.startsWith('해상도')) return '사진 해상도가 낮아요. 더 가까이서 찍은 사진으로 바꾸는 걸 권해요.'
+  if (reason.startsWith('흔들림')) return '사진이 흔들렸거나 초점이 맞지 않은 것 같아요. 다시 찍은 사진으로 바꾸는 걸 권해요.'
+  return '사진 품질이 낮을 수 있어요. 파손 부위가 선명하게 보이는지 확인해 주세요.'
+}
+
+/** 같은 imageId·같은 URL 로 다시 PUT 하면 풀리는 실패. 그 외는 파일 자체 문제라 다른 파일로 새로 발급해야 한다 */
+export const RETRY_SAME_IMAGE = new Set(['MISSING_FILE', 'SIZE_MISMATCH', 'PROCESSING_ERROR'])
+
+const ALLOWED_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' }
+
+/**
+ * 파일 선택 시점의 클라이언트 검증 — 서버 규칙과 같은 값. 서버 400 을 받기 전에 걸러야 UX 가 산다(§7-2).
+ * iOS 는 카메라 촬영본을 HEIC 로 줄 수 있어 accept 만으로는 못 막는다 — 확장자와 file.type 을 직접 본다(§3-1).
+ * 돌려주는 값: { ok: true, contentType } 또는 { ok: false, code }
+ */
+export function validateAccidentImage(file, maxBytes = 20 * 1024 * 1024) {
+  const name = file?.name || ''
+  const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : ''
+  const type = (file?.type || '').toLowerCase()
+  if (!file || !file.size) return { ok: false, code: 'MISSING_FILE' }
+  if (ext === 'heic' || ext === 'heif' || type === 'image/heic' || type === 'image/heif') return { ok: false, code: 'SERVER_CONVERSION_UNSUPPORTED' }
+  if (!ALLOWED_EXT[ext]) return { ok: false, code: 'UNSUPPORTED_EXTENSION' }
+  if (type && type !== ALLOWED_EXT[ext]) return { ok: false, code: 'UNSUPPORTED_CONTENT_TYPE' }
+  if (file.size > maxBytes) return { ok: false, code: 'FILE_TOO_LARGE' }
+  if (name.length > 255 || /[\\/\u0000-\u001f]/.test(name)) return { ok: false, code: 'INVALID_FILE_NAME' }
+  return { ok: true, contentType: ALLOWED_EXT[ext] }
+}
+
 /** 내림차순 목록을 라벨 순서대로 묶는다. [{ label, items }] */
 export function groupAccidents(list, now = new Date()) {
   const groups = []

@@ -37,15 +37,6 @@ function defaultChecklist() {
   }
 }
 
-function defaultUploads() {
-  return [
-    { key: 'front', label: '정면', state: 'done' },
-    { key: 'angle', label: '45도', state: 'done' },
-    { key: 'left', label: '왼쪽', state: 'error' },
-    { key: 'right', label: '오른쪽', state: 'empty' },
-  ]
-}
-
 export const useAppStore = defineStore('app', {
   state: () => ({
     // 홈 상태: busy(진행 중 분석 있음) | idle(기본) | empty(사고 없음)
@@ -60,8 +51,6 @@ export const useAppStore = defineStore('app', {
       { id: 2, maker: '기아', name: '기아 쏘렌토', year: '2019년식', cls: '중형 SUV', recent: '8월 21일', primary: false, claims: 1 },
     ],
     selectedVehicleId: 1,
-
-    uploads: defaultUploads(),
 
     history: [
       { id: 1, group: '이번 주', car: '현대 아반떼', date: '9월 5일', status: 'done', amount: '124만원', photo: true },
@@ -92,7 +81,6 @@ export const useAppStore = defineStore('app', {
       parts: s.checklist.parts.reduce((n, p) => n + p.items.length, 0),
       hidden: s.checklist.hidden.length,
     }),
-    uploadedCount: (s) => s.uploads.filter((u) => u.state === 'done').length,
     historyGroups: (s) => {
       const groups = []
       for (const h of s.history) {
@@ -149,11 +137,6 @@ export const useAppStore = defineStore('app', {
     },
 
     // 업로드
-    fillSlot(key) {
-      const u = this.uploads.find((x) => x.key === key)
-      if (u) u.state = 'done'
-    },
-    resetUploads() { this.uploads = defaultUploads() },
 
     // 이력
     deleteHistory(id) { this.history = this.history.filter((h) => h.id !== id) },
