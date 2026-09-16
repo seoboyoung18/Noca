@@ -139,7 +139,28 @@ export const requestAnalysis = (accidentId) => http.post(`/api/accidents/${accid
  */
 export const fetchAnalysisProgress = (accidentId) => http.get(`/api/accidents/${accidentId}/analysis`).then(data)
 
+/**
+ * 분석 결과 (AnalysisResultController). 진행 상태와 같은 사고 기준 경로. 분석 전 사고는 빈 상태 200(status null).
+ * { jobId, status, failureReason,
+ *   parts[{ partCode, partNameKo, layoutZone, damageType, repairMethod, repairMethodDisplayName, confidence }],   // display_order 순
+ *   images[{ imageId, angleCode, width, height(원본 픽셀), excluded, exclusionReason, detections[] }] }
+ * detections 는 AI 원문 그대로 — geometry.bbox 는 XYWH, 원본 픽셀·좌상단 원점. 화면이 RESIZED 를 띄우면 width/height 로 비율 환산.
+ * 사진 URL 은 주지 않는다 — GET .../images 의 RESIZED 를 imageId 로 맞춘다.
+ */
+export const fetchAnalysisResult = (accidentId) => http.get(`/api/accidents/${accidentId}/analysis/result`).then(data)
+
 /* ===== 견적 · 견적 PDF (EstimateController · EstimatePdfController) ===== */
+
+/**
+ * 견적 상세. 생성 API 는 없고 AI 콜백이 결과와 함께 견적 버전을 쌓는다.
+ * { estimateId, jobId, version, estimable, nonEstimableReason, laborRate, totalHq, totalMin, totalMedian, totalMax,
+ *   refCaseTotal, confidenceGrade: HIGH|MEDIUM|LOW|null,
+ *   items[{ estimateItemId, partCode, partNameKo, layoutZone, damageType, repairMethod, repairMethodDisplayName,
+ *           standardHq, partCostMedian(원천에 없어 null), laborCostMedian, itemMin, itemMedian, itemMax, refCaseCount, lowConfidence }],
+ *   notices[{ code, message }](문구 테이블 전이라 지금은 항상 []), createdAt }
+ * estimable=false 면 금액이 전부 null 이고 nonEstimableReason 만 있다. 남의 견적은 404.
+ */
+export const fetchEstimate = (estimateId) => http.get(`/api/estimates/${estimateId}`).then(data)
 
 /** 사고의 견적 목록. 기본은 최신 1건만(latest=true). data 가 배열이며 견적이 없으면 [] — 첫 원소의 estimateId 가 PDF 입구 */
 export const fetchAccidentEstimates = (accidentId, latest = true) =>
