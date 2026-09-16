@@ -185,6 +185,35 @@ export const fetchAccident = (accidentId) => http.get(`/api/accidents/${accident
 export const fetchAccidentImages = (accidentId) => http.get(`/api/accidents/${accidentId}/images`).then(data)
 
 /**
+ * 사고 접수. 등록 차량이면 { vehicleId }, 즉시 입력이면 { directVehicle } — 정확히 하나만. 201 + 사고 상세(공통 10필드).
+ * 즉시 입력은 영구 차량을 만들어 중복 차량이 생기므로 FE 는 등록 차량 선택만 쓴다(§5-3·§15).
+ */
+export const createAccident = (vehicleId) => http.post('/api/accidents', { vehicleId }).then(data)
+
+/* ===== 사고 이미지 업로드 — presigned 직접 업로드 3단계 (AccidentImageController) =====
+ *   ① POST .../images/upload-urls { files:[{ originalFilename, contentType, size, angleCode? }] }
+ *        → 201 { issuedCount, maxCountPerAccident, remainingSlots, files:[{ imageId, originalFilename, angleCode, s3Key, uploadUrl, uploadMethod, requiredHeaders, expiresAt }] }
+ *        한 파일이라도 걸리면 전체 400 (행도 생기지 않음). 400 의 error.code 가 사유(FILE_TOO_LARGE·SERVER_CONVERSION_UNSUPPORTED …)
+ *   ② PUT {uploadUrl}  브라우저 → S3 직접 (uploadToPresignedUrl 재사용 — requiredHeaders 그대로, 파일 가공 금지)
+ *   ③ POST .../images { images:[{ imageId, size? }] }
+ *        → 200 { requested, succeeded, failed, results:[{ imageId, status: COMPLETED|ALREADY_COMPLETED|FAILED, failureCode, failureMessage, qualityStatus, qualityReason, assets[] }] }
+ *        부분 실패도 200 — results 를 장별로 판정한다. size 를 보내면 실제 크기와 대조(권장)
+ * 제약: JPG·PNG(HEIC 는 서버 거절), 장당 20MB, 사고당 maxCountPerAccident(응답값 사용). 저장소 미구성이면 ①③④ 가 503.
+ * 재시도는 같은 imageId·같은 uploadUrl 로 — 재발급하면 슬롯을 하나 더 먹는다.
+ */
+export const ACCIDENT_IMAGE_TYPES = ['image/jpeg', 'image/png']
+export const ACCIDENT_IMAGE_MAX_BYTES = 20 * 1024 * 1024 // app.accident-image.max-file-size-bytes. 최종 판정은 서버
+
+export const issueAccidentImageUploadUrls = (accidentId, files) =>
+  http.post(`/api/accidents/${accidentId}/images/upload-urls`, { files }).then(data)
+
+export const completeAccidentImages = (accidentId, images) =>
+  http.post(`/api/accidents/${accidentId}/images`, { images }).then(data)
+
+/** 이미지 1장 삭제. 204. 저장소 오브젝트까지 정리하므로 저장소 미구성이면 503 */
+export const deleteAccidentImage = (accidentId, imageId) => http.delete(`/api/accidents/${accidentId}/images/${imageId}`)
+
+/**
  * 사고별 정비 체크리스트 상태. 아직 요청하지 않은 사고는 200 + status null.
  * { checklistId, status: QUEUED|PROCESSING|COMPLETED|FAILED|null, failureReason, items[], notice, ... }
  */
