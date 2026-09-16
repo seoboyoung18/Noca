@@ -285,9 +285,10 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
 | `searchability` | `STRICT` · `VECTOR_ONLY` · `EXCLUDED` — 검색 사용 범위 |
 | `fallbackStage` | `MODEL`(차종 일치) · `CAR_CLASS`(차종 완화) · `ALL`(전체) |
 | `searchHitCount` | 벡터 검색 결과에서 확보한 고유 사례 수. 비용 통계 건수가 아니다 |
-| `referencedCaseIds` · `cases` | 화면에 보여줄 대표 사례. **항목당 최대 10건** |
+| `referencedCaseIds` · `cases` | MVP에서는 `/estimate`가 비용 계산에 사용하는 참조 사례이며, `cases`는 필요 시 화면에도 표시한다. **항목당 최대 10건** |
 
-`searchHitCount`와 `cases` 길이는 다릅니다. 검색 결과가 18건이어도 화면에는 10건만 보여줍니다.
+`searchHitCount`와 `referencedCaseIds` 길이는 다를 수 있습니다. 검색 결과가 18건이어도
+MVP에서 비용 계산에 전달하는 참조 사례는 최대 10건입니다.
 
 모든 `detectionId`는 한 분석 작업 안에서 유일해야 합니다. raw 모델의 ID를 그대로
 반환하지 않고 `{imageId}:damage:{rawDetectionId}` 형식으로 만든 값을
@@ -295,15 +296,16 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
 
 ---
 
-## POST /estimate — 개발용
+## POST /estimate — 개발용 · MVP 실시간 참조 사례 기반
 
 사례로 비용을 산정합니다.
 
 ### 요청
 
-`/search`의 `STRICT` 결과와 원래 `vehicle` 조건을 넣습니다. 비용 산출 모듈은
-`repair_cost_stat`을 일괄 조회해 비용 분포를 만들며, `/search`의 화면용 `cases[]`를
-다시 집계하지 않습니다.
+`/search`의 `STRICT` 결과와 원래 `vehicle` 조건을 넣습니다. MVP 비용 산출 모듈은
+`referencedCaseIds`를 참조 사례로 사용해 해당 사례의 `repair_case_item`을 일괄 조회합니다.
+각 사례에서 요청 부품의 비용을 먼저 계산한 뒤, 사례별 결과의 P25·중앙값·P75를 만듭니다.
+`repair_cost_stat`은 MVP에서 사용하지 않으며 운영 안정화 단계에서 도입합니다.
 
 ```json
 {
@@ -316,8 +318,9 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
 `partCode`가 없으므로 견적 항목으로 변환하지 않습니다. `parts[]`가 비어 있으면
 `estimable: false`, `nonEstimableReason: "PART_NOT_RESOLVED"`로 반환합니다.
 
-`refCaseCount`는 `/search`의 `searchHitCount`가 아니라 선택된 비용 통계의 `case_count`다.
-`referencedCaseIds`는 화면에 보여 줄 벡터 검색 대표 사례를 그대로 보존한다.
+`refCaseCount`는 검색 결과 건수가 아니라 해당 부품의 비용 계산에 성공한 고유 사례 수입니다.
+`referencedCaseIds` 10건의 전체 견적 금액을 합산하지 않고, 각 사례에서 `part_code`가
+일치하는 비용 행만 합산한 뒤 사례별 비용을 통계 처리합니다.
 
 ### 응답 — 200
 
@@ -327,7 +330,7 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
   "nonEstimableReason": null,
   "confidenceGrade": "MEDIUM",
   "totals": { "min": 480000, "median": 550000, "max": 610000 },
-  "refCaseTotal": 30,
+  "refCaseTotal": 2,
   "refYearFrom": 2021,
   "refYearTo": 2021,
   "items": [
@@ -342,7 +345,7 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
       "paintMaterialCost": 85500,
       "itemTotal": 335500,
       "detectionIds": ["501:damage:damage-001", "502:damage:damage-004"],
-      "refCaseCount": 18,
+      "refCaseCount": 2,
       "referencedCaseIds": [121381, 121414],
       "costDistribution": { "p25": 300000, "median": 335500, "p75": 380000 },
       "fallbackStage": "CAR_CLASS",

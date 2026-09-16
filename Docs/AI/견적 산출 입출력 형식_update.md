@@ -1,0 +1,264 @@
+# 견적 산출 입출력 형식 — MVP 실시간 참조 사례 기반
+
+기준일: 2026-09-16  
+상태: MVP 기준안
+
+기존 `견적 산출 입출력 형식.md`는 운영 안정화 단계의 `repair_cost_stat` 사전 집계
+방식을 설명한다. MVP에서는 검색된 참조 사례를 이용해 실시간으로 비용을 산출한다.
+
+## 1. MVP 결정사항
+
+MVP에서는 `repair_cost_stat`을 미리 만들지 않는다. 검색 모듈이 반환한 참조 사례를
+비용 산출 모듈이 일괄 조회하고, 각 사례에서 분석 대상 부품의 비용만 계산한 뒤
+사례별 결과를 통계 처리한다.
+
+```text
+이미지 분석
+  → 부품·손상 유형 표준화
+  → 유사 사례 최대 10건 검색
+  → 사례별 해당 부품 비용 계산
+  → 사례별 비용 P25·중앙값·P75 계산
+  → 견적 결과 반환
+```
+
+`referencedCaseIds`는 MVP에서 화면 표시뿐 아니라 비용 계산에 사용하는 참조 사례다.
+10건의 전체 견적 금액을 합산하지 않고, 각 사례의 해당 부품 비용을 먼저 계산한다.
+
+## 2. 책임 분리
+
+| 모듈 | 책임 |
+|---|---|
+| 추론·표준화 | 이미지에서 부품·손상 유형·신뢰도 산출 |
+| 검색 | 조건에 맞는 참조 사례 ID 최대 10건 반환 |
+| 비용 산출 | 참조 사례의 `repair_case_item` 조회, 부품 비용 계산, 통계 처리 |
+| 백엔드·리포트 | 결과 저장 및 화면 표시 |
+
+MVP 비용 산출 모듈은 `repair_cost_stat`을 조회하지 않는다. 운영 단계에서 동일한
+계산 규칙을 배치로 옮겨 `repair_cost_stat`을 만들 수 있다.
+
+## 3. 입력
+
+검색 모듈이 반환한 `STRICT` 결과와 차량 조건을 받는다. `VECTOR_ONLY` 결과는
+부품이 확정되지 않았으므로 비용 항목으로 만들지 않는다.
+
+```json
+{
+  "vehicle": {
+    "modelId": 41,
+    "carClass": "Compact",
+    "modelYear": 2021
+  },
+  "parts": [
+    {
+      "partCode": "REAR_BUMPER",
+      "damageType": "Scratched",
+      "confidence": 0.9321,
+      "detectionIds": ["501:damage:damage-001"],
+      "pairStatus": "PAIRED",
+      "searchability": "STRICT",
+      "fallbackStage": "CAR_CLASS",
+      "referencedCaseIds": [121381, 121414]
+    }
+  ]
+}
+```
+
+### 입력 필드
+
+| 필드 | 설명 |
+|---|---|
+| `vehicle.modelId` | 차종 식별자. 검색 결과의 필터·검증에 사용 |
+| `vehicle.carClass` | 차급. 차종 사례가 부족할 때 완화 기준으로 사용 |
+| `partCode` | 검색 모듈이 표준화한 부품 코드 |
+| `damageType` | `Scratched` · `Separated` · `Crushed` · `Breakage` |
+| `searchability` | `STRICT`만 비용 산출 대상 |
+| `fallbackStage` | 검색 조건이 완화된 단계 |
+| `referencedCaseIds` | 비용 계산에 사용할 참조 사례 ID. 항목당 최대 10건 |
+
+사례 ID만 있고 이미지와 견적 행의 직접 연결이 없는 경우에는 같은 사례의
+`repair_case_item.part_code`를 기준으로 해당 부품 비용을 근사한다.
+
+## 4. MVP 비용 산출 절차
+
+### 4.1 참조 사례 일괄 조회
+
+각 부품의 `referencedCaseIds`를 모아서 DB를 한 번에 조회한다. 사례별로 DB를 반복
+조회하지 않는다.
+
+```sql
+SELECT
+    rc.case_id,
+    rc.model_id,
+    rc.car_class,
+    rc.model_year,
+    rc.source,
+    rci.part_code,
+    rci.line_type,
+    rci.work_code,
+    rci.assessment_status,
+    rci.part_cost,
+    rci.paint_material_cost,
+    rci.labor_cost,
+    rci.item_total
+FROM repair_case rc
+JOIN repair_case_item rci ON rci.case_id = rc.case_id
+WHERE rc.case_id IN (...)
+  AND rci.part_code IN (...);
+```
+
+차종·차급 조건은 검색 단계에서 우선 적용한다. 사례 수가 부족하면 검색 모듈의
+fallback 정책에 따라 차급 범위를 완화하고, 완화된 단계는 `fallbackStage`에 남긴다.
+
+### 4.2 비용 행 필터링
+
+| 행 종류 | 처리 |
+|---|---|
+| `WORK` | 해당 부품의 수리 작업 비용으로 포함 |
+| `PART_PRICE` | 해당 부품의 부품 비용으로 포함 |
+| `REFERENCE_PRICE` | 참고 정가이므로 제외 |
+| `ANCILLARY` | 부품별 견적에서 제외하거나 별도 부대비용으로 처리 |
+| `NOT_APPROVED` | 비용 성분이 확정되지 않았으므로 기본 제외하고 상태만 보존 |
+
+비용 성분은 다음처럼 계산한다.
+
+```text
+일반 수리 = part_cost + labor_cost
+도장      = paint_material_cost + labor_cost
+```
+
+`repair_case_item.work_code`와 `repairMethod`의 연결 규칙은 비용 담당자가 확정한다.
+
+```text
+COATING      → coating
+SHEET_METAL  → sheet_metal
+EXCHANGE     → exchange
+REPAIR       → repair
+```
+
+### 4.3 사례별 비용 및 통계
+
+각 사례에서 같은 부품에 해당하는 비용 행을 먼저 합산한다.
+
+```text
+사례 A의 REAR_BUMPER 비용 = 300,000원
+사례 B의 REAR_BUMPER 비용 = 335,500원
+사례 C의 REAR_BUMPER 비용 = 380,000원
+```
+
+검색된 10건의 비용을 서로 더해 최종 금액으로 사용하지 않는다. 사례별 합계 목록을
+만든 뒤 P25·중앙값·P75를 계산한다.
+
+같은 사례에 동일 부품의 작업 행이 여러 개 있으면 `case_id + part_code + repairMethod`
+단위로 합친다. 한 사례가 여러 번 표본에 들어가면 안 된다.
+
+## 5. 출력
+
+출력 구조는 기존 콜백의 `items[]` 형식을 유지하되, 비용 값의 의미를 MVP 기준으로
+해석한다.
+
+```json
+{
+  "estimable": true,
+  "nonEstimableReason": null,
+  "confidenceGrade": "MEDIUM",
+  "totals": {
+    "min": 300000,
+    "median": 335500,
+    "max": 380000
+  },
+  "refCaseTotal": 2,
+  "items": [
+    {
+      "partCode": "REAR_BUMPER",
+      "damageType": "Scratched",
+      "confidence": 0.9321,
+      "repairMethod": "coating",
+      "partCost": null,
+      "laborCost": 250000,
+      "paintMaterialCost": 85500,
+      "itemTotal": 335500,
+      "detectionIds": ["501:damage:damage-001"],
+      "refCaseCount": 2,
+      "referencedCaseIds": [121381, 121414],
+      "costDistribution": {
+        "p25": 300000,
+        "median": 335500,
+        "p75": 380000
+      },
+      "fallbackStage": "CAR_CLASS"
+    }
+  ]
+}
+```
+
+| 필드 | MVP 의미 |
+|---|---|
+| `refCaseCount` | 해당 부품 비용 계산에 성공한 고유 사례 수 |
+| `refCaseTotal` | 전체 항목에서 사용한 고유 참조 사례 수 |
+| `costDistribution` | 참조 사례별 부품 비용 합계의 P25·중앙값·P75 |
+| `itemTotal` | 사례별 부품 비용 합계 분포의 중앙값 |
+| `partCost` | 사례별 부품비의 중앙값. 없으면 `null` |
+| `laborCost` | 사례별 공임의 중앙값 |
+| `paintMaterialCost` | 사례별 도장 재료비의 중앙값. 없으면 `null` |
+
+`itemTotal`은 사례별 총액의 중앙값이고 각 비용 성분의 중앙값 합과 다를 수 있다.
+리포트에서는 `itemTotal`을 대표 금액으로 사용한다.
+
+여러 부품이 있을 때 `totals.min`·`totals.median`·`totals.max`는 각 항목의 P25·중앙값·P75를 각각 합산한다.
+
+## 6. 산정 불가 기준
+
+| 상황 | 반환 |
+|---|---|
+| `STRICT` 부품이 없음 | `PART_NOT_RESOLVED` |
+| 참조 사례에 해당 부품 비용 행이 없음 | `INSUFFICIENT_CASES` |
+| 비용 행의 필수 금액이 없음 | 해당 사례 제외 |
+| 사례 수가 최소 기준보다 적음 | `estimable: false` |
+
+MVP 최소 사례 수는 비용 담당자가 정한다. 초기 검증에서는 최소 3건 이상을 권장하며,
+사례가 부족하면 임의의 금액을 반환하지 않는다.
+
+## 7. 비용 담당자 인계 범위
+
+비용 담당자는 다음 규칙을 정의·검증한다.
+
+1. 부품별 비용 행 포함 기준
+2. 수리 방식 매핑 기준
+3. 도장·부품·공임 계산식
+4. AS·SC 출처를 합칠지 분리할지 여부
+5. 사례별 중복 행 합산 기준
+6. 차종→차급 fallback 기준
+7. 최소 사례 수와 산정 불가 기준
+
+MVP에서 필요한 DB 읽기 대상은 다음과 같다.
+
+```text
+repair_case
+repair_case_item
+part_code
+part_name_mapping
+```
+
+원천 JSON(`aihub_estimate_raw`)은 예외 사례를 확인할 때만 사용한다.
+
+## 8. 후속 운영 전환
+
+MVP의 사례별 비용 계산 로직이 안정화되면 동일한 규칙을 배치로 옮긴다.
+
+```text
+MVP: referencedCaseIds → 실시간 repair_case_item 조회 → 비용 계산
+운영: 전체 적격 사례 → repair_cost_stat 사전 집계 → 통계 조회
+```
+
+운영 전환 시 `repair_cost_stat`에는 차급·부품·손상 유형·수리 방식·출처를 기본 축으로
+두고, 차종·연식은 표본 수를 확인한 뒤 별도 축으로 추가한다. 필터를 세분화할수록
+표본이 부족해질 수 있으므로 모델→차급→전체 순의 fallback을 유지한다.
+
+## 함께 보는 문서
+
+| 문서 | 내용 |
+|---|---|
+| `Docs/AI/견적 산출 입출력 형식.md` | 운영 단계 통계 테이블 기반 설계 |
+| `Docs/AI/AI 서버 API 명세.md` | AI 서버 엔드포인트와 MVP `/estimate` |
+| `Docs/Erd/A307_COST_DB_HANDOVER.md` | 비용 원천 데이터와 정규화 행 의미 |
+| `Docs/Erd/A307_ddl_final.sql` | `repair_case`·`repair_case_item` 테이블 정의 |
