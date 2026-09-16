@@ -103,6 +103,16 @@ export const IMAGE_FAIL_TEXT = {
 }
 export const imageFailText = (code, fallback) => IMAGE_FAIL_TEXT[code] || fallback || '사진을 올리지 못했어요. 잠시 후 다시 시도해 주세요.'
 
+/**
+ * 품질 판정 WARN 의 사용자 문구. 서버 qualityReason 은 "해상도 부족 — 짧은 변 600px (기준 720px)" 같은 개발자용 표기라
+ * 앞머리로 종류를 가려 사용자용으로 바꾼다. 알 수 없는 사유는 일반 문구. (backend ImageQualityAssessor)
+ */
+export function qualityWarnText(reason = '') {
+  if (reason.startsWith('해상도')) return '사진 해상도가 낮아요. 더 가까이서 찍은 사진으로 바꾸는 걸 권해요.'
+  if (reason.startsWith('흔들림')) return '사진이 흔들렸거나 초점이 맞지 않은 것 같아요. 다시 찍은 사진으로 바꾸는 걸 권해요.'
+  return '사진 품질이 낮을 수 있어요. 파손 부위가 선명하게 보이는지 확인해 주세요.'
+}
+
 /** 같은 imageId·같은 URL 로 다시 PUT 하면 풀리는 실패. 그 외는 파일 자체 문제라 다른 파일로 새로 발급해야 한다 */
 export const RETRY_SAME_IMAGE = new Set(['MISSING_FILE', 'SIZE_MISMATCH', 'PROCESSING_ERROR'])
 

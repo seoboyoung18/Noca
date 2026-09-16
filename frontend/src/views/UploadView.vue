@@ -12,7 +12,7 @@ import {
   ACCIDENT_IMAGE_MAX_BYTES, completeAccidentImages, createAccident, deleteAccidentImage,
   fetchAccident, fetchAccidentImages, issueAccidentImageUploadUrls, uploadToPresignedUrl,
 } from '../lib/api'
-import { RETRY_SAME_IMAGE, imageFailText, imageThumb, validateAccidentImage } from '../data/accidents'
+import { RETRY_SAME_IMAGE, imageFailText, imageThumb, qualityWarnText, validateAccidentImage } from '../data/accidents'
 
 /* ===== 사진 업로드 (S06) — 목업 "NOCA 목업_촬영 가이드 수정" S06_사진업로드 기준, 한 장 체계 =====
  * 진입 경로 둘
@@ -63,7 +63,6 @@ const retryLabel = computed(() => (photo.retrySame || photo.code === 'NETWORK' |
 const toast = ref('')
 let tt
 function showToast(msg, ms = 2000) { toast.value = msg; clearTimeout(tt); tt = setTimeout(() => { toast.value = '' }, ms) }
-
 function revokePreview() { if (photo.previewUrl) { URL.revokeObjectURL(photo.previewUrl); photo.previewUrl = '' } }
 
 /* 이어서 진행: 서버 사진 복구 — 이 API 는 저장소 없이도 200 (url 만 null) */
@@ -168,8 +167,9 @@ async function putAndComplete() {
   photo.state = 'done'
   photo.serverUrl = imageThumb(r, 'RESIZED') || ''
   accidents.reset() // 목록 status 가 IMAGES_UPLOADED 로 바뀐다
-  // 품질 판정은 서버 설정이 꺼져 있어 지금은 항상 PASS. WARN 이 오면 재촬영 권유는 FE 몫(§5-3)
-  if (r.qualityStatus === 'WARN') showToast(r.qualityReason || '사진이 흐리거나 어두울 수 있어요. 다시 확인해 주세요.', 3000)
+  // 품질 판정은 서버 설정이 꺼져 있어 지금은 항상 PASS. WARN 이 오면 재촬영 권유는 FE 몫(§5-3) — 서버 사유를 사용자 문구로 바꿔 토스트로.
+  // 업로드는 성공이므로 분석 요청은 막지 않는다
+  if (r.qualityStatus === 'WARN') showToast(qualityWarnText(r.qualityReason), 3500)
 }
 
 function setError(code, retrySame, serverMessage) {
