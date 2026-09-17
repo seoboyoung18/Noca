@@ -85,9 +85,42 @@ class AnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(actual["jobId"], 12)
         self.assertEqual(actual["requestId"], "req-12")
         self.assertFalse(actual["estimable"])
-        self.assertEqual(actual["nonEstimableReason"], "INSUFFICIENT_CASES")
+        self.assertEqual(actual["nonEstimableReason"], "NO_DAMAGE_DETECTED")
         self.assertEqual(actual["imageResults"], image_results)
         self.assertEqual(actual["items"], [])
+
+    def test_mock_success_callback_reports_insufficient_cases_after_damage_detection(self):
+        request = _request()
+        detection = {"detectionId": "501-1", "partCode": "P001", "damageType": "SCRATCH"}
+
+        actual = _mock_success_callback(request, {
+            "normalization": {"pipelineVersionId": 3},
+            "imageResults": [{
+                "imageId": 501,
+                "excluded": False,
+                "detections": [detection],
+            }],
+        })
+
+        self.assertEqual(actual["nonEstimableReason"], "INSUFFICIENT_CASES")
+        self.assertEqual(actual["imageResults"][0]["detections"], [detection])
+
+    def test_mock_success_callback_reports_part_not_resolved_when_all_images_excluded(self):
+        request = _request()
+        image_results = [{
+            "imageId": 501,
+            "excluded": True,
+            "exclusionReason": "NOT_VEHICLE",
+            "detections": [],
+        }]
+
+        actual = _mock_success_callback(request, {
+            "normalization": {"pipelineVersionId": 3},
+            "imageResults": image_results,
+        })
+
+        self.assertEqual(actual["nonEstimableReason"], "PART_NOT_RESOLVED")
+        self.assertEqual(actual["imageResults"], image_results)
 
     def test_failure_callback_matches_backend_error_contract(self):
         actual = _failure_callback(

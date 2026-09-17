@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 
 # Initial delivery plus the three retry intervals in the integration contract.
 CALLBACK_RETRY_DELAYS = (0, 1, 5, 20)
+NO_DAMAGE_DETECTED = "NO_DAMAGE_DETECTED"
+PART_NOT_RESOLVED = "PART_NOT_RESOLVED"
+INSUFFICIENT_CASES = "INSUFFICIENT_CASES"
 
 
 class AnalysisService:
@@ -89,22 +92,40 @@ class AnalysisService:
 
 
 def _mock_success_callback(request: AnalyzeRequest, inference: dict[str, Any]) -> dict[str, Any]:
+    image_results = inference.get("imageResults") or []
+
     return {
         "requestId": request.request_id,
         "jobId": request.job_id,
         "modelVersion": "a307-ai-mock-v1",
         "pipelineVersionId": inference["normalization"]["pipelineVersionId"],
         "estimable": False,
-        "nonEstimableReason": "INSUFFICIENT_CASES",
+        "nonEstimableReason": _mock_non_estimable_reason(image_results),
         "confidenceGrade": None,
         "totals": None,
         "refCaseTotal": 0,
         "refYearFrom": None,
         "refYearTo": None,
         "items": [],
-        "imageResults": inference["imageResults"],
+        "imageResults": image_results,
         "error": None,
     }
+
+
+def _mock_non_estimable_reason(image_results: list[dict[str, Any]]) -> str:
+    """Classify the mock result without replacing the real YOLO detections.
+
+    ``excluded`` is set by the part model.  Damage detections on an excluded
+    image must not make a non-vehicle image look like a damaged vehicle.
+    """
+    if not image_results or all(image.get("excluded") is True for image in image_results):
+        return PART_NOT_RESOLVED
+
+    vehicle_images = [image for image in image_results if image.get("excluded") is not True]
+    if any(image.get("detections") for image in vehicle_images):
+        return INSUFFICIENT_CASES
+
+    return NO_DAMAGE_DETECTED
 
 
 def _failure_callback(request: AnalyzeRequest, pipeline_version_id: int,
