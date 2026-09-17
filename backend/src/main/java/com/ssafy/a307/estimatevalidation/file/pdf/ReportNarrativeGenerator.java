@@ -56,11 +56,13 @@ public class ReportNarrativeGenerator {
                       "lineNo": { "type": "integer" },
                       "note":   { "type": "string" }
                     },
-                    "required": ["lineNo", "note"]
+                    "required": ["lineNo", "note"],
+                    "additionalProperties": false
                   }
                 }
               },
-              "required": ["gradeExplanation"]
+              "required": ["gradeExplanation", "itemNotes"],
+              "additionalProperties": false
             }
             """;
 

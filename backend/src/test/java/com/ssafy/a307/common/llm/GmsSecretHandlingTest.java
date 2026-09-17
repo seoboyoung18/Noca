@@ -83,7 +83,8 @@ class GmsSecretHandlingTest {
     void plainHttpBaseUrlIsRejected() {
         GmsProperties insecure = new GmsProperties(
                 "http://gms.ssafy.io/gmsapi", GmsProvider.GEMINI, "gemini-2.5-flash",
-                Duration.ofSeconds(1), Duration.ofSeconds(2), 1024, 2, 1, Duration.ofMinutes(5));
+                OpenAiApi.RESPONSES, Duration.ofSeconds(1), Duration.ofSeconds(2),
+                1024, 2, 1, Duration.ofMinutes(5));
 
         assertThat(insecure.isBaseUrlSecure()).isFalse();
         assertThat(properties(GmsProvider.GEMINI, "gemini-2.5-flash").isBaseUrlSecure()).isTrue();
@@ -92,6 +93,7 @@ class GmsSecretHandlingTest {
     static GmsProperties properties(GmsProvider provider, String model) {
         return new GmsProperties(
                 "https://gms.ssafy.io/gmsapi", provider, model,
-                Duration.ofSeconds(1), Duration.ofSeconds(2), 1024, 2, 1, Duration.ofMinutes(5));
+                OpenAiApi.RESPONSES, Duration.ofSeconds(1), Duration.ofSeconds(2),
+                1024, 2, 1, Duration.ofMinutes(5));
     }
 }

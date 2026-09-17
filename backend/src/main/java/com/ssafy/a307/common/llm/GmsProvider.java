@@ -13,7 +13,10 @@ package com.ssafy.a307.common.llm;
  */
 public enum GmsProvider {
 
-    /** {@code Authorization: Bearer {GMS_KEY}} · {@code {base}/api.openai.com/v1/responses} */
+    /**
+     * {@code Authorization: Bearer {GMS_KEY}} ·
+     * {@code {base}/api.openai.com/v1/responses} 또는 {@code /v1/chat/completions}
+     */
     OPENAI,
 
     /**

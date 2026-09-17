@@ -218,6 +218,30 @@ class RepairQuestionGenerationTest {
         }
 
         /**
+         * {@code strict: true} 스키마는 {@code partCode} 를 <b>required + nullable</b> 로 둔다
+         * (prompt86). 그래서 부품에 안 매인 질문은 키가 빠진 모양이 아니라
+         * {@code "partCode": null} 로 온다. 파서는 두 모양을 모두 받아야 한다 — 위 테스트가
+         * 키가 빠진 모양을, 이 테스트가 명시적 {@code null} 을 고정한다.
+         */
+        @Test
+        @DisplayName("partCode 가 명시적 null 로 와도 부품 없는 질문으로 저장된다")
+        void explicitNullPartCodeIsStoredWithoutPart() {
+            seedAnalysis();
+            long questionId = accept();
+            llm.nextJson = """
+                    {"questions": [{"content": "작업 기간은 얼마나 걸리나요?", "partCode": null}]}
+                    """;
+
+            worker.pollOnce();
+
+            assertThat(statusOf(questionId)).isEqualTo("COMPLETED");
+            Map<String, Object> row = itemsOf(questionId).getFirst();
+            assertThat(row.get("content")).isEqualTo("작업 기간은 얼마나 걸리나요?");
+            assertThat(row.get("part_code")).isNull();
+            assertThat(row.get("snapshot_part_name")).isNull();
+        }
+
+        /**
          * prompt65 §2-2 · §4-1 의 고정. {@code snapshot_part_name} 은 <b>생성 시점
          * {@code part_code.name_ko} 사본</b>이고, 판정 두 값은 <b>{@code damaged_part} 복사</b>다.
          */
