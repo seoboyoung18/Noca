@@ -36,6 +36,9 @@ variables:
   GIT_DEPTH: "0"
   # 마지막으로 배포한 커밋을 적어 두는 곳. ubuntu 홈이라 Runner 가 쓸 수 있다.
   DEPLOY_MARK: "/home/ubuntu/.a307-deployed-commit"
+  # 운영 DB 에 적용을 끝낸 마이그레이션을 "<내용 해시> <경로>" 한 줄씩 적어 두는 곳.
+  # 사람이 DB 에 적용한 뒤 guard 가 로그에 찍어 주는 명령으로 적는다.
+  APPLIED_MIGRATIONS: "/home/ubuntu/.a307-applied-migrations"
   IMAGE: "a307-backend"
   WEB_ROOT: "/var/www/a307"
   HEALTH_URL: "http://127.0.0.1:8080/actuator/health"
@@ -48,6 +51,14 @@ variables:
 # ─────────────────────────────────────────────────────────────
 # 스키마 변경은 사람이 적용한다. 자동으로 돌리면 실패했을 때 조용히 지나가고,
 # ddl-auto=validate 라서 어긋나면 그 API 만이 아니라 앱 전체가 안 뜬다.
+#
+# ── 멈췄을 때 푸는 순서 ───────────────────────────────────────
+#   1) 운영 DB 에 그 SQL 을 적용한다
+#   2) BE 박스에서 guard 로그에 찍힌 echo 명령을 그대로 붙여넣어 적용 완료를 기록한다
+#   3) 파이프라인을 다시 실행한다
+#   예전에는 "적용 후 다시 실행" 만 안내했는데, 배포가 실패하면 DEPLOY_MARK 가 그대로라
+#   다시 실행해도 같은 SQL 이 또 잡혀 영영 통과하지 못했다. 그래서 적용 완료 목록을 둔다.
+#   경로만이 아니라 내용 해시까지 적는다 — 적용한 뒤 누가 SQL 을 고치면 다시 멈춰야 한다.
 migration-guard:
   stage: guard
   rules:
@@ -64,15 +75,32 @@ migration-guard:
       echo "이번 커밋:      $CI_COMMIT_SHA"
       NEW=$(git diff --name-only --diff-filter=AM "$LAST" "$CI_COMMIT_SHA" \
             -- Docs/Erd/migrations pipeline/sql | grep -E '\.sql$' || true)
-      if [ -n "$NEW" ]; then
+      if [ -z "$NEW" ]; then
+        echo "새 마이그레이션 없음."
+        exit 0
+      fi
+      # "<내용 해시> <경로>" 로 바꿔 적용 완료 목록과 줄 단위로 대조한다.
+      KEYED=$(for f in $NEW; do printf '%s %s\n' "$(git rev-parse "$CI_COMMIT_SHA:$f")" "$f"; done)
+      if [ -f "$APPLIED_MIGRATIONS" ]; then
+        PENDING=$(printf '%s\n' "$KEYED" | grep -vxF -f "$APPLIED_MIGRATIONS" || true)
+      else
+        PENDING="$KEYED"
+      fi
+      echo ""
+      echo "이전 배포 이후 추가되거나 바뀐 마이그레이션:"
+      printf '%s\n' "$NEW" | sed 's/^/  /'
+      if [ -n "$PENDING" ]; then
         echo ""
-        echo "새로 추가되거나 바뀐 마이그레이션이 있어 배포를 멈춘다."
-        echo "$NEW"
-        echo ""
-        echo "운영 DB 에 직접 적용한 뒤 이 파이프라인을 다시 실행하라."
+        echo "아래 마이그레이션은 운영 DB 적용 완료로 기록되지 않아 배포를 멈춘다."
+        echo "1) 운영 DB 에 적용한다"
+        echo "2) BE 박스에서 아래 줄을 그대로 붙여넣어 적용 완료를 기록한다"
+        printf '%s\n' "$PENDING" | while IFS= read -r line; do
+          echo "     echo '$line' >> $APPLIED_MIGRATIONS"
+        done
+        echo "3) 이 파이프라인을 다시 실행한다"
         exit 1
       fi
-      echo "새 마이그레이션 없음."
+      echo "모두 운영 DB 적용 완료로 기록돼 있다. 배포를 이어 간다."
 
 # ─────────────────────────────────────────────────────────────
 # 2. 빌드 + 배포
