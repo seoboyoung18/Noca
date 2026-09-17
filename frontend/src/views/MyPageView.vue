@@ -9,6 +9,7 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useVehicleStore } from '../stores/vehicles'
 import { useAccidentStore } from '../stores/accidents'
+import { useChecklistStore } from '../stores/checklist'
 import {
   PROFILE_IMAGE_MAX_BYTES, PROFILE_IMAGE_TYPES, completeProfileImage, deleteProfileImage,
   fetchMyAccidents, fetchRepairChecklistStatus, issueProfileImageUploadUrl, updateNickname, uploadToPresignedUrl,
@@ -171,7 +172,7 @@ async function saveNick() {
   }
 }
 // POST /api/auth/logout (204) 로 서버 세션을 끊은 뒤 랜딩으로
-async function logout() { sh.logout = false; store.agreed = false; await auth.logout(); useVehicleStore().reset(); useAccidentStore().reset(); router.replace('/landing') }
+async function logout() { sh.logout = false; store.agreed = false; await auth.logout(); useVehicleStore().reset(); useAccidentStore().reset(); useChecklistStore().reset(); router.replace('/landing') }
 </script>
 
 <template>

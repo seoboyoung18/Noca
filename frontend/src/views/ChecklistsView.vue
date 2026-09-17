@@ -5,31 +5,39 @@ import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import BottomSheet from '../components/BottomSheet.vue'
 import Toast from '../components/Toast.vue'
-import { useAppStore } from '../stores/app'
 import { useAccidentStore } from '../stores/accidents'
+import { useChecklistStore } from '../stores/checklist'
 import { useAccidentDesc } from '../lib/accidentDesc'
 import { vehicleName } from '../data/vehicles'
 import { accidentDateShort } from '../data/accidents'
+import { checklistStatusText } from '../data/checklists'
 
 /* ===== 나의 체크리스트 (S14c) =====
  * 체크리스트는 견적과 1:1 로 만들어지므로 목록은 사고 목록(사고 스토어) 중 견적이 있는 사고(estimateId) 로 만든다.
- * 체크리스트 목록 API 는 따로 없다. 상세(/checklist)는 아직 목업 스토어라 사고 id 만 쿼리로 넘긴다.
+ * 체크리스트 목록 API 는 따로 없다. 카드마다 상태 조회(GET …/repair-checklist)로 "생성 중 · n/N 확인 · 실패" 배지를 단다. 상세에는 accidentId 쿼리.
  * 숨기기는 사고 이력과 같은 스토어 hidden 을 쓴다 — 체크리스트를 숨기면 연결된 사고 이력도 함께 숨겨진다(1:1).
  *   카드마다 더보기(⋮) → "체크리스트 숨기기" → 확인 시트. 화면 우측 상단 더보기에는 "숨긴 체크리스트 나타내기" 만 둔다.
  */
 const router = useRouter()
-const app = useAppStore()
 const store = useAccidentStore()
+const checklists = useChecklistStore()
 const { ensure: ensureDesc, text: descText } = useAccidentDesc()
 
 onMounted(() => store.load(true))
 const list = computed(() => store.items.filter((a) => a.estimateId))
 const hiddenCount = computed(() => store.all.filter((a) => a.estimateId && store.hidden.includes(a.accidentId)).length)
-watch(list, ensureDesc, { immediate: true })
+watch(list, (items) => { ensureDesc(items); for (const a of items) if (!checklists.get(a.accidentId)) checklists.load(a.accidentId) }, { immediate: true })
+/** 카드 배지 — 완료면 진행도, 만드는 중·실패면 상태 문구, 요청 전이면 표시 없음 */
+function badge(a) {
+  const c = checklists.get(a.accidentId)
+  if (!c || c.status === null) return null
+  if (c.status === 'COMPLETED') return { text: `${c.progress?.completed ?? 0}/${c.progress?.total ?? 0} 확인`, cls: '' }
+  if (c.status === 'FAILED') return { text: checklistStatusText(c.status), cls: 'red' }
+  return { text: checklistStatusText(c.status), cls: 'gray' }
+}
 
 function open(a) {
   if (cardMenu.value != null) { cardMenu.value = null; return }
-  app.setTitle(vehicleName(a))
   router.push({ path: '/checklist', query: { accidentId: a.accidentId } })
 }
 
@@ -106,7 +114,8 @@ function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value 
             </button>
           </div>
           <div class="desc">
-            <span class="sub" style="font-size:14px;font-weight:500;text-align:left;min-width:0">{{ descText(a) }}</span>
+            <span class="sub flex1" style="font-size:14px;font-weight:500;text-align:left;min-width:0">{{ descText(a) }}</span>
+            <span v-if="badge(a)" class="tag" :class="badge(a).cls" style="flex:0 0 auto">{{ badge(a).text }}</span>
           </div>
         </div>
       </div>
