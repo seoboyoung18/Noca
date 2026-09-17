@@ -126,8 +126,8 @@ function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value 
     <!-- 비어 있음 -->
     <div v-else class="body col" style="padding:0 40px;align-items:center;justify-content:center">
       <svg width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10A1.5 1.5 0 0 0 18.5 19V5A1.5 1.5 0 0 0 17 3.5h-1.5" stroke="#D1D6DB" stroke-width="1.5" stroke-linecap="round"/><rect x="8.5" y="2" width="7" height="3.4" rx="1.2" stroke="#D1D6DB" stroke-width="1.5"/><path d="M9 13l2.2 2.2L15.5 11" stroke="#D1D6DB" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div style="margin-top:16px;font-size:15px;font-weight:500;color:var(--text-2)">아직 만든 체크리스트가 없어요</div>
-      <p class="sub center" style="margin-top:6px">견적을 받고 나면 정비소에서<br>확인할 질문을 만들어 드려요</p>
+      <div style="margin-top:16px;font-size:15px;font-weight:500;color:var(--text-2)">아직 생성된 체크리스트가 없어요</div>
+      <p class="sub center" style="margin-top:6px">견적을 받고 나면 정비소에서<br>확인할 내용을 추천해 드려요</p>
     </div>
     <div class="spacer"></div>
     <Toast :show="!!toast">{{ toast }}<button v-if="lastHidden != null && toast === '체크리스트를 숨겼어요'" class="undo" @click="undoHide">되돌리기</button></Toast>
