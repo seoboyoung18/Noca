@@ -63,11 +63,15 @@ public class EstimatePdfWorker {
         try {
             processor.process(reportId);
         } catch (RuntimeException e) {
-            String reason = e instanceof EstimatePdfProcessor.MissingStorageException
-                    ? FAILURE_NO_STORAGE : FAILURE_GENERATION;
+            boolean noStorage = e instanceof EstimatePdfProcessor.MissingStorageException;
             log.warn("견적 PDF 생성 실패: reportId={}, 원인={}", reportId, e.getClass().getSimpleName(), e);
             try {
-                processor.markFailed(reportId, reason);
+                if (noStorage) {
+                    // 설정 문제라 다시 시도해도 같다 — 큐로 되돌리지 않는다 (S15P21A307-528).
+                    processor.markFailedWithoutRetry(reportId, FAILURE_NO_STORAGE);
+                } else {
+                    processor.markFailed(reportId, FAILURE_GENERATION);
+                }
             } catch (RuntimeException recordFailure) {
                 // 기록마저 실패하면 PROCESSING 으로 남는다. 고아 회수가 다음 주기에 집는다.
                 log.error("견적 PDF 실패 기록에 실패했다: reportId={}", reportId, recordFailure);

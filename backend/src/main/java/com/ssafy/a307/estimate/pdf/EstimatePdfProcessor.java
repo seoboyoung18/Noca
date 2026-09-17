@@ -64,6 +64,17 @@ public class EstimatePdfProcessor {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void process(Long reportId) {
+        // PDF 보관소부터 본다 (S15P21A307-528). 아래의 리포트 조립·오버레이 읽기·렌더링은 저장할 곳이
+        // 있어야 쓸모가 있다 — 순서가 거꾸로면 다 만든 PDF 를 버린다. 건의 내용과 무관한 설정 문제라
+        // 리포트 행을 읽기 전에 확인한다 (ValidationPdfProcessor 가 S15P21A307-526 에서 같은 모양이다).
+        //
+        // ★ 사고 이미지 저장소(imageStorage)는 여기서 보지 않는다. 오버레이 키가 있는 사진을 읽을 때만
+        //   필요하고(overlayDataUri), 키가 없는 리포트는 그 저장소 없이도 만들어진다. 오버레이는
+        //   2026-09-11 에 폐기돼 키가 늘 NULL 이라, 여기서 함께 확인하면 staging 버킷이 없는 환경의
+        //   견적 PDF 가 전부 새로 실패한다.
+        EstimatePdfStoragePort storage = pdfStorage
+                .orElseThrow(() -> new MissingStorageException("PDF 보관소가 구성되지 않았다: " + reportId));
+
         JobView job = pdfRepository.findJob(reportId)
                 .orElseThrow(() -> new IllegalStateException("선점한 리포트가 사라졌다: " + reportId));
         // 요청자가 없는 내부 경로라 소유자를 읽어 같은 조립 경로를 탄다.
@@ -80,9 +91,7 @@ public class EstimatePdfProcessor {
         byte[] pdf = generator.generate(
                 new EstimatePdfDocument(job.getReportNo(), report, images, Instant.now()));
 
-        StoredPdf stored = pdfStorage
-                .orElseThrow(() -> new MissingStorageException("PDF 보관소가 구성되지 않았다: " + reportId))
-                .store(job.getReportNo(), pdf);
+        StoredPdf stored = storage.store(job.getReportNo(), pdf);
 
         if (pdfRepository.complete(reportId, stored.storageKey()) != 1) {
             throw new IllegalStateException("처리 중이 아닌 리포트를 완료로 옮기려 했다: " + reportId);
@@ -102,6 +111,28 @@ public class EstimatePdfProcessor {
         }
         if (pdfRepository.fail(reportId, truncate(reason)) == 1) {
             log.error("견적 PDF 생성 실패 — 재시도 상한에 도달해 종결한다: reportId={}", reportId);
+        }
+    }
+
+    /**
+     * 큐로 되돌리지 않고 바로 실패로 끝낸다. <b>다시 시도해도 결과가 같은 실패</b>에만 쓴다
+     * (S15P21A307-528, {@code ValidationPdfProcessor.markFailedWithoutRetry} 와 같은 판단).
+     *
+     * <p>지금은 저장소 미구성({@link MissingStorageException}) 하나뿐이고, <b>두 저장소를 나누지 않았다.</b>
+     * PDF 보관소({@code S3EstimatePdfStorage})와 사고 이미지 저장소({@code S3AccidentImageStorage})는
+     * 둘 다 버킷 프로퍼티를 보는 {@code @ConditionalOnExpression} 빈이고 {@code Optional} 로 기동할 때
+     * 한 번 주입된다 — 재기동 전에는 없던 것이 생기지 않는다. 이미지 저장소 쪽 실패는 오버레이 키가 있는
+     * 리포트에서만 나는데, 키는 그 견적의 분석 작업({@code job_id})에서 읽으므로 같은 건을 다시 집어도
+     * 같은 키로 같은 곳에서 걸린다. 정책이 같으니 예외 타입을 둘로 나눌 이유가 없다 — 어느 저장소인지는
+     * 예외 메시지가 로그에 남긴다.
+     *
+     * <p>{@link #markFailed} 는 그대로 두었다. 렌더링 실패·오버레이 읽기 실패·고아 회수는 일시적일 수
+     * 있어 지금처럼 재시도한다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markFailedWithoutRetry(Long reportId, String reason) {
+        if (pdfRepository.fail(reportId, truncate(reason)) == 1) {
+            log.error("견적 PDF 생성 실패 — 다시 시도해도 같아 바로 종결한다: reportId={}", reportId);
         }
     }
 
@@ -162,7 +193,10 @@ public class EstimatePdfProcessor {
                 ? stripped.substring(0, MAX_FAILURE_REASON_LENGTH) : stripped;
     }
 
-    /** 설정 문제라 다시 시도해도 같다 — 사용자에게 다른 사유를 보인다. */
+    /**
+     * 설정 문제라 다시 시도해도 같다 — 사용자에게 다른 사유를 보이고, 재시도하지 않는다
+     * ({@link #markFailedWithoutRetry}).
+     */
     static class MissingStorageException extends IllegalStateException {
         MissingStorageException(String message) {
             super(message);
