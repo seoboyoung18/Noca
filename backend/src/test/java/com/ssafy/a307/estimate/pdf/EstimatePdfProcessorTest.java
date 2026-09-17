@@ -312,8 +312,8 @@ class EstimatePdfProcessorTest {
                 estimate,
                 new EstimateBasisResponse(ESTIMATE_ID, (short) 1, List.of()),
                 null,
+                EstimateReportResponse.Checklist.NOT_REQUESTED,
                 "고지 문구",
-                // 안내 고지(S15P21A307-488)는 아직 PDF 가 그리지 않는다 — 실을 섹션이 없다.
                 null,
                 now);
     }
