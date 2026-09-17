@@ -92,6 +92,20 @@ class AnalysisService:
                     self._estimate_service.calculate,
                     EstimateRequest(vehicle=request.vehicle, parts=search["parts"]),
                 )
+                # 차급 필터가 검색 결과를 만들었더라도, 비용 정책을 통과한 사례가
+                # 최소 표본에 못 미치면 견적을 만들 수 없다. 이때만 차급을 ALL로
+                # 완화해 재검색·재산정한다.
+                if _should_relax_car_class(request, estimate):
+                    relaxed_vehicle = request.vehicle.model_copy(update={"car_class": None})
+                    search = await self._search_service.search(SearchRequest(
+                        vehicle=relaxed_vehicle,
+                        images=request.images,
+                        image_results=image_results,
+                    ))
+                    estimate = await asyncio.to_thread(
+                        self._estimate_service.calculate,
+                        EstimateRequest(vehicle=relaxed_vehicle, parts=search["parts"]),
+                    )
                 ref_years = _reference_years(search, estimate)
 
             callback = _result_callback(
@@ -237,6 +251,15 @@ def _non_estimable(reason: str) -> dict[str, Any]:
         "items": [],
         "unresolvedParts": [],
     }
+
+
+def _should_relax_car_class(request: AnalyzeRequest, estimate: dict[str, Any]) -> bool:
+    """Relax the class filter only when its results lack cost evidence."""
+    return (
+        request.vehicle.car_class is not None
+        and estimate.get("estimable") is False
+        and estimate.get("nonEstimableReason") == INSUFFICIENT_CASES
+    )
 
 
 def _model_version(inference: dict[str, Any]) -> str:
