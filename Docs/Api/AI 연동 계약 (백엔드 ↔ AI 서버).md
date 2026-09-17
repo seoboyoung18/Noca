@@ -129,6 +129,8 @@ Header: X-Internal-Token, X-Request-Id
     }
   ],
 
+  "unresolvedParts": [],
+
   "imageResults": [
     {
       "imageId": 501,
@@ -239,7 +241,7 @@ ALTER TABLE analysis_image_result
 | `repairMethod` | `coating` · `sheet_metal` · `exchange` · `repair` |
 | `fallbackStage` | `MODEL` · `CAR_CLASS` · `ALL` |
 | `confidenceGrade` | `HIGH` · `MEDIUM` · `LOW` · `null` |
-| `nonEstimableReason` | `PART_NOT_RESOLVED` · `INSUFFICIENT_CASES` · `null` |
+| `nonEstimableReason` | `PART_NOT_RESOLVED` · `NO_DAMAGE_DETECTED` · `INSUFFICIENT_CASES` · `null` |
 | `exclusionReason` | `NOT_VEHICLE` · `RATIO_BELOW_THRESHOLD` |
 | `partCode` | 표준 부품 코드 — 사진에서 나오는 것은 **32종** (`part_code` 마스터는 견적 전용 24종을 포함해 56종) |
 | `pairStatus` | `PAIRED` · `UNPAIRED` · `AMBIGUOUS` — 부품·손상 geometry 매칭 상태 |
@@ -252,7 +254,22 @@ ALTER TABLE analysis_image_result
 구분해야 하기 때문입니다. `VECTOR_ONLY`는 유사 사례 검색·화면 표시에는 사용하지만
 확정 부품이 아니므로 견적 `items[]`에는 포함하지 않습니다.
 
-`estimable: false`면 `totals`·`items`는 비우고 `nonEstimableReason`만 보냅니다. **이때도 `imageResults[].detections[]`는 보냅니다** — 검출은 됐는데 사례가 부족해 산정을 못 한 경우, 화면에 손상 부위는 보여줄 수 있어야 합니다.
+`estimable: false`면 `totals`·`items`는 비우고 `nonEstimableReason`을 보냅니다. **이때도 `imageResults[].detections[]`는 보냅니다** — 검출은 됐는데 사례가 부족해 산정을 못 한 경우, 화면에 손상 부위는 보여줄 수 있어야 합니다.
+
+`unresolvedParts[]`는 여러 부품 중 비용 산정에 실패한 부품만 담습니다. 하나 이상의 `items[]`가
+있으면 부분 견적으로 `estimable: true`를 유지하고, `totals`는 산정 가능한 항목만 합산합니다.
+`unresolvedParts[]`가 비어 있지 않으면 프론트는 총액이 부분 금액임을 함께 안내해야 합니다.
+
+### 미검출 결과 구분
+
+| part 검출 | damage 검출 | 실제 상황 | 이미지 결과 및 callback 처리 |
+| --- | --- | --- | --- |
+| 0개 | 0개 | 차량이 안 찍혔거나 너무 멂 | `excluded: true` · `exclusionReason: NOT_VEHICLE`; 모든 이미지가 이 상태면 백엔드는 `ALL_IMAGES_EXCLUDED`로 재업로드 안내 |
+| 1개 이상 | 0개 | 차량은 맞지만 손상이 없음 | `excluded: false` · `detections: []`; 분석 작업은 정상 완료하고 `nonEstimableReason: NO_DAMAGE_DETECTED` |
+| 1개 이상 | 1개 이상 | 손상 검출 | `imageResults[].detections[]`를 유지하고 검색·견적을 진행 |
+
+위 분기는 HTTP 오류가 아니다. `NOT_VEHICLE`은 이미지 단위 제외 사유이고,
+`NO_DAMAGE_DETECTED`는 차량 유효성 확인 후 손상이 없다는 작업 결과 사유다.
 
 **`fallbackStage`는 차종 → 차급 순입니다.** 기준 건수에 못 미치면 차종을 먼저 풀고, 그래도 부족하면 차급까지 풉니다. 현재 DEV corpus는 모델 매핑 전이므로 `CAR_CLASS`부터 사용하며, `MODEL`은 모델 매핑 적재 후에만 사용합니다.
 

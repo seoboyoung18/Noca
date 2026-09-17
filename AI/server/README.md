@@ -20,7 +20,9 @@ app/schemas/      HTTP 요청·응답 DTO
   업로드 query 벡터는 요청 메모리에서만 사용하고 corpus 벡터만 DB에 저장한다.
   `STRICT`는 부품·손상유형, `VECTOR_ONLY`는 손상유형으로 필터한 뒤 현재 DEV corpus의
   `CAR_CLASS → ALL` 완화 단계를 적용한다.
-- `POST /estimate`: 비용 통계 gateway가 아직 연결되지 않아 `501`을 반환한다.
+- `POST /estimate`: `repair_case`·`repair_case_item`을 읽는 Postgres 비용 gateway를 통해
+  견적을 계산한다. `DATABASE_URL`이 없거나 조회에 실패하면 `503 COST_DATA_UNAVAILABLE`을
+  반환한다.
 - `POST /analyze`: `ANALYSIS_PROFILE=mock`일 때만 실제 inference 결과를 포함한
   `202 → callback` mock 흐름을 실행한다. 기본 `production` 프로필에서는 아직 `501`이다.
 

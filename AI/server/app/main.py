@@ -5,8 +5,10 @@ from fastapi import FastAPI
 from .api.routes import build_router
 from .core.bootstrap import ensure_repo_root
 from .core.config import load_settings
+from .infrastructure.cost_repository import PostgresCostCaseRepository
 from .infrastructure.vector_repository import VectorRepository
 from .services.embedding_service import EmbeddingService
+from .services.estimate_service import EstimateService
 from .services.inference_service import InferenceService
 from .services.search_service import SearchService
 from .services.analysis_service import AnalysisService
@@ -26,6 +28,8 @@ vector_repository = VectorRepository(
     expected_model_name=settings.embedding_model_name,
     expected_model_version=settings.embedding_model_version,
 )
+cost_repository = PostgresCostCaseRepository(settings.database_url)
+estimate_service = EstimateService(cost_repository)
 search_service = SearchService(
     vector_repository, embedding_service,
     pipeline_version_id=settings.pipeline_version_id,
@@ -40,4 +44,5 @@ app.include_router(build_router(
     search_service,
     embedding_service,
     analysis_service,
+    estimate_service,
 ))

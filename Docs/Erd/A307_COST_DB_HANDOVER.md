@@ -143,9 +143,11 @@ MVP에서는 `referencedCaseIds`가 비용 계산에 사용하는 참조 사례 
 
 1. `PAIRED`·`STRICT` ROI의 `part_code`·`damage_type`을 기준으로 잡는다.
 2. 같은 사례의 `repair_case_item.part_code` 비용 행을 연결한다.
-3. 같은 사고의 ROI·견적 행이 여러 개여도
-   `case_id + part_code + damage_type + repair_method` 단위로 먼저 하나의 비용 표본으로
-   합친다. 한 사례가 분위수 계산에서 여러 번 가중되면 안 된다.
+3. 같은 사고의 ROI·견적 행이 여러 개여도 비용 표본은
+   `case_id + part_code` 단위로 `repair_method`와 무관하게 모든 포함 비용 행을 합산한다.
+   한 부품의 판금과 도장 조합은 정상적인 수리 흐름이므로 수리 방식별로 사례를 쪼개지
+   않는다. 대표 방식은 `exchange > sheet_metal > repair > coating` 우선순위로 고르고,
+   혼합 방식의 전체 후보는 `repairMethodReason.candidates`에 기록한다.
 4. 그 표본 집합의 비용 성분과 총액으로 통계를 만든다.
 
 `REFERENCE_PRICE`, `ANCILLARY`, `NOT_APPROVED` 행의 통계 포함 기준과, `COATING` /

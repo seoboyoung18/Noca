@@ -148,8 +148,11 @@ REPAIR       → repair
 검색된 10건의 비용을 서로 더해 최종 금액으로 사용하지 않는다. 사례별 합계 목록을
 만든 뒤 P25·중앙값·P75를 계산한다.
 
-같은 사례에 동일 부품의 작업 행이 여러 개 있으면 `case_id + part_code + repairMethod`
-단위로 합친다. 한 사례가 여러 번 표본에 들어가면 안 된다.
+같은 사례에 동일 부품의 작업 행이 여러 개 있으면 `case_id + part_code` 단위로
+수리 방식과 무관하게 합친다. 판금 후 도장처럼 한 부품에 여러 작업 방식이 함께 있는
+경우가 정상적으로 존재하므로 방식별로 사례를 쪼개지 않는다. 대표 `repairMethod`는
+`exchange > sheet_metal > repair > coating` 우선순위로 고르고, 후보 전체는
+`repairMethodReason.candidates`에 남긴다. 한 사례가 여러 번 표본에 들어가면 안 된다.
 
 ## 5. 출력
 
@@ -187,7 +190,8 @@ REPAIR       → repair
       },
       "fallbackStage": "CAR_CLASS"
     }
-  ]
+  ],
+  "unresolvedParts": []
 }
 ```
 
@@ -200,23 +204,32 @@ REPAIR       → repair
 | `partCost` | 사례별 부품비의 중앙값. 없으면 `null` |
 | `laborCost` | 사례별 공임의 중앙값 |
 | `paintMaterialCost` | 사례별 도장 재료비의 중앙값. 없으면 `null` |
+| `unresolvedParts` | 비용 산정에 실패한 부품 목록. 부분 견적이면 `items[]`와 함께 반환 |
 
 `itemTotal`은 사례별 총액의 중앙값이고 각 비용 성분의 중앙값 합과 다를 수 있다.
 리포트에서는 `itemTotal`을 대표 금액으로 사용한다.
 
 여러 부품이 있을 때 `totals.min`·`totals.median`·`totals.max`는 각 항목의 P25·중앙값·P75를 각각 합산한다.
 
+`unresolvedParts[]` 원소는 `{ "partCode": "...", "damageType": "...", "reason": "INSUFFICIENT_CASES" }`
+형식이다. `items[]`가 하나 이상이면 산정 가능한 항목만으로 부분 견적을 만들고,
+`unresolvedParts[]`가 비어 있지 않다는 사실을 화면에 표시해야 한다.
+
 ## 6. 산정 불가 기준
 
 | 상황 | 반환 |
 |---|---|
 | `STRICT` 부품이 없음 | `PART_NOT_RESOLVED` |
+| 차량은 유효하지만 손상이 검출되지 않음 | `NO_DAMAGE_DETECTED` |
 | 참조 사례에 해당 부품 비용 행이 없음 | `INSUFFICIENT_CASES` |
 | 비용 행의 필수 금액이 없음 | 해당 사례 제외 |
 | 사례 수가 최소 기준보다 적음 | `estimable: false` |
 
 MVP 최소 사례 수는 비용 담당자가 정한다. 초기 검증에서는 최소 3건 이상을 권장하며,
 사례가 부족하면 임의의 금액을 반환하지 않는다.
+
+`NO_DAMAGE_DETECTED`는 비용 모듈에 들어오기 전 분석 단계의 결과다. part가 검출되어 차량은
+유효하지만 damage가 검출되지 않은 경우이며, `imageResults[].detections`는 빈 배열로 보낸다.
 
 ## 7. 비용 담당자 인계 범위
 

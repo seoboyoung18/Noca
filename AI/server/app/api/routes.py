@@ -8,17 +8,20 @@ from ..adapters.ultralytics_yolo import ModelRunError
 from ..core.config import Settings
 from ..core.security import require_internal_token
 from ..infrastructure.image_fetcher import ImageFetchError
+from ..infrastructure.cost_repository import CostRepositoryError
 from ..schemas.contracts import AnalyzeRequest, EstimateRequest, InferenceRequest, SearchRequest
 from ..services.inference_service import InferenceService
 from ..services.embedding_service import EmbeddingService, QueryEmbeddingError
 from ..services.search_service import SearchService
 from ..services.analysis_service import AnalysisService
+from ..services.estimate_service import EstimateService
 from ..infrastructure.vector_repository import VectorSearchError
 
 
 def build_router(settings: Settings, inference_service: InferenceService,
                  search_service: SearchService, embedding_service: EmbeddingService,
-                 analysis_service: AnalysisService) -> APIRouter:
+                 analysis_service: AnalysisService,
+                 estimate_service: EstimateService | None = None) -> APIRouter:
     router = APIRouter()
 
     def authenticated(token: str | None = Header(default=None, alias="X-Internal-Token")) -> None:
@@ -65,8 +68,16 @@ def build_router(settings: Settings, inference_service: InferenceService,
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail={"code": "VECTOR_SEARCH_UNAVAILABLE"}) from exc
 
     @router.post("/estimate", dependencies=[Depends(authenticated)])
-    async def estimate(_: EstimateRequest) -> dict:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail={"code": "ESTIMATE_GATEWAY_NOT_IMPLEMENTED"})
+    async def estimate(request: EstimateRequest) -> dict:
+        if estimate_service is None:
+            raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail={"code": "ESTIMATE_GATEWAY_NOT_IMPLEMENTED"})
+        try:
+            return estimate_service.calculate(request)
+        except CostRepositoryError as exc:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "COST_DATA_UNAVAILABLE"},
+            ) from exc
 
     @router.post("/analyze", dependencies=[Depends(authenticated)], status_code=status.HTTP_202_ACCEPTED)
     async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
