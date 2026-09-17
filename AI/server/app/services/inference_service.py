@@ -52,7 +52,15 @@ class InferenceService:
                     part_class_map=part_map,
                     damage_class_map=damage_map,
                 )
-                results.append(_to_api_image_result(normalized, image.image_id))
+                # The part model is the vehicle-validity gate.  A valid vehicle
+                # photo is expected to contain at least one detectable part;
+                # the existing backend/FE contract already handles this reason.
+                part_predictions = part_raw.get("predictions") or []
+                results.append(_to_api_image_result(
+                    normalized,
+                    image.image_id,
+                    excluded=not bool(part_predictions),
+                ))
         return {
             "models": self.models,
             "normalization": {
@@ -64,7 +72,9 @@ class InferenceService:
         }
 
 
-def _to_api_image_result(normalized: dict[str, Any], image_id: int) -> dict[str, Any]:
+def _to_api_image_result(
+    normalized: dict[str, Any], image_id: int, *, excluded: bool = False,
+) -> dict[str, Any]:
     image = normalized["image"]
     detections = []
     for detection in normalized["detections"]:
@@ -94,8 +104,8 @@ def _to_api_image_result(normalized: dict[str, Any], image_id: int) -> dict[str,
         "imageId": image_id,
         "width": image["width"],
         "height": image["height"],
-        "excluded": False,
-        "exclusionReason": None,
+        "excluded": excluded,
+        "exclusionReason": "NOT_VEHICLE" if excluded else None,
         "detections": detections,
         "normalizationStats": {"detectionCount": len(detections), "droppedCount": 0, "dropReasons": []},
     }

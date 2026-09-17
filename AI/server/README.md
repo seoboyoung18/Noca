@@ -16,6 +16,8 @@ app/schemas/      HTTP 요청·응답 DTO
 - `GET /health`: 설정·모델 파일 준비 상태 확인
 - `POST /inference`: presigned GET URL → 두 YOLO 모델 → raw adapter → 표준화 결과
 - `POST /search`: 원본 URL + 표준화 detection → damage ROI → DINOv2 768d → pgvector Top-K.
+  한 이미지의 검색 가능한 detection들은 ROI를 만든 뒤 한 번의 DINOv2 batch로 임베딩하며,
+  업로드 query 벡터는 요청 메모리에서만 사용하고 corpus 벡터만 DB에 저장한다.
   `STRICT`는 부품·손상유형, `VECTOR_ONLY`는 손상유형으로 필터한 뒤 현재 DEV corpus의
   `CAR_CLASS → ALL` 완화 단계를 적용한다.
 - `POST /estimate`: 비용 통계 gateway가 아직 연결되지 않아 `501`을 반환한다.
