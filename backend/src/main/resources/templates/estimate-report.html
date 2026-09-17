@@ -39,10 +39,6 @@
         .notice { margin-top: 8mm; padding: 3mm; border: 1px solid #999; background: #f7f7f7;
                   font-size: 8.5pt; color: #444; }
         .empty { color: #777; }
-
-        .checklist { margin: 2mm 0 0 0; padding-left: 6mm; }
-        .checklist li { font-size: 9pt; margin-bottom: 1mm; page-break-inside: avoid; }
-        .guidance { font-size: 8.5pt; color: #666; margin: 2mm 0 0 0; }
     </style>
 </head>
 <body>
@@ -137,20 +133,6 @@
     </tr>
     </tbody>
 </table>
-
-<!--
-  정비 체크리스트 (산정 근거). 서버가 이 사고의 분석에서 만든 AI 항목만 온다 — 사용자가 추가한 항목·
-  체크 여부·메모는 응답에 없다. 문안은 저장된 그대로이며 이 문서를 만들 때 다시 생성하지 않는다.
-  PDF 는 한 시점에 굳는 파일이라 "생성 중" 같은 상태를 인쇄해 남기지 않는다 — 항목이 있을 때만 그린다.
-  안내 고지(S15P21A307-488)는 이 섹션에 붙는다. 섹션을 그리지 않으면 고지도 없다.
--->
-<div th:unless="${#lists.isEmpty(report.checklist().items())}">
-    <h2>정비 체크리스트</h2>
-    <ol class="checklist">
-        <li th:each="item : ${report.checklist().items()}" th:text="${item.content()}">확인 항목</li>
-    </ol>
-    <p class="guidance" th:if="${report.guidanceNotice() != null}" th:text="${report.guidanceNotice()}">안내 고지</p>
-</div>
 
 <div th:if="${report.validation() != null}">
     <h2>견적서 검증 결과</h2>
