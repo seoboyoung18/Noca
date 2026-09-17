@@ -55,8 +55,11 @@ public class ValidationPdfProcessor {
      *
      * <p><b>없다고 기동을 실패시키지 않는다.</b> 그러면 차량·사고 API 까지 함께 죽는다.
      * 대신 <b>조용히 실패하지도 않는다</b> — 건마다 명확한 사유로 {@code FAILED} 를 남겨
-     * 로그와 {@code failure_reason} 에서 원인을 찾을 수 있게 한다. {@code retry_count} 상한이
-     * 있어 무한히 재시도되지도 않는다.
+     * 로그와 {@code failure_reason} 에서 원인을 찾을 수 있게 한다.
+     *
+     * <p><b>{@link #process} 가 이 값부터 본다</b>(S15P21A307-526). 없는데 LLM 문장과 PDF 를
+     * 먼저 만들면 저장 직전에 전부 버려진다. 없으면 재시도하지 않고 바로 끝난다 —
+     * 이유는 {@link #markFailedWithoutRetry} 에 적었다.
      */
     private final java.util.Optional<DocumentStoragePort> storagePort;
 
@@ -79,6 +82,12 @@ public class ValidationPdfProcessor {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void process(Long validationId) {
+        // 저장소부터 본다 (S15P21A307-526). 아래의 LLM 문장·PDF 렌더링은 저장할 곳이 있어야
+        // 쓸모가 있다 — 순서가 거꾸로면 건마다 GMS 크레딧을 쓰고 결과를 버린다.
+        // 건의 내용과 무관한 설정 문제라 검증 행을 읽기 전에 확인한다.
+        DocumentStoragePort storage = storagePort
+                .orElseThrow(() -> new MissingDocumentStorageException(validationId));
+
         EstimateValidation validation = validationRepository.findById(validationId)
                 .orElseThrow(() -> new IllegalStateException("선점한 검증이 사라졌다: " + validationId));
 
@@ -102,9 +111,7 @@ public class ValidationPdfProcessor {
                 pdfGenerationPort.generate(assembler.assemble(result, narrative, generatedAt));
 
         // ④ 저장소에 넣고 키를 리포트에 기록한다.
-        DocumentStoragePort.StoredDocument stored = storagePort
-                .orElseThrow(() -> new MissingDocumentStorageException(validationId))
-                .storeReport(validationId, pdf.content());
+        DocumentStoragePort.StoredDocument stored = storage.storeReport(validationId, pdf.content());
 
         EstimateValidationReport report = reportRepository.findById(validationId)
                 .orElseThrow(() -> new IllegalStateException("리포트 행이 사라졌다: " + validationId));
@@ -133,6 +140,29 @@ public class ValidationPdfProcessor {
             }
             report.markFailed(reason, Instant.now());
             log.error("검증 PDF 생성 실패 — 재시도 상한에 도달해 종결한다: validationId={}", validationId);
+        });
+    }
+
+    /**
+     * 큐로 되돌리지 않고 바로 실패로 끝낸다. <b>다시 시도해도 결과가 같은 실패</b>에만 쓴다.
+     *
+     * <p>지금은 저장소 미구성({@link MissingDocumentStorageException}) 하나뿐이다.
+     * {@code storagePort} 는 기동할 때 한 번 주입되고 재기동 전에는 바뀌지 않는다. 그래서
+     * {@link #markFailed} 로 큐에 되돌리면 워커 주기마다 같은 이유로 실패하다가 상한에 닿아
+     * <b>같은 사유로 끝난다</b> — 결과는 같고 주기만 두 번 더 쓴다(S15P21A307-526).
+     * 재시도가 복구에 도움이 되지도 않는다. 주기가 {@code app.validation-pdf.poll-interval}
+     * (기본 10초)라 세 번의 시도는 수십 초 안에 끝나고, 저장소를 붙이려면 어차피 재기동해야 한다.
+     *
+     * <p>{@link #markFailed} 는 그대로 두었다. 렌더링 실패·저장소 쓰기 실패·고아 회수는
+     * 일시적일 수 있어 지금처럼 재시도한다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markFailedWithoutRetry(Long validationId, String reason) {
+        reportRepository.findById(validationId).ifPresent(report -> {
+            if (report.getStatus() != ValidationStatus.PROCESSING) return;
+            report.markFailed(reason, Instant.now());
+            log.error("검증 PDF 생성 실패 — 다시 시도해도 같아 바로 종결한다: validationId={}, 시도={}/{}",
+                    validationId, report.getRetryCount(), EstimateValidationReport.MAX_RETRY_COUNT);
         });
     }
 

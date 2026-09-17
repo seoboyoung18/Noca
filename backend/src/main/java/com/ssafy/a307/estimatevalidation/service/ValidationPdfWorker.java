@@ -86,12 +86,16 @@ public class ValidationPdfWorker {
         try {
             processor.process(validationId);
         } catch (RuntimeException e) {
-            String reason = e instanceof ValidationPdfProcessor.MissingDocumentStorageException
-                    ? FAILURE_NO_STORAGE : FAILURE_GENERATION;
+            boolean noStorage = e instanceof ValidationPdfProcessor.MissingDocumentStorageException;
             log.warn("검증 PDF 생성 실패: validationId={}, 원인={}",
                     validationId, e.getClass().getSimpleName(), e);
             try {
-                processor.markFailed(validationId, reason);
+                if (noStorage) {
+                    // 설정 문제라 다시 시도해도 같다 — 큐로 되돌리지 않는다 (S15P21A307-526).
+                    processor.markFailedWithoutRetry(validationId, FAILURE_NO_STORAGE);
+                } else {
+                    processor.markFailed(validationId, FAILURE_GENERATION);
+                }
             } catch (RuntimeException recordFailure) {
                 // 기록마저 실패하면 PROCESSING 으로 남는다. 고아 회수가 다음 주기에 집는다.
                 log.error("검증 PDF 실패 기록에 실패했다: validationId={}", validationId, recordFailure);
