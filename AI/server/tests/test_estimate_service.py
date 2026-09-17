@@ -23,7 +23,7 @@ def _row(case_id, part_code, line_type, *, source="AIHUB_AS", work_code=None,
 
 
 def _part(part_code="REAR_BUMPER", damage_type="Scratched", searchability="STRICT",
-          confidence=0.9321, referenced_case_ids=None, detection_ids=None, fallback_stage="CAR_CLASS"):
+          confidence=0.9321, referenced_case_ids=None, detection_ids=None, fallback_stage="PRICE_TIER"):
     return {
         "partCode": part_code,
         "damageType": damage_type,
