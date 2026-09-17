@@ -190,7 +190,7 @@ const MOCK_REPORT = {
         <template v-if="basisItems.length">
           <p v-for="b in basisItems" :key="b.partCode" class="rp"><b style="color:var(--text)">{{ b.partNameKo }}</b> — {{ b.narrative }}</p>
         </template>
-        <p v-else class="rp">동일 차종·차급의 실제 수리 사례를 기준으로 부품별 중앙값을 산출했습니다.</p>
+        <p v-else class="rp">동일 차종·비슷한 가격대의 실제 수리 사례를 기준으로 부품별 중앙값을 산출했습니다.</p>
         <p v-if="est?.refCaseTotal != null || confidenceLabel(est?.confidenceGrade) || fallback" style="margin-top:10px;font-size:12px;color:var(--text-2)">
           <template v-if="est?.refCaseTotal != null">참고 사례 {{ est.refCaseTotal }}건</template>
           <template v-if="confidenceLabel(est?.confidenceGrade)"> · 신뢰도 {{ confidenceLabel(est.confidenceGrade) }}</template>
