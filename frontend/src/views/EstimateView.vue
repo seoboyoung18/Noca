@@ -16,7 +16,8 @@ import {
  *   GET /api/accidents/{id}/analysis/result  손상 부위·사진별 검출 좌표 (사진 URL 없음)
  *   GET /api/accidents/{id}/images           사진 RESIZED URL — imageId 로 결과와 맞춤
  *   GET /api/accidents/{id}/estimates → GET /api/estimates/{estimateId}   금액·항목·신뢰도
- * 좌표는 원본 픽셀이라 width/height 로 퍼센트 환산해 RESIZED 위에 그린다. 번호는 견적 항목 순서를 따른다.
+ * 검출 bbox 는 AI 분석 축소본 픽셀이고 width/height 도 같은 기준이라, 4:3 cover 틀에 맞춰 퍼센트로 환산해 RESIZED 위에 푸른 바운딩박스로 그린다(detectionBox).
+ * 번호는 견적 항목 순서를 따르고, 부품이 매칭되지 않은 검출(partCode 없음)은 번호 없이 박스만 그린다.
  * 견적은 AI 콜백이 만들므로 결과가 있어도 견적이 아직 없을 수 있다 — 그때는 부위 목록만 보이고 금액은 "산정 중".
  */
 const route = useRoute()
@@ -76,8 +77,8 @@ const photos = computed(() => (result.value?.images || []).map((im) => ({
   excluded: !!im.excluded,
   reason: exclusionText(im.exclusionReason),
   boxes: im.excluded ? [] : (Array.isArray(im.detections) ? im.detections : [])
-    .map((d) => ({ n: partNo(d.partCode), ...(detectionBox(d, im.width, im.height) || {}) }))
-    .filter((b) => b.n && b.w != null),
+    .map((d, i) => ({ id: d.detectionId || `${im.imageId}:${i}`, n: partNo(d.partCode), ...(detectionBox(d, im.width, im.height) || {}) }))
+    .filter((b) => b.w != null),
 })))
 const current = computed(() => photos.value[photo.value] || null)
 
@@ -208,8 +209,8 @@ function applyMock() {
         <div class="shot" :class="{ noimg: !current?.url }">
           <img v-if="current?.url" :src="current.url" alt="손상 부위 사진">
           <span v-else class="sub">사진을 불러올 수 없어요</span>
-          <div v-for="b in current?.boxes || []" :key="b.n" class="box" :style="{ left: b.l + '%', top: b.t + '%', width: b.w + '%', height: b.h + '%' }">
-            <span class="num">{{ b.n }}</span>
+          <div v-for="b in current?.boxes || []" :key="b.id" class="box" :style="{ left: b.l + '%', top: b.t + '%', width: b.w + '%', height: b.h + '%' }">
+            <span v-if="b.n" class="num">{{ b.n }}</span>
           </div>
           <span v-if="current?.excluded" class="excl">분석 제외 · {{ current.reason }}</span>
         </div>
@@ -265,8 +266,9 @@ function applyMock() {
 .lowc { margin: 8px 0 0; font-size: 12px; color: var(--warn); }
 .shot { position: relative; margin-top: 12px; width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--bg-2); display: flex; align-items: center; justify-content: center; }
 .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.box { position: absolute; border: 2px solid var(--primary); background: rgba(78,54,228,.08); border-radius: 4px; animation: fadein .2s ease-out; }
-.num { position: absolute; left: -2px; top: -2px; width: 20px; height: 20px; border-radius: 10px; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+/* 바운딩박스 — 서버 좌표 그대로 푸른색으로. 사진 위에서 잘 보이도록 바깥에 흰 테두리를 한 겹 더 둔다 */
+.box { position: absolute; border: 2px solid var(--bbox); box-shadow: 0 0 0 1px rgba(255,255,255,.7), inset 0 0 0 1px rgba(255,255,255,.7); background: rgba(30,136,229,.12); border-radius: 3px; animation: fadein .2s ease-out; --bbox: #1E88E5; }
+.num { position: absolute; left: -2px; top: -2px; width: 20px; height: 20px; border-radius: 10px; background: var(--bbox); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1.5px #fff; }
 .excl { position: absolute; left: 10px; bottom: 10px; padding: 4px 8px; border-radius: 6px; background: rgba(25,31,40,.75); color: #fff; font-size: 11px; font-weight: 500; }
 .thumbs { margin-top: 8px; display: flex; gap: 6px; }
 .th { flex: 0 0 68px; width: 68px; height: 68px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: var(--bg-2); }

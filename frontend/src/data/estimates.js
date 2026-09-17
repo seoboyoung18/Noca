@@ -1,4 +1,4 @@
-// 분석 결과·예상 견적 표시 규칙 — 서버는 코드·원 단위 금액·원본 픽셀 좌표만 주고 라벨·포맷·환산은 FE 몫이다.
+// 분석 결과·예상 견적 표시 규칙 — 서버는 코드·원 단위 금액·픽셀 좌표(AI 분석 축소본 기준)만 주고 라벨·포맷·환산은 FE 몫이다.
 // (backend AnalysisResultResponse · EstimateResponse · ConfidenceGrade, Docs/Api/AI 연동 계약 ⑥ geometry)
 
 /** 견적 전체 신뢰도. 산정 불가면 null — 라벨 없음 */
@@ -46,18 +46,28 @@ export const fallbackLabel = (stage) => FALLBACK_LABEL[stage] || ''
 
 /* ----- 좌표 환산 ----- */
 /**
- * AI 검출 한 건의 bbox 를 사진 대비 퍼센트 사각형으로. 좌표는 원본 픽셀·좌상단 원점, bbox 는 XYWH(계약 ⑥).
- * 원본 치수(width/height)가 없으면 환산할 수 없어 null — 그때는 박스를 그리지 않는다(서버 Javadoc 권고).
+ * AI 검출 한 건의 bbox 를 사진 틀 대비 퍼센트 사각형으로.
+ * 좌표는 AI 가 분석한 축소본(긴 변 1600px) 픽셀·좌상단 원점이고 width/height 도 같은 축소본 크기다(bc67210) — 화면의 RESIZED 와 기준이 같다.
+ * bbox 는 XYWH(계약 ⑥). 치수가 없으면 환산할 수 없어 null — 그때는 박스를 그리지 않는다(서버 Javadoc 권고).
+ *
+ * 사진 틀은 고정 비율(frame, 기본 4:3)에 object-fit: cover 로 가운데를 잘라 띄우므로, 사진 비율이 틀과 다르면 잘려 나간 폭·높이만큼
+ * 원점을 옮겨야 박스가 실제 손상 위에 놓인다. 틀 밖으로 나간 부분은 잘라 내고, 통째로 틀 밖이면 null.
  */
-export function detectionBox(det, width, height) {
+export function detectionBox(det, width, height, frame = 4 / 3) {
   const g = det?.geometry
   const b = g?.bbox
   if (!b || !width || !height) return null
-  let x = b.x, y = b.y, w = b.width, h = b.height
-  if ((g.bboxFormat || 'XYWH').toUpperCase() === 'XYXY') { w = (b.x2 ?? b.width) - x; h = (b.y2 ?? b.height) - y }
-  if ([x, y, w, h].some((v) => typeof v !== 'number' || Number.isNaN(v))) return null
-  const pct = (v, base) => Math.max(0, Math.min(100, (v / base) * 100))
-  return { l: pct(x, width), t: pct(y, height), w: pct(w, width), h: pct(h, height) }
+  let x = Number(b.x), y = Number(b.y), w = Number(b.width), h = Number(b.height)
+  if ((g.bboxFormat || 'XYWH').toUpperCase() === 'XYXY') { w = Number(b.x2 ?? b.width) - x; h = Number(b.y2 ?? b.height) - y }
+  if ([x, y, w, h].some((v) => Number.isNaN(v))) return null
+  // cover 로 보이는 영역(원점 ox,oy · 크기 vw,vh)
+  let ox = 0, oy = 0, vw = width, vh = height
+  if (width / height > frame) { vw = height * frame; ox = (width - vw) / 2 } else { vh = width / frame; oy = (height - vh) / 2 }
+  const clamp = (v) => Math.max(0, Math.min(100, v))
+  const l = clamp(((x - ox) / vw) * 100), t = clamp(((y - oy) / vh) * 100)
+  const r = clamp(((x + w - ox) / vw) * 100), btm = clamp(((y + h - oy) / vh) * 100)
+  if (r - l <= 0 || btm - t <= 0) return null
+  return { l, t, w: r - l, h: btm - t }
 }
 
 /* ----- 부위 번호 매기기 ----- */

@@ -143,8 +143,8 @@ export const fetchAnalysisProgress = (accidentId) => http.get(`/api/accidents/${
  * 분석 결과 (AnalysisResultController). 진행 상태와 같은 사고 기준 경로. 분석 전 사고는 빈 상태 200(status null).
  * { jobId, status, failureReason,
  *   parts[{ partCode, partNameKo, layoutZone, damageType, repairMethod, repairMethodDisplayName, confidence }],   // display_order 순
- *   images[{ imageId, angleCode, width, height(원본 픽셀), excluded, exclusionReason, detections[] }] }
- * detections 는 AI 원문 그대로 — geometry.bbox 는 XYWH, 원본 픽셀·좌상단 원점. 화면이 RESIZED 를 띄우면 width/height 로 비율 환산.
+ *   images[{ imageId, angleCode, width, height(AI 가 분석한 축소본 픽셀 — bc67210), excluded, exclusionReason, detections[] }] }
+ * detections 는 AI 원문 그대로 — geometry.bbox 는 XYWH, geometry.polygons 는 [[{x,y}…]…], 좌상단 원점. 좌표와 width/height 가 같은 축소본 기준이라 비율로 환산해 RESIZED 위에 그린다.
  * 사진 URL 은 주지 않는다 — GET .../images 의 RESIZED 를 imageId 로 맞춘다.
  */
 export const fetchAnalysisResult = (accidentId) => http.get(`/api/accidents/${accidentId}/analysis/result`).then(data)
