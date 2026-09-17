@@ -86,12 +86,15 @@ def build_router(settings: Settings, inference_service: InferenceService,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={"code": "PIPELINE_NOT_CONFIGURED"},
             )
-        if settings.analysis_profile != "mock":
+        if settings.analysis_profile == "mock":
+            background_tasks.add_task(analysis_service.run_mock, request)
+        elif analysis_service.can_orchestrate:
+            background_tasks.add_task(analysis_service.run, request)
+        else:
             raise HTTPException(
                 status.HTTP_501_NOT_IMPLEMENTED,
                 detail={"code": "ANALYSIS_ORCHESTRATOR_NOT_IMPLEMENTED"},
             )
-        background_tasks.add_task(analysis_service.run_mock, request)
         return {"accepted": True, "jobId": request.job_id, "requestId": request.request_id}
 
     return router
