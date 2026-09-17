@@ -68,18 +68,18 @@ class LowConfidenceRuleTest {
         }
 
         @Test
-        @DisplayName("기준에 못 미치면 낮지 않다 — 지금 CAR_CLASS 는 경고하지 않는다")
+        @DisplayName("기준에 못 미치면 낮지 않다 — 지금 PRICE_TIER 는 경고하지 않는다")
         void notRelaxedEnoughIsNotLow() {
             assertThat(rule.isLowConfidence(100, FallbackStage.MODEL)).isFalse();
-            assertThat(rule.isLowConfidence(100, FallbackStage.CAR_CLASS)).isFalse();
+            assertThat(rule.isLowConfidence(100, FallbackStage.PRICE_TIER)).isFalse();
         }
 
         @Test
-        @DisplayName("기준을 CAR_CLASS 로 내리면 한 단계 완화도 경고한다 — 설정으로 바뀐다")
+        @DisplayName("기준을 PRICE_TIER 로 내리면 한 단계 완화도 경고한다 — 설정으로 바뀐다")
         void thresholdIsConfigurable() {
-            LowConfidenceRule stricter = new LowConfidenceRule(5, FallbackStage.CAR_CLASS);
+            LowConfidenceRule stricter = new LowConfidenceRule(5, FallbackStage.PRICE_TIER);
 
-            assertThat(stricter.isLowConfidence(100, FallbackStage.CAR_CLASS)).isTrue();
+            assertThat(stricter.isLowConfidence(100, FallbackStage.PRICE_TIER)).isTrue();
             assertThat(stricter.isLowConfidence(100, FallbackStage.MODEL)).isFalse();
         }
 
@@ -105,8 +105,9 @@ class LowConfidenceRuleTest {
     @DisplayName("FallbackStage 선언 순서가 판정의 근거다 — 순서가 바뀌면 이 테스트가 깨진다")
     void stageOrderIsTheContract() {
         assertThat(FallbackStage.values())
-                .as("MODEL(안 넓힘) → CAR_CLASS(한 단계) → ALL(전부) 순이어야 ordinal 비교가 성립한다")
-                .containsExactly(FallbackStage.MODEL, FallbackStage.CAR_CLASS, FallbackStage.ALL);
+                .as("MODEL(안 넓힘) → PRICE_TIER(한 단계) → ALL(전부) 순이어야 ordinal 비교가 성립한다")
+                .containsExactly(FallbackStage.MODEL, FallbackStage.PRICE_TIER,
+                        FallbackStage.CAR_CLASS, FallbackStage.ALL);
     }
 
     @Nested

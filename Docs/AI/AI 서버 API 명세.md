@@ -43,8 +43,8 @@ api/estimate.py    →  calculate_estimate()
 
 HTTP 상태 코드와 오류 본문은
 [AI 서버 오류·재시도 처리 명세](../Api/AI%20서버%20오류·재시도%20처리%20명세.md)를
-따릅니다. `NO_VALID_DETECTION`은 HTTP 오류가 아니며, 검출 결과가 없는 정상 응답으로
-처리합니다.
+따릅니다. 검출 결과가 없는 것은 HTTP 오류가 아니며, 차량 유효성에 따라
+`NO_DAMAGE_DETECTED` 또는 이미지 단위 `NOT_VEHICLE`로 구분합니다.
 
 ---
 
@@ -234,7 +234,7 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
 
 `vehicle.modelId`는 요청에 포함하지만, 검색 corpus의 `repair_case.model_id`가
 채워진 경우에만 `MODEL` 단계에서 사용합니다. 현재 DEV corpus는 AI-Hub 모델 매핑을
-하지 않아 `carClass` 기준인 `CAR_CLASS` 단계부터 검색합니다. 모델 매핑 적재가
+하지 않아 `vehicle_model.price_tier` 기준인 `PRICE_TIER` 단계부터 검색합니다. 모델 매핑 적재가
 완료되기 전에는 `MODEL`이라고 응답하지 않습니다.
 
 ### 응답 — 200
@@ -253,7 +253,7 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
       "detectionIds": ["501:damage:damage-001", "502:damage:damage-004"],
       "pairStatus": "PAIRED",
       "searchability": "STRICT",
-      "fallbackStage": "CAR_CLASS",
+      "fallbackStage": "PRICE_TIER",
       "searchHitCount": 18,
       "referencedCaseIds": [121381, 121414],
       "cases": [
@@ -283,7 +283,7 @@ adapter가 그 표와 원문 라벨 → 표준 코드 매핑을 모두 검증합
 | `detectionId` | `vectorOnly` 결과의 원본 손상 검출 식별자 |
 | `pairStatus` | `PAIRED` · `UNPAIRED` · `AMBIGUOUS` — 부품·손상 geometry 매칭 상태 |
 | `searchability` | `STRICT` · `VECTOR_ONLY` · `EXCLUDED` — 검색 사용 범위 |
-| `fallbackStage` | `MODEL`(차종 일치) · `CAR_CLASS`(차종 완화) · `ALL`(전체) |
+| `fallbackStage` | `MODEL`(차종 일치) · `PRICE_TIER`(수리비대 완화) · `ALL`(전체) |
 | `searchHitCount` | 벡터 검색 결과에서 확보한 고유 사례 수. 비용 통계 건수가 아니다 |
 | `referencedCaseIds` · `cases` | MVP에서는 `/estimate`가 비용 계산에 사용하는 참조 사례이며, `cases`는 필요 시 화면에도 표시한다. **항목당 최대 10건** |
 
@@ -348,16 +348,21 @@ MVP에서 비용 계산에 전달하는 참조 사례는 최대 10건입니다.
       "refCaseCount": 2,
       "referencedCaseIds": [121381, 121414],
       "costDistribution": { "p25": 300000, "median": 335500, "p75": 380000 },
-      "fallbackStage": "CAR_CLASS",
+      "fallbackStage": "PRICE_TIER",
       "repairMethodReason": { "candidates": ["coating", "exchange"], "reasonCode": "..." }
     }
-  ]
+  ],
+  "unresolvedParts": []
 }
 ```
 
 `items[]`는 **콜백 본문의 `items[]`와 같은 형식**입니다. `/analyze`는 여기에 `/inference`의 `imageResults`와 `jobId`·`requestId`를 붙여 콜백을 만듭니다.
 
 사례가 부족하면 `estimable: false`이고 `totals`·`items`를 비웁니다. **이때도 `/analyze`는 `imageResults`를 채워 콜백합니다** — 산정은 못 해도 손상 부위는 화면에 보여줄 수 있어야 합니다.
+
+`unresolvedParts[]`는 부분 견적에서 산정하지 못한 부품을 담습니다. `items[]`가 하나 이상이면
+`estimable: true`를 유지하고 `totals`는 산정된 항목만 합산합니다. 프론트는
+`unresolvedParts[]`가 비어 있지 않을 때 부분 금액 안내를 표시합니다.
 
 ---
 
@@ -388,9 +393,9 @@ MVP에서 비용 계산에 전달하는 참조 사례는 최대 10건입니다.
 | `partCode` | 표준 부품 코드 32종 |
 | `damageType` | `Scratched` · `Separated` · `Crushed` · `Breakage` |
 | `repairMethod` | `coating` · `sheet_metal` · `exchange` · `repair` |
-| `fallbackStage` | `MODEL` · `CAR_CLASS` · `ALL` |
+| `fallbackStage` | `MODEL` · `PRICE_TIER` · `ALL` |
 | `confidenceGrade` | `HIGH` · `MEDIUM` · `LOW` · `null` |
-| `nonEstimableReason` | `PART_NOT_RESOLVED` · `INSUFFICIENT_CASES` · `null` |
+| `nonEstimableReason` | `PART_NOT_RESOLVED` · `NO_DAMAGE_DETECTED` · `INSUFFICIENT_CASES` · `null` |
 | 좌표 | 원본 이미지 픽셀 · 좌상단 원점 · bbox는 XYWH |
 | 금액 | 원 단위 정수 · 부가세 미포함 |
 
@@ -416,7 +421,7 @@ MVP에서 비용 계산에 전달하는 참조 사례는 최대 10건입니다.
 | 1 | 동시성은 `MAX_INFERENCE_CONCURRENCY=1` 세마포어로 제한하고 초과 요청은 `429 BUSY` |
 | 2 | callback 재시도·`X-Request-Id` 멱등성은 [오류·재시도 처리 명세](../Api/AI%20서버%20오류·재시도%20처리%20명세.md)를 따른다 |
 | 3 | `pipelineVersionId`는 AI 서버가 활성 `feature_pipeline_version`에서 startup 시 조회·검증 |
-| 4 | corpus의 모델 매핑 전에는 `CAR_CLASS`부터 검색하고, 기준 건수는 설정값으로 관리 |
+| 4 | corpus의 모델 매핑 전에는 `PRICE_TIER`부터 검색하고, 기준 건수는 설정값으로 관리 |
 | 5 | `confidenceGrade`는 산정 규칙 확정 전까지 `null` 허용. 임의 점수로 만들지 않음 |
 | 6 | `/inference`·`/search`·`/estimate`는 개발 프로필·내부망에서만 노출. 운영은 `/analyze`만 노출 |
 
@@ -425,6 +430,8 @@ MVP에서 비용 계산에 전달하는 참조 사례는 최대 10건입니다.
 - 검출 없음은 정상 결과로 처리한다.
 - `/inference`: `200` + `imageResults[].detections=[]`
 - `/analyze`: `202` 접수 후 `imageResults[].detections=[]`를 포함한 callback
+- part 모델 검출 0건: `excluded=true` + `exclusionReason=NOT_VEHICLE`
+- part 모델 검출 후 damage 검출 0건: `excluded=false` + `NO_DAMAGE_DETECTED`
 - `422`는 `INVALID_MODEL_OUTPUT`처럼 모델 출력 구조 자체를 해석할 수 없을 때만 사용한다.
 - 사진 다운로드 실패는 `404 IMAGE_FETCH_FAILED`, 모델 실행 실패는 `500 MODEL_ERROR`로 구분한다.
 

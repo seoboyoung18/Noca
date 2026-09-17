@@ -362,7 +362,7 @@ class AnalysisCallbackApiTest {
 
         assertThat(refCondition)
                 .contains("121381").contains("121414")
-                .contains("CAR_CLASS")
+                .contains("PRICE_TIER")
                 .contains("2021");
     }
 
@@ -541,7 +541,7 @@ class AnalysisCallbackApiTest {
     // ── 낮은 신뢰도 파생 (S15P21A307-291) ───────────────────────────────────
 
     @Test
-    @DisplayName("사례가 충분하고 CAR_CLASS 면 경고하지 않는다 — 지금 정상 경로의 모습이다")
+    @DisplayName("사례가 충분하고 PRICE_TIER 면 경고하지 않는다 — 지금 정상 경로의 모습이다")
     void normalItemIsNotLowConfidence() throws Exception {
         mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
                 .andExpect(status().isOk());
@@ -564,7 +564,7 @@ class AnalysisCallbackApiTest {
     @DisplayName("전체 범위까지 완화했으면 사례가 많아도 경고가 붙는다")
     void fullFallbackRaisesWarning() throws Exception {
         String body = successBody(JOB_ID, REQUEST_ID)
-                .replace("\"fallbackStage\":\"CAR_CLASS\"", "\"fallbackStage\":\"ALL\"");
+                .replace("\"fallbackStage\":\"PRICE_TIER\"", "\"fallbackStage\":\"ALL\"");
 
         mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
                 .andExpect(status().isOk());
@@ -576,7 +576,7 @@ class AnalysisCallbackApiTest {
     @DisplayName("경고 여부와 무관하게 근거 스냅샷의 완화 단계는 같은 값이다")
     void warningAndBasisSeeTheSameStage() throws Exception {
         String body = successBody(JOB_ID, REQUEST_ID)
-                .replace("\"fallbackStage\":\"CAR_CLASS\"", "\"fallbackStage\":\"ALL\"");
+                .replace("\"fallbackStage\":\"PRICE_TIER\"", "\"fallbackStage\":\"ALL\"");
 
         mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
                 .andExpect(status().isOk());
@@ -748,7 +748,7 @@ class AnalysisCallbackApiTest {
                     "detectionIds":["501:damage:damage-001"],
                     "refCaseCount":18,"referencedCaseIds":[121381,121414],
                     "costDistribution":{"p25":300000,"median":335500,"p75":380000},
-                    "fallbackStage":"CAR_CLASS",
+                    "fallbackStage":"PRICE_TIER",
                     "repairMethodReason":{"candidates":["coating"],"reasonCode":"SINGLE"}
                   }],
                   "imageResults":[{

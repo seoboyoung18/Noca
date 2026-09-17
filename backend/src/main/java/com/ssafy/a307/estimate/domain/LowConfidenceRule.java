@@ -34,7 +34,7 @@ public record LowConfidenceRule(
     public LowConfidenceRule {
         if (warnFromStage == null) {
             throw new IllegalArgumentException(
-                    "app.estimate-confidence.warn-from-stage 는 필수입니다 (MODEL · CAR_CLASS · ALL).");
+                    "app.estimate-confidence.warn-from-stage 는 필수입니다 (MODEL · PRICE_TIER · ALL).");
         }
     }
 
@@ -61,7 +61,7 @@ public record LowConfidenceRule(
 
     /**
      * <b>{@link FallbackStage} 의 선언 순서가 곧 "얼마나 넓혔나" 다</b> — MODEL(안 넓힘) →
-     * CAR_CLASS(한 단계) → ALL(전부). 그래서 {@code ordinal} 비교가 성립한다. 값을 중간에
+     * PRICE_TIER(한 단계) → ALL(전부). 그래서 {@code ordinal} 비교가 성립한다. 값을 중간에
      * 끼워 넣으면 이 판정이 조용히 바뀌므로 그 enum 에 주석으로 적어 두었다.
      */
     private boolean isRelaxedEnough(FallbackStage fallbackStage) {

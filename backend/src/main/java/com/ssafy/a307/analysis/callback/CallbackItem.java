@@ -26,8 +26,8 @@ import java.util.List;
  * @param partCost      <b>null 일 수 있다</b> — 원천 견적서에 부품비가 없는 경우다.
  *                      0 으로 바꾸지 않는다. 그러면 "부품비가 없다" 와 "0원이다" 가 섞인다
  * @param detectionIds  {@code "501:damage:damage-001"} 형식(2차 수정본에서 바뀜)
- * @param fallbackStage {@code MODEL}·{@code CAR_CLASS}·{@code ALL}. DEV corpus 는 모델 매핑
- *                      전이라 {@code CAR_CLASS} 부터 온다
+ * @param fallbackStage {@code MODEL}·{@code PRICE_TIER}·{@code ALL}. DEV corpus 는 모델 매핑
+ *                      전이라 {@code PRICE_TIER} 부터 온다
  */
 public record CallbackItem(
 

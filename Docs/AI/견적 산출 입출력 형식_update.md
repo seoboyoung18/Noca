@@ -56,7 +56,7 @@ MVP 비용 산출 모듈은 `repair_cost_stat`을 조회하지 않는다. 운영
       "detectionIds": ["501:damage:damage-001"],
       "pairStatus": "PAIRED",
       "searchability": "STRICT",
-      "fallbackStage": "CAR_CLASS",
+      "fallbackStage": "PRICE_TIER",
       "referencedCaseIds": [121381, 121414]
     }
   ]
@@ -188,7 +188,7 @@ REPAIR       → repair
         "median": 335500,
         "p75": 380000
       },
-      "fallbackStage": "CAR_CLASS"
+      "fallbackStage": "PRICE_TIER"
     }
   ],
   "unresolvedParts": []

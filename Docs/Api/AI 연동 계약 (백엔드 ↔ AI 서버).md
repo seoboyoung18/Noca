@@ -121,7 +121,7 @@ Header: X-Internal-Token, X-Request-Id
       "refCaseCount": 18,
       "referencedCaseIds": [121381, 121414],
       "costDistribution": { "p25": 300000, "median": 335500, "p75": 380000 },
-      "fallbackStage": "CAR_CLASS",
+      "fallbackStage": "PRICE_TIER",
       "repairMethodReason": {
         "candidates": ["coating", "exchange"],
         "reasonCode": "..."
@@ -239,7 +239,7 @@ ALTER TABLE analysis_image_result
 | --- | --- |
 | `damageType` | `Scratched` · `Separated` · `Crushed` · `Breakage` |
 | `repairMethod` | `coating` · `sheet_metal` · `exchange` · `repair` |
-| `fallbackStage` | `MODEL` · `CAR_CLASS` · `ALL` |
+| `fallbackStage` | `MODEL` · `PRICE_TIER` · `ALL` |
 | `confidenceGrade` | `HIGH` · `MEDIUM` · `LOW` · `null` |
 | `nonEstimableReason` | `PART_NOT_RESOLVED` · `NO_DAMAGE_DETECTED` · `INSUFFICIENT_CASES` · `null` |
 | `exclusionReason` | `NOT_VEHICLE` · `RATIO_BELOW_THRESHOLD` |
@@ -271,7 +271,9 @@ ALTER TABLE analysis_image_result
 위 분기는 HTTP 오류가 아니다. `NOT_VEHICLE`은 이미지 단위 제외 사유이고,
 `NO_DAMAGE_DETECTED`는 차량 유효성 확인 후 손상이 없다는 작업 결과 사유다.
 
-**`fallbackStage`는 차종 → 차급 순입니다.** 기준 건수에 못 미치면 차종을 먼저 풀고, 그래도 부족하면 차급까지 풉니다. 현재 DEV corpus는 모델 매핑 전이므로 `CAR_CLASS`부터 사용하며, `MODEL`은 모델 매핑 적재 후에만 사용합니다.
+**`fallbackStage`는 차종 → 수리비대 순입니다.** 기준 건수에 못 미치면 차종을 먼저 풀고, 그래도 부족하면 같은 수리비대까지 풉니다. 현재 DEV corpus는 모델 매핑 전이므로 `PRICE_TIER`부터 사용하며, `MODEL`은 모델 매핑 적재 후에만 사용합니다.
+
+> 2026-09-17 변경. 두 번째 단계가 `CAR_CLASS`(차급)에서 `PRICE_TIER`(수리비대)로 바뀌었습니다. 차급은 배기량·크기 기준이라 수리비를 설명하지 못합니다 — 견적서 코퍼스 실측에서 소·중·대의 수리비 지수 중앙값이 1.01 / 0.99 / 1.05로 6% 안에 있었고 범위가 완전히 겹쳤습니다. `PRICE_TIER`는 그 실측 지수의 사분위(`P1`~`P4`)이며, AI 서버가 `vehicle_model.price_tier`에서 직접 읽습니다. **요청 본문은 바뀌지 않습니다** — 백엔드는 지금처럼 `carClass`만 보내면 됩니다. 근거: `Docs/Erd/A307_VEHICLE_AXIS.md`
 
 **`costDistribution`의 의미** — 사례 견적서 행 중 실제 정산에 들어간 금액만 집계합니다. 참고가 행은 제외되므로 화면에 "실제 청구 기준"이라고 쓸 수 있습니다.
 
