@@ -7,6 +7,7 @@ import BottomSheet from '../components/BottomSheet.vue'
 import { AUTH_GUARD_OFF } from '../router'
 import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetchEstimate } from '../lib/api'
 import { imageThumb } from '../data/accidents'
+import { useChecklistStore } from '../stores/checklist'
 import {
   LABOR_ONLY_NOTICE, confidenceLabel, detectionBox, exclusionText, numberParts, wonOne, wonRange, wonShort,
 } from '../data/estimates'
@@ -20,6 +21,7 @@ import {
  * 번호는 견적 항목 순서를 따르고, 부품이 매칭되지 않은 검출(partCode 없음)은 번호 없이 박스만 그린다.
  * 부품별 내역 카드를 누르면 그 부품(partCode)의 박스만 남기고 나머지는 숨긴다 — 다른 사진에만 있으면 그 사진으로 넘긴다. 다시 누르면 전체.
  * 견적은 AI 콜백이 만들므로 결과가 있어도 견적이 아직 없을 수 있다 — 그때는 부위 목록만 보이고 금액은 "산정 중".
+ * 견적을 받으면 정비 체크리스트 생성을 서버 큐에 넣는다(서버는 자동 생성하지 않음) — 이미 있으면 409 라 조용히 넘어간다.
  */
 const route = useRoute()
 const router = useRouter()
@@ -46,7 +48,10 @@ async function load() {
     result.value = res
     imageUrls.value = Object.fromEntries((imgs?.images || []).map((im) => [im.imageId, imageThumb(im, 'RESIZED')]))
     if (!estimateId.value) estimateId.value = (await fetchAccidentEstimates(accidentId))[0]?.estimateId ?? null
-    if (estimateId.value) estimate.value = await fetchEstimate(estimateId.value)
+    if (estimateId.value) {
+      estimate.value = await fetchEstimate(estimateId.value)
+      useChecklistStore().ensureRequested(accidentId) // 기다리지 않는다 — 체크리스트 화면이 상태를 이어 받는다
+    }
   } catch (e) {
     if (e.status === 401) return
     error.value = e.status === 404 ? '사고를 찾을 수 없어요.' : e.status === 0 ? e.message : '분석 결과를 불러오지 못했어요.'

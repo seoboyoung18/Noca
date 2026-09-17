@@ -244,12 +244,45 @@ export const completeAccidentImages = (accidentId, images) =>
 /** 이미지 1장 삭제. 204. 저장소 오브젝트까지 정리하므로 저장소 미구성이면 503 */
 export const deleteAccidentImage = (accidentId, imageId) => http.delete(`/api/accidents/${accidentId}/images/${imageId}`)
 
-/**
- * 사고별 정비 체크리스트 상태. 아직 요청하지 않은 사고는 200 + status null.
- * { checklistId, status: QUEUED|PROCESSING|COMPLETED|FAILED|null, failureReason, items[], notice, ... }
+/* ===== 정비 체크리스트 (RepairChecklistController, /api/accidents/{id}/repair-checklist) =====
+ * 견적과 1:1. 서버는 자동 생성하지 않으므로 FE 가 request 로 큐에 넣고, 폴링 워커(GMS LLM)가 만든다.
+ * 상태 응답: { checklistId, status: QUEUED|PROCESSING|COMPLETED|FAILED|null(요청 전), failureReason(코드), createdAt, completedAt, regeneratedAt,
+ *             items[{ itemId, source: AI|COMMON|USER, commonCode, content, checked, memo, displayOrder, checkedAt }], progress{ completed, total }, notice }
+ * AI 항목은 content 한 문장뿐이다(부위·분류 없음) — 화면은 source 로만 묶는다.
  */
 export const fetchRepairChecklistStatus = (accidentId) =>
   http.get(`/api/accidents/${accidentId}/repair-checklist`).then(data)
+
+/**
+ * 생성 요청. 없으면 QUEUED 로 만들고, QUEUED·PROCESSING 은 그대로 돌려주고, FAILED 는 다시 큐에 올린다(재시도).
+ * COMPLETED 면 409(재생성은 regenerate) · GMS 키가 없는 서버면 503.
+ */
+export const requestRepairChecklist = (accidentId) =>
+  http.post(`/api/accidents/${accidentId}/repair-checklist`).then(data)
+
+/** 재생성. COMPLETED 일 때만(아니면 409). AI·COMMON 항목은 새로, USER 항목은 체크·메모까지 유지 */
+export const regenerateRepairChecklist = (accidentId) =>
+  http.post(`/api/accidents/${accidentId}/repair-checklist/regenerate`).then(data)
+
+/** 항목 추가. 201 + 항목. source 는 서버가 USER 로 고정 */
+export const addRepairChecklistItem = (accidentId, content) =>
+  http.post(`/api/accidents/${accidentId}/repair-checklist/items`, { content }).then(data)
+
+/** 문안 수정 — USER 항목만(AI·COMMON 은 400) */
+export const updateRepairChecklistItem = (accidentId, itemId, content) =>
+  http.patch(`/api/accidents/${accidentId}/repair-checklist/items/${itemId}`, { content }).then(data)
+
+/** 항목 삭제 — USER 항목만(AI·COMMON 은 400). 204 */
+export const deleteRepairChecklistItem = (accidentId, itemId) =>
+  http.delete(`/api/accidents/${accidentId}/repair-checklist/items/${itemId}`)
+
+/** 체크 on/off. 모든 항목 가능 */
+export const checkRepairChecklistItem = (accidentId, itemId, checked) =>
+  http.patch(`/api/accidents/${accidentId}/repair-checklist/items/${itemId}/check`, { checked }).then(data)
+
+/** 메모 저장. null·공백이면 지움(500자). 모든 항목 가능 */
+export const memoRepairChecklistItem = (accidentId, itemId, memo) =>
+  http.patch(`/api/accidents/${accidentId}/repair-checklist/items/${itemId}/memo`, { memo }).then(data)
 
 /**
  * 회원 탈퇴. 204, 본문 없음.

@@ -1,11 +1,29 @@
 <script setup>
 import { onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
+import { useChecklistStore } from '../stores/checklist'
+import { checklistPending } from '../data/checklists'
 
+/* ===== 체크리스트 만들기 (S14a) =====
+ * 사고 id 가 있으면 생성을 요청하고(없으면 QUEUED, 실패면 재시도, 진행 중이면 그대로) 상태가 끝날 때까지 2초마다 확인한 뒤 상세로 간다.
+ * 상세 화면도 pending 상태를 스스로 그리므로 여기서 오래 붙잡지 않는다 — 요청 뒤 첫 응답이 오면 바로 상세로 넘긴다.
+ * 사고 id 가 없으면(목업 진입) 1.5초 뒤 상세로.
+ */
+const route = useRoute()
 const router = useRouter()
+const accidentId = Number(route.query.accidentId) || null
+const checklists = useChecklistStore()
 let t
-onMounted(() => { t = setTimeout(() => router.replace('/checklist'), 1500) })
+const go = () => router.replace(accidentId ? { path: '/checklist', query: { accidentId } } : '/checklist')
+
+onMounted(async () => {
+  if (!accidentId) { t = setTimeout(go, 1500); return }
+  await checklists.ensureRequested(accidentId)
+  const res = checklists.get(accidentId) || await checklists.load(accidentId)
+  // 이미 완료돼 있으면 곧장, 아니면 잠깐 보여 준 뒤 상세로 (상세가 이어서 폴링)
+  t = setTimeout(go, res && !checklistPending(res.status) ? 300 : 1500)
+})
 onUnmounted(() => clearTimeout(t))
 </script>
 

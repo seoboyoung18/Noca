@@ -9,6 +9,7 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useVehicleStore } from '../stores/vehicles'
 import { useAccidentStore } from '../stores/accidents'
+import { useChecklistStore } from '../stores/checklist'
 import { fetchProfile, withdraw } from '../lib/api'
 import { AUTH_GUARD_OFF } from '../router'
 
@@ -62,7 +63,7 @@ async function doQuit() {
   auth.forgetSocialName(auth.me?.memberId) // 탈퇴한 회원의 소셜 이름 보관값 정리
   auth.clear()
   useVehicleStore().reset()
-  useAccidentStore().reset()
+  useAccidentStore().reset(); useChecklistStore().reset()
   router.replace('/landing')
 }
 </script>
