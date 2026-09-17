@@ -85,8 +85,9 @@ public record AnalysisResultResponse(
     /**
      * 사진 한 장의 결과.
      *
-     * @param width           <b>원본</b> 가로 픽셀. {@code detections} 의 좌표가 이 크기를 기준으로
-     *                        한다. 화면이 {@code resized} 를 띄운다면 비율로 환산해야 한다.
+     * @param width           <b>AI 가 분석한 사진</b>(축소본)의 가로 픽셀 — 원본이 아니다.
+     *                        {@code detections} 의 좌표가 이 크기를 기준으로 한다. 화면에 띄운
+     *                        사진 크기와 다르면 비율로 환산해야 한다.
      *                        업로드 전처리가 치수를 얻지 못했으면 {@code null} 이고,
      *                        그때는 <b>환산할 수 없으므로 그리지 않는 편이 낫다</b>
      * @param excluded        분석에서 빠진 사진인가. 빠진 사진도 목록에 남긴다 —

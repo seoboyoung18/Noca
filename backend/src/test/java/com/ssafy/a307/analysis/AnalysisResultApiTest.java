@@ -87,9 +87,15 @@ class AnalysisResultApiTest {
                 insert into accident_image (image_id, accident_id, original_filename, angle_code)
                 values (?, ?, 'rear-left.jpg', 'REAR_LEFT')
                 """, IMAGE_ID, ACCIDENT_ID);
+        // 원본과 축소본의 크기를 일부러 다르게 둔다. AI 는 축소본을 받아 분석하므로
+        // 좌표는 축소본 픽셀 기준이다 — 같은 크기로 두면 어느 쪽을 내려주는지 가려지지 않는다.
         jdbcTemplate.update("""
                 insert into accident_image_asset (image_id, variant, s3_key, width, height)
-                values (?, 'ORIGINAL', 'accidents/98401/images/98401/original.jpg', 1600, 1200)
+                values (?, 'ORIGINAL', 'accidents/98401/images/98401/original.jpg', 4000, 3000)
+                """, IMAGE_ID);
+        jdbcTemplate.update("""
+                insert into accident_image_asset (image_id, variant, s3_key, width, height)
+                values (?, 'RESIZED', 'accidents/98401/images/98401/resized.jpg', 1600, 1200)
                 """, IMAGE_ID);
     }
 
@@ -192,8 +198,8 @@ class AnalysisResultApiTest {
     }
 
     @Test
-    @DisplayName("좌표 환산 기준인 원본 크기를 함께 준다")
-    void originalSizeIsReturned() throws Exception {
+    @DisplayName("좌표 환산 기준은 AI 가 분석한 축소본 크기다 — 원본 크기를 주면 박스가 작게 쏠린다")
+    void analyzedImageSizeIsReturned() throws Exception {
         givenCompletedAnalysis();
 
         mockMvc.perform(get("/api/accidents/{id}/analysis/result", ACCIDENT_ID))
@@ -203,12 +209,12 @@ class AnalysisResultApiTest {
     }
 
     @Test
-    @DisplayName("원본 크기를 얻지 못한 사진은 크기가 null 이다 — 지어내지 않는다")
-    void missingOriginalSizeIsNull() throws Exception {
+    @DisplayName("분석한 사진의 크기를 얻지 못했으면 null 이다 — 원본 크기로 대신 채우지 않는다")
+    void missingAnalyzedSizeIsNull() throws Exception {
         givenCompletedAnalysis();
         jdbcTemplate.update("""
                 update accident_image_asset set width = null, height = null
-                 where image_id = ? and variant = 'ORIGINAL'
+                 where image_id = ? and variant = 'RESIZED'
                 """, IMAGE_ID);
 
         mockMvc.perform(get("/api/accidents/{id}/analysis/result", ACCIDENT_ID))
