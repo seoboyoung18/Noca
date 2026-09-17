@@ -1,3 +1,5 @@
+import { damageTypeLabel } from './estimates'
+
 // 사고 이력 표시 규칙 — 서버는 코드·시각·원 단위 금액만 주고 한글 라벨·그룹·포맷은 FE 몫이다.
 // (Docs/Api/김재원 담당 백엔드 API — FE 인수인계.md §5-3, backend AccidentHistoryStatus)
 
@@ -35,6 +37,29 @@ const man = (won) => Math.round(won / 10000)
  * 예상 수리비 문구. 견적이 없으면(estimatedCost* 전부 null — 지금은 항상) null 을 돌려준다.
  * "0원" 으로 그리면 안 되므로 호출하는 쪽이 null 을 "산정 전" 으로 처리한다.
  */
+/* ----- 사고 설명 문구 (사고 이력 행 둘째 줄) -----
+ * 목록 API(AccidentSummaryResponse)에는 사고 유형 필드가 없다(대조표 화면 21 · 사고 유형 마스터 미구현).
+ * 견적이 있는 사고는 견적 항목의 부위명·손상 유형으로 "프론트 범퍼, 헤드램프(좌) 외 1곳 파손" 처럼 조립하고,
+ * 없는 사고는 진행 단계 문구로 대신한다.
+ */
+export const ACCIDENT_STAGE_TEXT = {
+  RECEIVED: '사진 등록 전', IMAGES_UPLOADED: '분석 요청 전', ANALYZING: '손상 부위 분석 중',
+  ANALYSIS_FAILED: '분석 결과 없음', ESTIMATED: '손상 정보 없음', REPAIR_RECORDED: '수리 완료',
+}
+export const accidentStageText = (status) => ACCIDENT_STAGE_TEXT[status] || ''
+
+/** 견적 항목 → "부위1, 부위2 외 N곳 손상유형". 손상 유형은 가장 많이 나온 것 하나. 항목이 없으면 '' */
+export function damageSummaryText(items = []) {
+  const names = items.map((it) => it.partNameKo || it.partCode).filter(Boolean)
+  if (!names.length) return ''
+  const head = names.slice(0, 2).join(', ') + (names.length > 2 ? ` 외 ${names.length - 2}곳` : '')
+  const count = {}
+  for (const it of items) if (it.damageType) count[it.damageType] = (count[it.damageType] || 0) + 1
+  const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0]
+  const damage = top ? damageTypeLabel(top) : ''
+  return damage ? `${head} ${damage}` : head
+}
+
 export function accidentCost(a) {
   const { estimatedCostMin: min, estimatedCostMax: max, estimatedCostMedian: med } = a
   if (min != null && max != null && min !== max) return `${man(min)}만 ~ ${man(max)}만원`
@@ -48,6 +73,14 @@ export function accidentDate(createdAt, now = new Date()) {
   if (Number.isNaN(d.getTime())) return ''
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}월 ${d.getDate()}일`
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** 짧은 날짜 — "9/5" (체크리스트 카드). 올해가 아니면 "2025/9/5" */
+export function accidentDateShort(createdAt, now = new Date()) {
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return ''
+  const md = `${d.getMonth() + 1}/${d.getDate()}`
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}/${md}`
 }
 
 /** 그룹 라벨 — 최근 7일은 "이번 주", 올해는 "M월", 그 전은 "YYYY년 M월". 목록이 createdAt 내림차순이라 그룹도 순서대로 쌓인다 */
