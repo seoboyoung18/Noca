@@ -69,7 +69,7 @@ class EmbeddingServiceTest(unittest.TestCase):
         first = {
             "detectionId": "501:damage:damage-001", "partCode": "REAR_BUMPER",
             "damageType": "Scratched", "confidence": 0.8, "pairStatus": "PAIRED",
-            "searchability": "STRICT", "fallbackStage": "CAR_CLASS", "searchHitCount": 1,
+            "searchability": "STRICT", "fallbackStage": "MODEL", "searchHitCount": 1,
             "referencedCaseIds": [10], "cases": [{"caseId": 10, "similarity": 0.8}],
         }
         second = {**first, "detectionId": "502:damage:damage-002", "confidence": 0.9,
@@ -81,6 +81,42 @@ class EmbeddingServiceTest(unittest.TestCase):
         self.assertEqual(actual["detectionIds"], ["501:damage:damage-001", "502:damage:damage-002"])
         self.assertEqual(actual["fallbackStage"], "ALL")
         self.assertEqual(actual["referencedCaseIds"], [11, 10])
+
+    def test_merged_group_reports_the_widest_stage_that_contributed(self):
+        """MODEL 과 PRICE_TIER 가 섞이면 PRICE_TIER 다. 좁은 쪽으로 남으면 가격대
+        전체에서 온 근거를 "동일 차종 사례"로 보여 주게 된다."""
+        groups = {}
+        first = {
+            "detectionId": "501:damage:damage-001", "partCode": "REAR_BUMPER",
+            "damageType": "Scratched", "confidence": 0.8, "pairStatus": "PAIRED",
+            "searchability": "STRICT", "fallbackStage": "MODEL", "searchHitCount": 1,
+            "referencedCaseIds": [10], "cases": [{"caseId": 10, "similarity": 0.8}],
+        }
+        second = {**first, "detectionId": "502:damage:damage-002",
+                  "fallbackStage": "PRICE_TIER", "referencedCaseIds": [11],
+                  "cases": [{"caseId": 11, "similarity": 0.9}]}
+
+        _merge_strict(groups, first)
+        _merge_strict(groups, second)
+
+        self.assertEqual(groups[("REAR_BUMPER", "Scratched")]["fallbackStage"], "PRICE_TIER")
+
+    def test_merged_group_keeps_the_wider_stage_regardless_of_order(self):
+        groups = {}
+        wide = {
+            "detectionId": "501:damage:damage-001", "partCode": "REAR_BUMPER",
+            "damageType": "Scratched", "confidence": 0.8, "pairStatus": "PAIRED",
+            "searchability": "STRICT", "fallbackStage": "ALL", "searchHitCount": 1,
+            "referencedCaseIds": [10], "cases": [{"caseId": 10, "similarity": 0.8}],
+        }
+        narrow = {**wide, "detectionId": "502:damage:damage-002",
+                  "fallbackStage": "MODEL", "referencedCaseIds": [11],
+                  "cases": [{"caseId": 11, "similarity": 0.9}]}
+
+        _merge_strict(groups, wide)
+        _merge_strict(groups, narrow)
+
+        self.assertEqual(groups[("REAR_BUMPER", "Scratched")]["fallbackStage"], "ALL")
 
 
 if __name__ == "__main__":

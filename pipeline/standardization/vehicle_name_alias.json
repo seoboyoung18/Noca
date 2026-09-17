@@ -1,0 +1,3758 @@
+{
+ "version": "2026-09-17",
+ "source": "AI Hub 견적서 125,006건 전수 (가격지수는 1/3 표본)",
+ "tier_cuts": {
+  "P1": "<0.94",
+  "P2": "0.94~1.00",
+  "P3": "1.00~1.07",
+  "P4": ">=1.07"
+ },
+ "alias": {
+  "아반떼AD(16)": {
+   "model_name": "아반떼",
+   "price_tier": "P1",
+   "price_index": 0.926,
+   "n": 21610
+  },
+  "올뉴카니발(14)": {
+   "model_name": "카니발",
+   "price_tier": "P4",
+   "price_index": 1.091,
+   "n": 6197
+  },
+  "아반떼(20)-CN7": {
+   "model_name": "아반떼",
+   "price_tier": "P2",
+   "price_index": 0.994,
+   "n": 5913
+  },
+  "레이(18)": {
+   "model_name": "레이",
+   "price_tier": "P2",
+   "price_index": 0.989,
+   "n": 5529
+  },
+  "코나": {
+   "model_name": "코나",
+   "price_tier": "P2",
+   "price_index": 0.961,
+   "n": 5139
+  },
+  "올뉴모닝(17)": {
+   "model_name": "모닝",
+   "price_tier": "P1",
+   "price_index": 0.86,
+   "n": 4919
+  },
+  "티볼리": {
+   "model_name": "티볼리",
+   "price_tier": "P2",
+   "price_index": 0.976,
+   "n": 3895
+  },
+  "올뉴투싼(15)": {
+   "model_name": "투싼",
+   "price_tier": "P3",
+   "price_index": 1.039,
+   "n": 3790
+  },
+  "레이": {
+   "model_name": "레이",
+   "price_tier": "P2",
+   "price_index": 0.94,
+   "n": 3340
+  },
+  "스포티지(16)": {
+   "model_name": "스포티지",
+   "price_tier": "P3",
+   "price_index": 1.006,
+   "n": 3290
+  },
+  "더넥스트스파크": {
+   "model_name": "스파크",
+   "price_tier": "P1",
+   "price_index": 0.786,
+   "n": 2909
+  },
+  "K3(18)": {
+   "model_name": "K3",
+   "price_tier": "P3",
+   "price_index": 1.002,
+   "n": 2819
+  },
+  "HG그랜져": {
+   "model_name": "그랜저",
+   "price_tier": "P3",
+   "price_index": 1.0,
+   "n": 2755
+  },
+  "그랜져IG(17)": {
+   "model_name": "그랜저",
+   "price_tier": "P4",
+   "price_index": 1.122,
+   "n": 2524
+  },
+  "셀토스(19)": {
+   "model_name": "셀토스",
+   "price_tier": "P3",
+   "price_index": 1.006,
+   "n": 2242
+  },
+  "LF 쏘나타": {
+   "model_name": "쏘나타",
+   "price_tier": "P2",
+   "price_index": 0.981,
+   "n": 1927
+  },
+  "올뉴쏘렌토": {
+   "model_name": "쏘렌토",
+   "price_tier": "P3",
+   "price_index": 1.012,
+   "n": 1867
+  },
+  "올 뉴 모닝(11)": {
+   "model_name": "모닝",
+   "price_tier": "P1",
+   "price_index": 0.769,
+   "n": 1852
+  },
+  "LF 쏘나타 뉴라이즈": {
+   "model_name": "쏘나타",
+   "price_tier": "P3",
+   "price_index": 1.065,
+   "n": 1436
+  },
+  "올 뉴 K7": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.039,
+   "n": 1404
+  },
+  "K5(15)": {
+   "model_name": "K5",
+   "price_tier": "P3",
+   "price_index": 1.044,
+   "n": 1375
+  },
+  "싼타페DM": {
+   "model_name": "싼타페",
+   "price_tier": "P3",
+   "price_index": 1.052,
+   "n": 1348
+  },
+  "제네시스(14)": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.009,
+   "n": 1254
+  },
+  "G80(16)": {
+   "model_name": "G80",
+   "price_tier": "P4",
+   "price_index": 1.073,
+   "n": 1172
+  },
+  "니로": {
+   "model_name": "니로",
+   "price_tier": "P3",
+   "price_index": 1.005,
+   "n": 1155
+  },
+  "K3(4도어)(16)": {
+   "model_name": "K3",
+   "price_tier": "P3",
+   "price_index": 1.019,
+   "n": 1139
+  },
+  "K3": {
+   "model_name": "K3",
+   "price_tier": "P2",
+   "price_index": 0.97,
+   "n": 1132
+  },
+  "K5(18)": {
+   "model_name": "K5",
+   "price_tier": "P4",
+   "price_index": 1.102,
+   "n": 1082
+  },
+  "아이오닉": {
+   "model_name": null,
+   "price_tier": "P2",
+   "price_index": 0.943,
+   "n": 1044
+  },
+  "SM6": {
+   "model_name": "SM6",
+   "price_tier": "P4",
+   "price_index": 1.278,
+   "n": 990
+  },
+  "싼타페(15)": {
+   "model_name": "싼타페",
+   "price_tier": "P3",
+   "price_index": 1.057,
+   "n": 967
+  },
+  "올뉴쏘렌토(18)": {
+   "model_name": "쏘렌토",
+   "price_tier": "P4",
+   "price_index": 1.126,
+   "n": 933
+  },
+  "아반떼MD(13)": {
+   "model_name": "아반떼",
+   "price_tier": "P1",
+   "price_index": 0.902,
+   "n": 845
+  },
+  "스파크(마티즈크리에이티브)": {
+   "model_name": "스파크",
+   "price_tier": "P1",
+   "price_index": 0.707,
+   "n": 827
+  },
+  "쏘나타(19)": {
+   "model_name": "쏘나타",
+   "price_tier": "P3",
+   "price_index": 1.035,
+   "n": 802
+  },
+  "스토닉": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.926,
+   "n": 788
+  },
+  "싼타페TM(18)": {
+   "model_name": "싼타페",
+   "price_tier": "P3",
+   "price_index": 1.0,
+   "n": 777
+  },
+  "올뉴모닝(15)": {
+   "model_name": "모닝",
+   "price_tier": "P1",
+   "price_index": 0.814,
+   "n": 742
+  },
+  "올뉴말리부(2017)": {
+   "model_name": "말리부",
+   "price_tier": "P4",
+   "price_index": 1.142,
+   "n": 717
+  },
+  "올뉴투싼": {
+   "model_name": "투싼",
+   "price_tier": "P1",
+   "price_index": 0.937,
+   "n": 693
+  },
+  "EQ900": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.134,
+   "n": 628
+  },
+  "K7": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.005,
+   "n": 580
+  },
+  "그랜드스타렉스 웨건": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.91,
+   "n": 515
+  },
+  "프라이드5DR(15)": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.874,
+   "n": 510
+  },
+  "트랙스": {
+   "model_name": "트랙스",
+   "price_tier": "P3",
+   "price_index": 1.036,
+   "n": 488
+  },
+  "올란도": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.021,
+   "n": 467
+  },
+  "K5": {
+   "model_name": "K5",
+   "price_tier": "P2",
+   "price_index": 0.976,
+   "n": 465
+  },
+  "QM3": {
+   "model_name": "QM3",
+   "price_tier": "P4",
+   "price_index": 1.196,
+   "n": 446
+  },
+  "말리부": {
+   "model_name": "말리부",
+   "price_tier": "P4",
+   "price_index": 1.168,
+   "n": 445
+  },
+  "스포티지R": {
+   "model_name": "스포티지",
+   "price_tier": "P1",
+   "price_index": 0.925,
+   "n": 440
+  },
+  "코란도스포츠": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.004,
+   "n": 422
+  },
+  "크루즈(라세티 프리미어)": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.022,
+   "n": 412
+  },
+  "에쿠스(09)": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.153,
+   "n": 384
+  },
+  "QM6": {
+   "model_name": "QM6",
+   "price_tier": "P4",
+   "price_index": 1.287,
+   "n": 374
+  },
+  "뉴SM3(2012)": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.179,
+   "n": 341
+  },
+  "그랜드스타렉스웨건(18)": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.0,
+   "n": 328
+  },
+  "그랜저IG(17)": {
+   "model_name": "그랜저",
+   "price_tier": "P3",
+   "price_index": 1.03,
+   "n": 318
+  },
+  "올뉴크루즈(17)": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.029,
+   "n": 313
+  },
+  "스팅어(17)": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.178,
+   "n": 287
+  },
+  "BMW MINI": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 279
+  },
+  "엑센트(15)": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.899,
+   "n": 237
+  },
+  "그랜드카니발": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.117,
+   "n": 234
+  },
+  "팰리세이드(19)": {
+   "model_name": "팰리세이드",
+   "price_tier": "P3",
+   "price_index": 1.069,
+   "n": 232
+  },
+  "투싼 IX": {
+   "model_name": "투싼",
+   "price_tier": "P1",
+   "price_index": 0.91,
+   "n": 212
+  },
+  "그랜드스타렉스 웨건(15)": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.006,
+   "n": 209
+  },
+  "모하비(16)": {
+   "model_name": "모하비",
+   "price_tier": "P3",
+   "price_index": 1.035,
+   "n": 206
+  },
+  "YF 쏘나타": {
+   "model_name": "쏘나타",
+   "price_tier": "P2",
+   "price_index": 0.946,
+   "n": 205
+  },
+  "올뉴프라이드5DR(12)": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.835,
+   "n": 204
+  },
+  "모하비": {
+   "model_name": "모하비",
+   "price_tier": "P1",
+   "price_index": 0.923,
+   "n": 200
+  },
+  "코란도 C": {
+   "model_name": "코란도",
+   "price_tier": "P2",
+   "price_index": 0.964,
+   "n": 197
+  },
+  "맥스크루즈": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.124,
+   "n": 194
+  },
+  "HG그랜저": {
+   "model_name": "그랜저",
+   "price_tier": "P3",
+   "price_index": 1.013,
+   "n": 193
+  },
+  "그랜드스타렉스 5밴": {
+   "model_name": null,
+   "price_tier": "P2",
+   "price_index": 0.941,
+   "n": 184
+  },
+  "G70(17)": {
+   "model_name": "G70",
+   "price_tier": "P3",
+   "price_index": 1.034,
+   "n": 182
+  },
+  "그랜드스타렉스 3밴": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.905,
+   "n": 181
+  },
+  "엑센트(11)": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.834,
+   "n": 180
+  },
+  "SM5 Nova": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.219,
+   "n": 175
+  },
+  "프라이드4DR(15)": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.847,
+   "n": 174
+  },
+  "제네시스": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.024,
+   "n": 163
+  },
+  "아반떼MD(10)": {
+   "model_name": "아반떼",
+   "price_tier": "P2",
+   "price_index": 0.956,
+   "n": 154
+  },
+  "그랜드스타렉스 5밴(15)": {
+   "model_name": null,
+   "price_tier": "P2",
+   "price_index": 0.981,
+   "n": 152
+  },
+  "K9(18)": {
+   "model_name": "K9",
+   "price_tier": "P3",
+   "price_index": 1.056,
+   "n": 147
+  },
+  "G4 렉스턴": {
+   "model_name": "렉스턴",
+   "price_tier": "P4",
+   "price_index": 1.094,
+   "n": 146
+  },
+  "코나EV(19)": {
+   "model_name": "코나",
+   "price_tier": "P2",
+   "price_index": 0.972,
+   "n": 141
+  },
+  "올뉴말리부": {
+   "model_name": "말리부",
+   "price_tier": "P2",
+   "price_index": 0.987,
+   "n": 141
+  },
+  "K9": {
+   "model_name": "K9",
+   "price_tier": "P4",
+   "price_index": 1.167,
+   "n": 140
+  },
+  "아슬란": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.0,
+   "n": 140
+  },
+  "맥스크루즈(16)": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.07,
+   "n": 134
+  },
+  "그랜드스타렉스5밴(18)": {
+   "model_name": null,
+   "price_tier": "P2",
+   "price_index": 0.972,
+   "n": 125
+  },
+  "i30 (2012)": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.919,
+   "n": 116
+  },
+  "그랜저(19)-IG": {
+   "model_name": "그랜저",
+   "price_tier": "P3",
+   "price_index": 1.052,
+   "n": 109
+  },
+  "코란도 투리스모": {
+   "model_name": null,
+   "price_tier": "P2",
+   "price_index": 0.971,
+   "n": 107
+  },
+  "알페온": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.018,
+   "n": 106
+  },
+  "벤츠 E클래스": {
+   "model_name": "E클래스",
+   "price_tier": null,
+   "price_index": null,
+   "n": 105
+  },
+  "G80(20)-RG3": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.086,
+   "n": 103
+  },
+  "베뉴(19)": {
+   "model_name": "베뉴",
+   "price_tier": "P1",
+   "price_index": 0.906,
+   "n": 98
+  },
+  "i30(2017)": {
+   "model_name": null,
+   "price_tier": "P2",
+   "price_index": 0.949,
+   "n": 97
+  },
+  "베라크루즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 94
+  },
+  "뉴쏘렌토R(13)": {
+   "model_name": "쏘렌토",
+   "price_tier": "P1",
+   "price_index": 0.821,
+   "n": 92
+  },
+  "클리오": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.219,
+   "n": 90
+  },
+  "그랜드스타렉스 3밴(15)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 89
+  },
+  "벨로스터": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.895,
+   "n": 86
+  },
+  "윈스톰": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 85
+  },
+  "BMW 520D": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 84
+  },
+  "BMW 5시리즈": {
+   "model_name": "5시리즈",
+   "price_tier": null,
+   "price_index": null,
+   "n": 82
+  },
+  "SM7 Nova": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.245,
+   "n": 79
+  },
+  "BMW 3시리즈": {
+   "model_name": "3시리즈",
+   "price_tier": null,
+   "price_index": null,
+   "n": 76
+  },
+  "아우디 A6": {
+   "model_name": "A6",
+   "price_tier": null,
+   "price_index": null,
+   "n": 76
+  },
+  "YF쏘나타 하이브리드": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.934,
+   "n": 72
+  },
+  "크라이슬러": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 71
+  },
+  "New SM5 플래티넘": {
+   "model_name": null,
+   "price_tier": "P4",
+   "price_index": 1.123,
+   "n": 71
+  },
+  "올 뉴 쏘울": {
+   "model_name": null,
+   "price_tier": "P1",
+   "price_index": 0.934,
+   "n": 70
+  },
+  "그랜드스타렉스3밴(18)": {
+   "model_name": null,
+   "price_tier": "P3",
+   "price_index": 1.021,
+   "n": 69
+  },
+  "도요다 랙서스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 68
+  },
+  "올뉴카렌스": {
+   "model_name": null,
+   "price_tier": "P2",
+   "price_index": 0.967,
+   "n": 65
+  },
+  "올뉴프라이드4DR(12)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 64
+  },
+  "투싼(14)": {
+   "model_name": "투싼",
+   "price_tier": null,
+   "price_index": null,
+   "n": 64
+  },
+  "니로EV(19)": {
+   "model_name": "니로",
+   "price_tier": null,
+   "price_index": null,
+   "n": 63
+  },
+  "임팔라": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 63
+  },
+  "벤츠 C클래스": {
+   "model_name": "C클래스",
+   "price_tier": null,
+   "price_index": null,
+   "n": 61
+  },
+  "All New SM7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 60
+  },
+  "폭스바겐 골프": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 56
+  },
+  "올뉴쏘울(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 56
+  },
+  "K9(15)": {
+   "model_name": "K9",
+   "price_tier": "P4",
+   "price_index": 1.208,
+   "n": 52
+  },
+  "SM5(10)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 51
+  },
+  "Remegade": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 50
+  },
+  "벤츠 S클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 45
+  },
+  "아베오(해치백)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 44
+  },
+  "쏘울": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 44
+  },
+  "벨로스터(17)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 42
+  },
+  "그랜저IG(20)": {
+   "model_name": "그랜저",
+   "price_tier": null,
+   "price_index": null,
+   "n": 40
+  },
+  "도요다 캠리": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 39
+  },
+  "벤츠 C200": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 39
+  },
+  "폭스바겐 티구안": {
+   "model_name": "티구안",
+   "price_tier": null,
+   "price_index": null,
+   "n": 38
+  },
+  "CLUBMAN(14)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 38
+  },
+  "뉴카니발9인승(06)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 37
+  },
+  "렉스턴 II": {
+   "model_name": "렉스턴",
+   "price_tier": null,
+   "price_index": null,
+   "n": 37
+  },
+  "QM5네오(14)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 37
+  },
+  "싼타페(2012)": {
+   "model_name": "싼타페",
+   "price_tier": null,
+   "price_index": null,
+   "n": 37
+  },
+  "트레일블레이저(20)-9BYC": {
+   "model_name": "트레일블레이저",
+   "price_tier": null,
+   "price_index": null,
+   "n": 36
+  },
+  "i40": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 34
+  },
+  "카렌스(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 33
+  },
+  "RENEGADE(14)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 33
+  },
+  "닛산 알티마": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 32
+  },
+  "GV80(20)": {
+   "model_name": "GV80",
+   "price_tier": null,
+   "price_index": null,
+   "n": 32
+  },
+  "체어맨W": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 31
+  },
+  "임팔라(15)-10TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 31
+  },
+  "폭스바겐 시로코": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 31
+  },
+  "벤츠": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 30
+  },
+  "BMW X시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 30
+  },
+  "뷰티풀코란도": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 30
+  },
+  "아우디 A4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 29
+  },
+  "쏘렌토R": {
+   "model_name": "쏘렌토",
+   "price_tier": null,
+   "price_index": null,
+   "n": 29
+  },
+  "혼다 어코드": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 28
+  },
+  "폭스바겐 파샤트": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 28
+  },
+  "COOPER D(14)-F56": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 28
+  },
+  "BMW 7시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 27
+  },
+  "BMW GT": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 27
+  },
+  "E CLASS(16)-W213": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 27
+  },
+  "닛산 인피니티": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 26
+  },
+  "SM5 TCE(13)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 26
+  },
+  "벤츠 CLA클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 25
+  },
+  "벤츠 E300": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 24
+  },
+  "CLUBMAN(08)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 24
+  },
+  "QM5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 23
+  },
+  "GM": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 23
+  },
+  "폭스바겐 제타": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 22
+  },
+  "JETTA(11)-6TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 22
+  },
+  "포드": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 21
+  },
+  "벨로스터(15)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 21
+  },
+  "E CLASS(13)-W212": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 21
+  },
+  "체로키 짚": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 20
+  },
+  "K8(21)-GL3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 20
+  },
+  "재규어 XF": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 20
+  },
+  "푸조2008": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 19
+  },
+  "i40(15)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 19
+  },
+  "포드 익스플로러": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 18
+  },
+  "폭스바겐 CC": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 17
+  },
+  "아우디 A8": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 17
+  },
+  "벤츠 E220": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 17
+  },
+  "BMW 118D": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 17
+  },
+  "BMW 528i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 16
+  },
+  "JETTA(06)-5TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 16
+  },
+  "BMW 4시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 15
+  },
+  "프리우스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 15
+  },
+  "X3": {
+   "model_name": "X3",
+   "price_tier": null,
+   "price_index": null,
+   "n": 15
+  },
+  "아베오(세단)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 15
+  },
+  "벤츠 A클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 14
+  },
+  "벤츠 CLS": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 14
+  },
+  "도요타 라브4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 14
+  },
+  "재규어 XE": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 14
+  },
+  "BMW 1시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 13
+  },
+  "Discovery (LJ)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 13
+  },
+  "포드 링컨": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 13
+  },
+  "포드 몬데오": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 13
+  },
+  "5SERIES(03)-E60": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 13
+  },
+  "i40 살룬": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 13
+  },
+  "GM 캐딜락": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 13
+  },
+  "Range Rover (LP)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 12
+  },
+  "아우디 A7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 12
+  },
+  "포르테": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 12
+  },
+  "QM5(11)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 12
+  },
+  "C CLASS(14)-W205": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 12
+  },
+  "아우디 A5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 12
+  },
+  "폭스바겐 폴로": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 11
+  },
+  "아우디 Q5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 11
+  },
+  "SM3 (09)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 11
+  },
+  "볼보 S60": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 11
+  },
+  "아우디 A3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 10
+  },
+  "뉴아우디 A6": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 10
+  },
+  "도요타 시에나": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 10
+  },
+  "X6": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 10
+  },
+  "SM3 (2.0)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 10
+  },
+  "BMW 320i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 10
+  },
+  "뉴 SM3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 10
+  },
+  "X5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "폭스바겐 뉴비틀": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "뉴 모닝": {
+   "model_name": "모닝",
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "i30": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "5SERIES(17)-G30": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "모닝": {
+   "model_name": "모닝",
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "뉴벤츠 E200": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "GV70(21)": {
+   "model_name": "GV70",
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "캐딜락 CTS": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "폭스바겐 투아렉": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 9
+  },
+  "그랜드 체로키 짚": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "300C": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "Range Rover (LH)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "포르쉐 카이엔 터보": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "벤츠 CLS클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "GV70(20)-JK1": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "GV80(20)-JX1": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "XM3(20)-LJL": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "젠트라": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "피아트": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "S CLASS LWB(18)-W222": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "볼보 XC90": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "GM 까메로": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "C CLASS CABRIOLET(17)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 8
+  },
+  "포드 토러스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "포르테 쿱": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "ES(15)-XV60": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "EXPLORER(15)-U502": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "벤츠 GLK 220": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "제네시스쿠페(12)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "EXPLORER(10)-5TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "GOLF(13)-MK7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "COOPER 5DOOR(14)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "벤츠 S500": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "싼타페CM(10)": {
+   "model_name": "싼타페",
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "허슬러": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "기블리": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "프라이드(5Dr)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 7
+  },
+  "혼다": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "혼다 CIVIC": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "푸조 508": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "쏘울(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "포드 익스케이프": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "재규어 F-TYPE": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "SM 7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "싼타페": {
+   "model_name": "싼타페",
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "K5(19)-DL3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "3SERIES(15)-F30": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "뉴 SM5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "포드 MKZ": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "C CLASS ESTATE(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "i40 살룬(15)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "CK MINI VAN": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "재규어 XJ": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "COOPER 3DOOR(14)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "C CLASS(01)-W203": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "C CLASS(11)-W204": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 6
+  },
+  "BMW 2시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "BMW 6시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "아우디 Q3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "Compass": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "푸조 3008": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "아우디 Q7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "CR-V": {
+   "model_name": "CR-V",
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "CLS CLASS(18)-C257": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "싼타페CM": {
+   "model_name": "싼타페",
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "NEW BMW  520i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "제네시스 쿠페": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "푸조308": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "뉴벤츠 E230": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "포드 MKS": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "CAMRY(17)-XV70": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "아반떼HD(06)": {
+   "model_name": "아반떼",
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "BMW M시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "GLC CLASS(16)-X253": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "볼보 S90": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "캐딜락": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "SM 3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "아이오닉5(21)-NE": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "올뉴아반떼": {
+   "model_name": "아반떼",
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "DISCOVERY SPORT(15)-L550": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "MODEL 3(19)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 5
+  },
+  "NEW BMW 740Li": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "볼보 V40": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "5SERIES(10)-F10": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "벤츠 E350": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "레인지로버 이보크": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "Discovery II (LT)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "벤츠 GLS": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "3SERIES(12)-F30": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "PASSAT GT(18)-B8": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "NEW BMW 730": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "XE(15)-X760": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "컨티넨탈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "벤츠 S63 AMG": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "CLA CLASS(14)-C117": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "윈스톰맥스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "1SERIES 5door(12)-F20": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "뉴에쿠스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "신형 스타렉스점보": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "투싼": {
+   "model_name": "투싼",
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "C CLASS COUPE(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "무쏘스포츠": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "도요다 툰두라": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "닷지 다코타": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "혼다 오딧세이": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "ES(18)-XV70": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "벤츠 SLK클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "닛산 맥시마": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "포드 MUSTANG": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "폭스바겐 비틀": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "C4 CACTUS(14)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "랜드로버 로버미니": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "Escalade": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "A CLASS(18)-W177": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "폭스바겐 아테온": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "X6(14)-F16": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "A3 5DOOR(12)-8V": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "COOPER CONVERTIBLE(16)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "포르쉐 마칸": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "COUNTRYMAN(17)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "포르쉐 파나메라": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 4
+  },
+  "씨트로엥": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "볼보 XC70": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "C4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "아우디 S5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "DS4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "로체 이노베이션": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "CHEROKEE(13)-KL": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "A7(10)-4G8": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "CAMRY(12)-XV50": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "뉴렉스턴": {
+   "model_name": "렉스턴",
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "볼보 V90": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "랜드로버 디스커버리": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "BMW 323i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "도요다": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "NEW BMW 525i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "XF(16)-X260": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "ATS COUPE(15)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "A3 3DOOR(12)-8V": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "벤츠 S350L": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "TIGUAN(11)-B7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "PASSAT(12)-B7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "신형 스타렉스6밴": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "뉴엑센트(4Dr)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "F-PACE(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "푸조": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "미찌비스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "랭글러 짚": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "닛산 쥬크": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "S CLASS(14)-W222": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "E CLASS COUPE(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "오피러스(06)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "스타리아 투어러(21)-US4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "닛산 큐브": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "CAMRY(15)-XV50": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "아반떼 하이브리드 LPi": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "MAXIMA(15)-A36": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "벤츠 S500L": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "SM5 (2.5)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "닛산 리프": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "BMW 530": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "벤츠 SLK200": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "7SERIES(15)-G11": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "닛산 캐시카이": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "아우디 SQ5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "포르쉐 카이맨": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "A6(15)-C7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "벤츠스프린터": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "볼보 XC60": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "Q50(14)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "벤츠 200": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "프라이드(4Dr)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "뉴프라이드4DR(05)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "BMW 520i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 3
+  },
+  "벤츠 G350": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "BMW 쿠퍼": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "콰트로포르테": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "포드 쿠커": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "아우디 A1": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "포르쉐 박스타": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "아우디 S8": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "1SERIES 3door(12)-F21": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "푸조 2008": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "EXPLORER(19)-6TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "7SERIES(15)-G12": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "GLC CLASS COUPE(17)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "ACCORD(18)-10TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "i30cw": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "XF(11)-X250": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "포드 링컨 LS": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "A6(11)-C7": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "7SERIES(08)-F02, F04": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "CAPTUR(20)-HJB": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "뉴프라이드5DR(05)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "ALTIMA(12)-L33": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "A4(15)-B9": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "알토라팡": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "라세티": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "아우디 S4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "벤츠 C230": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "TIGUAN(18)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "GLA CLASS(14)-X156": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "뉴카렌스(06)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "세피아레오": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "New EF 쏘나타": {
+   "model_name": "쏘나타",
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "NF 쏘나타": {
+   "model_name": "쏘나타",
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "TG그랜져": {
+   "model_name": "그랜저",
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "뉴엑센트(5Dr)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "PILOT(12)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "볼보 S80": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "3SERIES TOURING(12)-F31": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "재규어": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "MONDEO(14)-4TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "PRIUS(09)-XW30": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "UX(19)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "볼보 V60": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "DISCOVERY SPORT(14)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "DISCOVERY 5(17)-5TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "A3(12)-8V": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "CORVETTE": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "QX50(16)-J50": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "폭스바겐 페이톤": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "A CLASS(16)-W176": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "X3(17)-G01": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "A8 LWB(09)-D4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "X1(16)-F48": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "S60(11)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "GLE CLASS COUPE(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "LANDAU": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "COUNTRYMAN(11)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "A CLASS(13)-W176": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "MKS(12)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "B CLASS(12)-W246": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "포드 포커스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "BMW M5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "DBS": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "Rapide": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "벤츠GLC": {
+   "model_name": "GLC",
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "X5(13)-F15": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "랜드로버": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 2
+  },
+  "그렌져XG": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 B클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "WRANGER SPORT 4DOOR(18)-JL": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "X-TRAIL(13)-T32": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "500(13)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "GLC CLASS COUPE(20)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "E CLASS CABRIOLET(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "BMW Z4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "PRIUS C(18)-": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "ATS": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "뉴벤츠 S430L": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "쏘렌토": {
+   "model_name": "쏘렌토",
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "SM7 New Art": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "XJ(09)-X351": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "렉스턴": {
+   "model_name": "렉스턴",
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "3SERIES COUPE(05)-E92": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "GLE CLASS(20)-V167": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "XJ LWB(09)-X351": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "AMG GT 4DOOR(19)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "COMPASS(16)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "POLO(13)-5TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "RAM SRT(18)-5TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "ACCORD(15)-9TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CAMRY HYBRID(15)-7.5TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A CLASS SEDAN(20)-W177": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "5SERIES(13)-F10": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "SM5 뉴임프레션": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "NEW BMW 740iL": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "COOPER 3DOOR(01)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "SCIROCCO(12)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 GLE": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "NX(17)-AZ10": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "쏘나타 트랜스폼": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "BMW 330is": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 E420": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "도요다 아벨론": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "DISCOVERY SPORT(20)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A4(07)-B8": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "MKZ(12)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "GOLF(05)-MK5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "S80(06)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "Q5(17)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "COOPER COUPE(11)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "PRIUS(16)-XW50": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A3 5DOOR(03)-8P, 8P3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "3SERIES GT(13)-F34": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A6(18)-C8": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "ALTIMA(06)-L32": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "볼보 S70": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "액티언스포츠": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "5GT(10)-F07": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "TIGUAN(11)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "X3(14)-F25": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "베르나(4Dr)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "아웃백": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "KENBO600": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "트라제XG": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "로체": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "트라제XG(디젤)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 R클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "포드 MKC": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A8(10)-D4": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "200c": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "RAV4(13)-XA40": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CAYENNE(17)-9Y0": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "ARTEON(19)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "푸조207": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "닛산": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "JUKE(14)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "GHIBLI(13)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "MACAN(13)-95B": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CAYENNE(11)-958": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "Q7(16)-4M": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "S CLASS COUPE(18)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "500 C(13)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "6SERIES GT(17)-G32": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "스타리아 투어러(21)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "마이바흐": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "재규어 New XJ": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "MUSTANG(14)-6TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 ML320": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "BMW 530is": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "SLK CLASS(11)-R172": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "5SERIES TOURING(10)-F11": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CR-V(12)-4TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CHEROKEE(07)-KK": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CT(13)-ZWA10": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "FLYINGSPUR SPEED(13)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CANYON(14)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CUBE(11)-Z12": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "TIGUAN ALLSPACE(18)-2ND": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CAYMAN(05)-987": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A8 LWB(17)-D5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CLS CLASS SHOOTING BRAKE(13)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "4SERIES GRANCOUPE(20)-G26": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "X4(14)-F26": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "BMW 535i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "랜드로버 렌지로버": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "MKZ(12)-2ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A6(97)-C5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CLS CLASS(11)-W218": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "ESCAPE(12)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "E CLASS CABRIOLET(13)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "XJ(20)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "Q5(08)-8R": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "WRANGER SAHARA 4DOOR(07)-JK": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "Q3(11)-8U": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "뉴 체어맨": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "Q5(12)-8R": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "A8(02)-D3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "피아트 란시아카패": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "S3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 ML350": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "GM Jimmi 짚": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "Freelancer (LN)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "아우디 R8": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 컨버터블": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "뉴 베르나(05)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "SEBRING": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "DBS Volante": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "마쯔다 RX-5": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 SLK230": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "푸조407": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "혼다 파일럿": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "V8 Vantage": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "재규어 X-TYPE": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "혼다 S2000": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "포드 퓨전": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "BMW M3": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "볼보": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "BMW 318i": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 GLK클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "벤츠 CL클래스": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "도요다 86": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "GLE CLASS(16)-W166": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "HUSTLER(15)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "S90(16)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "포르쉐 911": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "THE BEETLE(12)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "CAYMAN(16)-982": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "FOCUS 5DOOR(10)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "ODYSSEY(17)-5TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "EVOQUE(11)-L538(1ST)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "RX(09)-AL20": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "EVOQUE convertible(11)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "3SERIES(19)-G20": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "C30(07)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "PILOT(16)-3RD": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "BMW Z시리즈": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "MAYBACH S CLASS(15)-X222": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "PANAMERA(09)-970": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "칼로스(4도어)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "V40(13)-1ST": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "뉴그랜져XG": {
+   "model_name": "그랜저",
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "K5 하이브리드": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "E CLASS COUPE(13)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "EQC(20)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "C CLASS(08)-W204": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "ROVER MINI": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "MUSTANG CONVERTIBLE(14)-6TH": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "스포티지": {
+   "model_name": "스포티지",
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "뉴아반떼XD 4Dr": {
+   "model_name": "아반떼",
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  },
+  "MODEL X(18)": {
+   "model_name": null,
+   "price_tier": null,
+   "price_index": null,
+   "n": 1
+  }
+ },
+ "model_price_tier": {
+  "아반떼": "P1",
+  "카니발": "P4",
+  "레이": "P2",
+  "코나": "P2",
+  "모닝": "P1",
+  "티볼리": "P2",
+  "투싼": "P3",
+  "스포티지": "P3",
+  "스파크": "P1",
+  "K3": "P3",
+  "그랜저": "P3",
+  "셀토스": "P3",
+  "쏘나타": "P3",
+  "쏘렌토": "P3",
+  "K5": "P3",
+  "싼타페": "P3",
+  "G80": "P4",
+  "니로": "P3",
+  "SM6": "P4",
+  "말리부": "P4",
+  "트랙스": "P3",
+  "QM3": "P4",
+  "QM6": "P4",
+  "팰리세이드": "P3",
+  "모하비": "P3",
+  "코란도": "P2",
+  "G70": "P3",
+  "K9": "P4",
+  "렉스턴": "P4",
+  "베뉴": "P1"
+ }
+}

@@ -58,7 +58,7 @@ class SearchService:
                             vector=vector, pipeline_version_id=self._pipeline_version_id,
                             damage_type=damage_type,
                             part_code=(str(part_code) if searchability == "STRICT" and part_code else None),
-                            car_class=request.vehicle.car_class, limit=self._top_k,
+                            model_id=request.vehicle.model_id, limit=self._top_k,
                         )
                         result = _result(detection, stage, hits)
                         if searchability == "STRICT" and part_code:
@@ -98,6 +98,10 @@ def _result(detection: Mapping[str, Any], stage: str, hits: list[SearchHit]) -> 
     }
 
 
+# Fallback stages ordered by how much they widen the candidate pool.
+_STAGE_WIDTH = {"MODEL": 0, "PRICE_TIER": 1, "ALL": 2}
+
+
 def _merge_strict(groups: dict[tuple[str, str], dict[str, Any]], result: dict[str, Any]) -> None:
     key = (str(result["partCode"]), str(result["damageType"]))
     current = groups.get(key)
@@ -109,9 +113,13 @@ def _merge_strict(groups: dict[tuple[str, str], dict[str, Any]], result: dict[st
     confidences = [value for value in (current.get("confidence"), result.get("confidence"))
                    if value is not None]
     current["confidence"] = max(confidences) if confidences else None
-    # More relaxed fallback wins: mixed CAR_CLASS/ALL results must not claim CAR_CLASS.
-    if result["fallbackStage"] == "ALL":
-        current["fallbackStage"] = "ALL"
+    # More relaxed fallback wins: a merged group must not claim a narrower stage
+    # than the widest one that actually contributed cases. Stages widen in the
+    # order MODEL -> PRICE_TIER -> ALL, so mixing MODEL and PRICE_TIER hits has
+    # to report PRICE_TIER — reporting MODEL would show "동일 차종 사례" for
+    # evidence that came from the whole price band.
+    if _STAGE_WIDTH[result["fallbackStage"]] > _STAGE_WIDTH[current["fallbackStage"]]:
+        current["fallbackStage"] = result["fallbackStage"]
     by_case = {case["caseId"]: case for case in current["cases"]}
     for case in result["cases"]:
         if case["caseId"] not in by_case or case["similarity"] > by_case[case["caseId"]]["similarity"]:

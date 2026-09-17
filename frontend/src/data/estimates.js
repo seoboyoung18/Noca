@@ -40,8 +40,18 @@ export function formatDateTime(iso, compact = false) {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-/** 산정 근거 완화 단계 → 문구. MODEL(동일 차량명) · CAR_CLASS(동일 차급) · ALL(전체 사례) */
-export const FALLBACK_LABEL = { MODEL: '동일 차량명 사례 기준', CAR_CLASS: '동일 차급 사례 기준', ALL: '전체 사례 기준' }
+/**
+ * 산정 근거 완화 단계 → 문구. MODEL(동일 차량명) · PRICE_TIER(비슷한 가격대) · ALL(전체 사례).
+ *
+ * CAR_CLASS 는 지우지 않는다. 2026-09-17 이전에 저장된 견적의 근거에 그 값이 남아 있어,
+ * 빼면 옛 견적을 열었을 때 근거 문구가 빈칸이 된다. 새로 만들어지지는 않는다.
+ */
+export const FALLBACK_LABEL = {
+  MODEL: '동일 차량명 사례 기준',
+  PRICE_TIER: '비슷한 가격대 사례 기준',
+  CAR_CLASS: '동일 차급 사례 기준',
+  ALL: '전체 사례 기준',
+}
 export const fallbackLabel = (stage) => FALLBACK_LABEL[stage] || ''
 
 /* ----- 좌표 환산 ----- */

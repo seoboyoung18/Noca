@@ -43,8 +43,30 @@ class VectorRepository:
             return False
 
     def search(self, *, vector: Sequence[float], pipeline_version_id: int,
-               damage_type: str, part_code: str | None, car_class: str | None,
-               limit: int) -> tuple[str, list[SearchHit]]:
+               damage_type: str, part_code: str | None,
+               limit: int, model_id: int | None = None) -> tuple[str, list[SearchHit]]:
+        """Search similar ROIs, relaxing the vehicle scope only when a stage returns nothing.
+
+        Stages are MODEL -> PRICE_TIER -> ALL.
+
+        car_class is deliberately not in this ladder. It is a size and displacement
+        class, not a cost class -- measured on the estimate corpus the Compact /
+        Mid-size / Full-size cost indices are 1.01 / 0.99 / 1.05 and their ranges
+        overlap completely, so "same car_class" bought almost no cost similarity.
+        price_tier is a quartile of that measured index, so a tier is by construction
+        a band of comparable repair cost. See Docs/Erd/A307_VEHICLE_AXIS.md.
+
+        The requester's tier is looked up here from vehicle_model instead of being
+        taken from the request. The backend contract still sends carClass and knows
+        nothing about tiers, and which tier a model sits in is our measurement, not
+        the caller's input.
+
+        Both narrowing stages depend on repair_case.model_id and price_tier being
+        backfilled. Until then they return nothing and every search falls through to
+        ALL, which is worse than today's car_class filter -- deploy this after the
+        backfill, not before. See pipeline/jobs/ingestion/backfill_vehicle_model.py
+        and pipeline/sql/012,013.
+        """
         if not self._dsn:
             raise VectorSearchError("DATABASE_URL is not configured")
         try:
@@ -63,13 +85,18 @@ class VectorRepository:
                     model = cursor.fetchone()
                     if not model or int(model["dimension"]) != 768:
                         raise VectorSearchError("active DINOv2 embedding model is unavailable or incompatible")
-                    filters = [("CAR_CLASS", car_class)] if car_class else []
-                    filters.append(("ALL", None))
-                    for stage, selected_class in filters:
+                    price_tier = self._price_tier(cursor, model_id)
+                    stages: list[tuple[str, dict[str, int | str | None]]] = []
+                    if model_id is not None:
+                        stages.append(("MODEL", {"model_id": model_id, "price_tier": None}))
+                    if price_tier:
+                        stages.append(("PRICE_TIER", {"model_id": None, "price_tier": price_tier}))
+                    stages.append(("ALL", {"model_id": None, "price_tier": None}))
+                    for stage, scope in stages:
                         hits = self._query(
                             cursor, vector=vector_literal(vector), model_version_id=int(model["model_version_id"]),
                             pipeline_version_id=pipeline_version_id, damage_type=damage_type,
-                            part_code=part_code, car_class=selected_class, limit=limit,
+                            part_code=part_code, limit=limit, **scope,
                         )
                         if hits:
                             return stage, hits
@@ -80,9 +107,23 @@ class VectorRepository:
             raise VectorSearchError("pgvector search failed") from exc
 
     @staticmethod
+    def _price_tier(cursor, model_id: int | None) -> str | None:
+        """The requested vehicle's cost band, or None when we have not measured it.
+
+        A missing tier skips the PRICE_TIER stage rather than guessing one: an
+        unmeasured model is not evidence that it is mid-priced.
+        """
+        if model_id is None:
+            return None
+        cursor.execute(
+            "SELECT price_tier FROM vehicle_model WHERE model_id = %s", (model_id,))
+        row = cursor.fetchone()
+        return row["price_tier"] if row else None
+
+    @staticmethod
     def _query(cursor, *, vector: str, model_version_id: int, pipeline_version_id: int,
-               damage_type: str, part_code: str | None, car_class: str | None,
-               limit: int) -> list[SearchHit]:
+               damage_type: str, part_code: str | None, price_tier: str | None,
+               limit: int, model_id: int | None = None) -> list[SearchHit]:
         predicates = [
             "f.is_searchable",
             "f.pipeline_version_id = %(pipeline_version_id)s",
@@ -96,9 +137,14 @@ class VectorRepository:
         if part_code is not None:
             predicates.append("f.part_code = %(part_code)s")
             params["part_code"] = part_code
-        if car_class is not None:
-            predicates.append("c.car_class = %(car_class)s")
-            params["car_class"] = car_class
+        if model_id is not None:
+            # ix_rc_model is a partial index, so NULL model_id rows are skipped outright
+            predicates.append("c.model_id = %(model_id)s")
+            params["model_id"] = model_id
+        if price_tier is not None:
+            # ix_rc_tier is a partial index, so NULL price_tier rows are skipped outright
+            predicates.append("c.price_tier = %(price_tier)s")
+            params["price_tier"] = price_tier
         where = " AND ".join(predicates)
         cursor.execute(f"""
             WITH candidate AS (
