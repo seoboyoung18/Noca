@@ -293,6 +293,46 @@ class RealAnalysisPathTest(unittest.IsolatedAsyncioTestCase):
         # 연도는 검색 결과에만 있다. 산정에 쓰인 사례로 범위를 잇는다.
         self.assertEqual((payload["refYearFrom"], payload["refYearTo"]), (2021, 2023))
 
+    async def test_run_relaxes_car_class_when_class_result_lacks_cost_cases(self):
+        image_results = self._damaged_image()
+        class_search = {
+            "parts": [{"partCode": "REAR_BUMPER", "damageType": "Scratched",
+                       "searchability": "STRICT", "fallbackStage": "CAR_CLASS",
+                       "referencedCaseIds": [1, 2]}],
+            "vectorOnly": [],
+        }
+        all_search = {
+            "parts": [{"partCode": "REAR_BUMPER", "damageType": "Scratched",
+                       "searchability": "STRICT", "fallbackStage": "ALL",
+                       "referencedCaseIds": [10, 11, 12], "cases": []}],
+            "vectorOnly": [],
+        }
+        insufficient = {
+            "estimable": False, "nonEstimableReason": "INSUFFICIENT_CASES",
+            "confidenceGrade": None, "totals": None, "refCaseTotal": 0,
+            "items": [], "unresolvedParts": [],
+        }
+        resolved = {
+            "estimable": True, "nonEstimableReason": None, "confidenceGrade": "LOW",
+            "totals": {"min": 10, "median": 20, "max": 30}, "refCaseTotal": 3,
+            "items": [], "unresolvedParts": [],
+        }
+        search = SimpleNamespace(search=AsyncMock(side_effect=[class_search, all_search]))
+        estimates = iter([insufficient, resolved])
+        estimate = SimpleNamespace(calculate=lambda request: next(estimates))
+        service = self._service(
+            inference=self._inference(image_results), search=search, estimate=estimate,
+        )
+
+        await service.run(_request())
+
+        self.assertEqual(search.search.await_count, 2)
+        self.assertEqual(search.search.await_args_list[0].args[0].vehicle.car_class, "Compact")
+        self.assertIsNone(search.search.await_args_list[1].args[0].vehicle.car_class)
+        _, _, payload = service._deliver_callback.await_args.args
+        self.assertTrue(payload["estimable"])
+        self.assertEqual(payload["totals"], resolved["totals"])
+
     async def test_run_skips_search_when_every_image_is_excluded(self):
         image_results = [{"imageId": 501, "excluded": True,
                           "exclusionReason": "NOT_VEHICLE", "detections": []}]

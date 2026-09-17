@@ -5,8 +5,9 @@ revisited without touching calculation logic.
 """
 from __future__ import annotations
 
-# 문서 §6 권장값(3건). 표본 크기 재검토 후 조정 예정.
-MIN_CASE_COUNT = 3
+# 현재 corpus에서 비용 정책을 통과한 두 사례로도 견적을 산정한다.
+# confidenceGrade는 표본 수에 따라 LOW로 남겨, 낮은 표본 신뢰도를 결과에 드러낸다.
+MIN_CASE_COUNT = 2
 
 # confidenceGrade — 탐지 신뢰도 등급 임계값.
 CONFIDENCE_HIGH_THRESHOLD = 0.85
