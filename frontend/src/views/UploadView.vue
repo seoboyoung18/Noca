@@ -20,7 +20,7 @@ import { RETRY_SAME_IMAGE, imageFailText, imageThumb, qualityWarnText, validateA
  *  - 이어서 진행: 사고 이력에서 ?accidentId= 로. 서버에 사진이 있으면 최신 1장을 미리보기로 보이고, 다시 선택하면 기존 사진을 지운다
  * 업로드는 3단계(발급 → S3 PUT → 완료 통보). 진행률·대기·실패 상태는 서버가 저장하지 않으므로 FE 상태다.
  * 저장소 미구성(503)은 장애가 아니라 "준비 중" 으로 그린다 — 버킷이 들어오면 계약 변경 없이 그 분기만 지나가지 않는다.
- * (Docs/Api/이미지 업로드 API — FE 인수인계.md §0·§1·§2-3·§3·§4)
+ * (Docs/Handover/이미지 업로드 API — FE 인수인계.md §0·§1·§2-3·§3·§4)
  */
 const route = useRoute()
 const router = useRouter()
