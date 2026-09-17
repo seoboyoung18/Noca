@@ -1,7 +1,7 @@
 import { damageTypeLabel } from './estimates'
 
 // 사고 이력 표시 규칙 — 서버는 코드·시각·원 단위 금액만 주고 한글 라벨·그룹·포맷은 FE 몫이다.
-// (Docs/Api/김재원 담당 백엔드 API — FE 인수인계.md §5-3, backend AccidentHistoryStatus)
+// (Docs/Handover/김재원 담당 백엔드 API — FE 인수인계.md §5-3, backend AccidentHistoryStatus)
 
 /** 목록 status(유도값) → 배지. 우선순위는 서버가 정해 내려보낸다 (실패 > 분석 중 > 견적 완료 > 사진 등록 > 접수) */
 export const ACCIDENT_STATUS = {

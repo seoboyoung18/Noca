@@ -33,15 +33,15 @@
 
 | 기능 | 정본 상세 계약 | 이 문서의 해당 절 |
 | --- | --- | --- |
-| 차량·차량 모델 | `Docs/Api/차량 API — FE 인수인계.md` | §5-1 |
-| 체크리스트·촬영 가이드 | `Docs/Api/가이드 API — FE 인수인계.md` | §5-2 |
-| 사고 접수·이력·상세 | `Docs/Api/사고 조회 API — FE 인수인계.md` ⚠️ **낡음** | §5-3 |
-| 이미지 업로드·조회 | `Docs/Api/이미지 업로드 API — FE 인수인계.md` | §6 |
-| 견적서 검증·질문·PDF·실제 수리비 | `Docs/Api/견적서 검증 API — FE 인수인계.md` | §5-4 |
-| 관리자 마스터·규칙 | `Docs/Api/관리자 마스터·규칙 관리 API — FE 인수인계.md` | §9 |
-| 관리자 화면 Vue 코드 | `Docs/Api/관리자 마스터·규칙 관리 — Vue 연동 예제.md` | §11 |
-| 주소·좌표·장소 검색 | `Docs/Api/위치 API (주소·좌표·장소 검색) — FE 인수인계.md` | §10 |
-| 주변 정비소 | `Docs/Api/정비소 검색 API — FE 인수인계.md` | §10 |
+| 차량·차량 모델 | `Docs/Handover/차량 API — FE 인수인계.md` | §5-1 |
+| 체크리스트·촬영 가이드 | `Docs/Handover/가이드 API — FE 인수인계.md` | §5-2 |
+| 사고 접수·이력·상세 | `Docs/Handover/사고 조회 API — FE 인수인계.md` ⚠️ **낡음** | §5-3 |
+| 이미지 업로드·조회 | `Docs/Handover/이미지 업로드 API — FE 인수인계.md` | §6 |
+| 견적서 검증·질문·PDF·실제 수리비 | `Docs/Handover/견적서 검증 API — FE 인수인계.md` | §5-4 |
+| 관리자 마스터·규칙 | `Docs/Handover/관리자 마스터·규칙 관리 API — FE 인수인계.md` | §9 |
+| 관리자 화면 Vue 코드 | `Docs/Handover/관리자 마스터·규칙 관리 — Vue 연동 예제.md` | §11 |
+| 주소·좌표·장소 검색 | `Docs/Handover/위치 API (주소·좌표·장소 검색) — FE 인수인계.md` | §10 |
+| 주변 정비소 | `Docs/Handover/정비소 검색 API — FE 인수인계.md` | §10 |
 
 **기존 문서에 없어서 이 문서에 전체 계약을 적은 것은 셋뿐입니다.**
 
@@ -310,7 +310,7 @@ export const api = axios.create({
 
 ### 5-1. 차량·차량 모델 — 5개
 
-상세 계약: `Docs/Api/차량 API — FE 인수인계.md`
+상세 계약: `Docs/Handover/차량 API — FE 인수인계.md`
 
 | 메서드·경로 | 성공 | 한 줄 설명 |
 | --- | --- | --- |
@@ -331,7 +331,7 @@ export const api = axios.create({
 
 ### 5-2. 사고 현장 가이드 — 2개 (비인증)
 
-상세 계약: `Docs/Api/가이드 API — FE 인수인계.md`
+상세 계약: `Docs/Handover/가이드 API — FE 인수인계.md`
 
 | 메서드·경로 | 성공 | 한 줄 설명 |
 | --- | --- | --- |
@@ -355,7 +355,7 @@ shooting   { recommendedCount, overlaySets: [ { vehicleType, overlaySet } ],
 
 ### 5-3. 사고 접수·이력 — 5개
 
-상세 계약: `Docs/Api/사고 조회 API — FE 인수인계.md` ⚠️ **목록 전용 8필드와 진행 상태 API 가 빠져 있습니다. 아래를 정본으로 쓰세요.**
+상세 계약: `Docs/Handover/사고 조회 API — FE 인수인계.md` ⚠️ **목록 전용 8필드와 진행 상태 API 가 빠져 있습니다. 아래를 정본으로 쓰세요.**
 
 | 메서드·경로 | 성공 | 한 줄 설명 |
 | --- | --- | --- |
@@ -532,7 +532,7 @@ export async function recordActualCost(accidentId, payload) {
 
 ### 5-4. 견적서 검증 — 9개
 
-상세 계약: `Docs/Api/견적서 검증 API — FE 인수인계.md`
+상세 계약: `Docs/Handover/견적서 검증 API — FE 인수인계.md`
 
 | 메서드·경로 | 성공 | 한 줄 설명 |
 | --- | --- | --- |
@@ -563,7 +563,7 @@ export async function recordActualCost(accidentId, payload) {
 
 ## 6. 파일 업로드·다운로드
 
-상세 계약: `Docs/Api/이미지 업로드 API — FE 인수인계.md`
+상세 계약: `Docs/Handover/이미지 업로드 API — FE 인수인계.md`
 
 ### 6-1. 사고 이미지 — 3단계
 
@@ -809,8 +809,8 @@ onUnmounted(stopPolling)   // 이걸 빠뜨리면 화면을 떠나도 요청이 
 
 ## 9. 관리자 기능
 
-상세 계약: `Docs/Api/관리자 마스터·규칙 관리 API — FE 인수인계.md`
-Vue 화면 코드: `Docs/Api/관리자 마스터·규칙 관리 — Vue 연동 예제.md`
+상세 계약: `Docs/Handover/관리자 마스터·규칙 관리 API — FE 인수인계.md`
+Vue 화면 코드: `Docs/Handover/관리자 마스터·규칙 관리 — Vue 연동 예제.md`
 
 **전부 `ROLE_ADMIN` 입니다.** `ROLE_USER` 가 부르면 403 `FORBIDDEN`.
 
@@ -1010,7 +1010,7 @@ export async function getRuleHistory(params = {}) {
 
 ## 10. 위치·정비소·외부 API 연동
 
-상세 계약: `Docs/Api/위치 API (주소·좌표·장소 검색) — FE 인수인계.md` · `Docs/Api/정비소 검색 API — FE 인수인계.md`
+상세 계약: `Docs/Handover/위치 API (주소·좌표·장소 검색) — FE 인수인계.md` · `Docs/Handover/정비소 검색 API — FE 인수인계.md`
 
 | 메서드·경로 | 한 줄 설명 |
 | --- | --- |
@@ -1142,7 +1142,7 @@ onUnmounted(() => {
 ## 11. Vue JavaScript API 모듈
 
 **모든 예제는 순수 JavaScript 입니다.** TypeScript 를 쓰지 않습니다.
-관리자 화면 코드는 `Docs/Api/관리자 마스터·규칙 관리 — Vue 연동 예제.md` 가 정본이고, 아래는 이 문서가 다루는 전 영역의 공통 골격입니다.
+관리자 화면 코드는 `Docs/Handover/관리자 마스터·규칙 관리 — Vue 연동 예제.md` 가 정본이고, 아래는 이 문서가 다루는 전 영역의 공통 골격입니다.
 
 ### 11-1. `src/api/http.js`
 

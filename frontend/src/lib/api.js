@@ -1,7 +1,7 @@
 // 백엔드 API 공통 클라이언트.
 // 인증은 소셜 로그인 + 서버 세션이다 — 토큰이 없고 SESSION(HttpOnly) 쿠키 하나로 인증된다.
 // withCredentials 가 없으면 브라우저가 쿠키를 싣지 않아 보호 API 가 전부 401 이 된다.
-// (Docs/Api/김재원 담당 백엔드 API — FE 인수인계.md §4, backend SecurityConfig)
+// (Docs/Handover/김재원 담당 백엔드 API — FE 인수인계.md §4, backend SecurityConfig)
 import axios from 'axios'
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080').replace(/\/$/, '')
