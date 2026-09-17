@@ -91,7 +91,8 @@ public final class BasisNarrative {
         }
         return switch (stage) {
             case MODEL -> "동일 모델";
-            case CAR_CLASS -> "동일 차급";
+            case PRICE_TIER -> "비슷한 가격대";
+            case CAR_CLASS -> "동일 차급";   // 옛 행. FallbackStage 주석 참고
             case ALL -> "전체";
         };
     }

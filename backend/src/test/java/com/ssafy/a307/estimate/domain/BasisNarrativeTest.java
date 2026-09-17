@@ -35,6 +35,7 @@ class BasisNarrativeTest {
     @DisplayName("조건을 넓힌 단계가 문장에 드러난다")
     void scopeIsVisible() {
         assertThat(narrativeWith(FallbackStage.MODEL)).contains("동일 모델");
+        assertThat(narrativeWith(FallbackStage.PRICE_TIER)).contains("비슷한 가격대");
         assertThat(narrativeWith(FallbackStage.CAR_CLASS)).contains("동일 차급");
         assertThat(narrativeWith(FallbackStage.ALL)).contains("전체");
     }

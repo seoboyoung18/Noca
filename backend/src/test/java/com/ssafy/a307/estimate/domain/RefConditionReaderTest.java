@@ -27,7 +27,7 @@ class RefConditionReaderTest {
     @DisplayName("쓴 근거가 그대로 읽힌다")
     void roundTrips() {
         RefCondition written = new RefCondition(
-                FallbackStage.CAR_CLASS,
+                FallbackStage.PRICE_TIER,
                 new RefCondition.CostDistribution(74_000, 92_000, 118_000),
                 2023, 2025,
                 new RefCondition.RepairMethodReason(List.of("sheet_metal", "exchange"), "MAJORITY"),
