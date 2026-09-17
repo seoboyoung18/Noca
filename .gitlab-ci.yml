@@ -21,7 +21,15 @@
 #     docker run -d --name a307-backend --network a307-net \
 #       -p 127.0.0.1:8080:8080 -p 172.26.8.28:8080:8080 \
 #       --env-file /etc/a307/backend.env \
+#       -e GMS_PROVIDER=OPENAI -e GMS_MODEL=gpt-5.4 -e GMS_OPENAI_API=chat \
+#       -e REPAIR_CHECKLIST_WORKER_ENABLED=true -e REPAIR_QUESTION_WORKER_ENABLED=true \
 #       --restart unless-stopped a307-backend:<이전 SHA>
+#
+# ── LLM 설정 ──────────────────────────────────────────────────
+#   GMS_KEY 만 비밀이라 /etc/a307/backend.env 에 둔다. 모델·호출 형식·워커 on/off 는
+#   비밀이 아니라 위 docker run 에 -e 로 박아 리뷰 가능하게 둔다.
+#   backend.env 에는 이 다섯 이름을 적지 않는다 — 두 곳에 같은 이름이 있으면 어느 값이
+#   쓰이는지 헷갈린다. 값을 바꿀 때는 여기만 고친다.
 
 stages:
   - guard
@@ -162,6 +170,11 @@ deploy:
         -p 127.0.0.1:8080:8080 \
         -p "$PRIVATE_IP":8080:8080 \
         --env-file /etc/a307/backend.env \
+        -e GMS_PROVIDER=OPENAI \
+        -e GMS_MODEL=gpt-5.4 \
+        -e GMS_OPENAI_API=chat \
+        -e REPAIR_CHECKLIST_WORKER_ENABLED=true \
+        -e REPAIR_QUESTION_WORKER_ENABLED=true \
         --restart unless-stopped \
         "$IMAGE:$CI_COMMIT_SHORT_SHA"
 
