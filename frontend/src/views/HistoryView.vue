@@ -7,12 +7,17 @@ import Toast from '../components/Toast.vue'
 import { useAccidentStore } from '../stores/accidents'
 import { useEstimatePdf } from '../lib/estimatePdf'
 import { vehicleName } from '../data/vehicles'
-import { accidentCost, accidentDate, accidentRoute, accidentStatus, groupAccidents } from '../data/accidents'
+import { AUTH_GUARD_OFF } from '../router'
+import { fetchEstimate } from '../lib/api'
+import { accidentRoute, accidentStageText, accidentStatus, damageSummaryText, groupAccidents } from '../data/accidents'
 
 /* ===== 사고 이력 (S12d) — GET /api/accidents/me =====
  * 서버가 createdAt 내림차순 페이지로 주고, 그룹("이번 주"·"8월")·한글 배지·금액 포맷은 FE 가 만든다.
  * 썸네일은 10분짜리 서명 URL 이라 화면에 들어올 때마다 목록을 새로 받는다.
  * 삭제(편집 모드)는 서버에 사고 삭제 API 가 없어 두지 않는다 — 사고는 견적·PDF 의 근거라 보존된다.
+ * 행 구성(S15P21A307-531): 사고마다 카드 하나 — 썸네일 | 차량명·사고 설명·상태 배지 | 오른쪽 세로 중앙에 PDF 버튼.
+ * 예상 금액·사진 장수·접수일은 행에서 뺐다(금액은 견적 화면·홈 카드에서, 날짜는 그룹 라벨로).
+ * 사고 설명은 목록 API 에 없어 견적이 있는 행만 GET /api/estimates/{id} 로 항목을 받아 조립한다(행당 1회, 화면 밖 캐시).
  */
 const router = useRouter()
 const store = useAccidentStore()
@@ -22,6 +27,26 @@ const broken = reactive({}) // 만료·404 로 깨진 썸네일 accidentId → �
 onMounted(() => store.load(true))
 
 function open(a) { router.push(accidentRoute(a)) }
+
+/* ===== 사고 설명 — 견적 항목의 부위·손상 유형으로 조립 =====
+ * 견적은 확정 뒤 바뀌지 않으므로 estimateId 별로 모듈 캐시에 둔다. 실패한 행은 단계 문구로 대신한다.
+ */
+const descCache = new Map() // estimateId → 문구
+const desc = reactive({}) // accidentId → 문구
+const MOCK_DESC = { 1: '프론트 범퍼, 헤드램프(좌) 외 2곳 파손' } // 가드 off 목업(견적 1)
+async function loadDesc(a) {
+  if (!a.estimateId) { desc[a.accidentId] = accidentStageText(a.status); return }
+  if (descCache.has(a.estimateId)) { desc[a.accidentId] = descCache.get(a.estimateId); return }
+  desc[a.accidentId] = '손상 정보 불러오는 중…'
+  let text = ''
+  try {
+    text = AUTH_GUARD_OFF ? (MOCK_DESC[a.estimateId] || '') : damageSummaryText((await fetchEstimate(a.estimateId)).items)
+  } catch { text = '' }
+  text = text || accidentStageText(a.status)
+  descCache.set(a.estimateId, text)
+  desc[a.accidentId] = text
+}
+watch(() => store.items, (items) => { for (const a of items) if (!(a.accidentId in desc)) loadDesc(a) }, { immediate: true })
 
 /* ===== PDF 파일 받기 — 견적 id 기준 (요청 → 생성 대기 → 302 다운로드) =====
  * 판정은 estimateId !== null 하나(§5-3). null 이면 받을 PDF 가 없다는 뜻이라 버튼을 끈다.
@@ -67,27 +92,21 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
       </div>
       <template v-for="g in groups" :key="g.label">
         <div class="lbl" style="margin-top:16px">{{ g.label }}</div>
-        <div class="card" style="margin-top:8px;padding:0 12px">
-          <div v-for="a in g.items" :key="a.accidentId" class="item clickable" role="link" tabindex="0" @click="open(a)" @keydown.enter="open(a)">
-            <!-- 썸네일: 서명 URL 이 없거나(사진 없음·전처리 전) 깨지면 자리표시 -->
-            <span class="th">
-              <img v-if="a.thumbnailUrl && !broken[a.accidentId]" :src="a.thumbnailUrl" alt="" @error="broken[a.accidentId] = true">
-              <svg v-else width="44" height="24" viewBox="0 0 52 28" fill="none" aria-hidden="true"><path d="M4 22V14l8-8h20l12 8v8z" fill="#B0B8C1"/></svg>
-            </span>
-            <span class="flex1" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0">
-              <span class="nowrap" style="font-size:16px;font-weight:700">{{ vehicleName(a) }}</span>
-              <span class="row" style="gap:6px">
-                <span class="sub nowrap" style="font-size:12px">{{ accidentDate(a.createdAt) }}</span>
-                <span class="tag md" :class="accidentStatus(a.status).cls">{{ accidentStatus(a.status).text }}</span>
-              </span>
-              <!-- 셋째 줄: 견적이 있으면 금액, 없으면 올린 사진 장수. estimatedCost* 가 null 이면 "0원" 으로 그리지 않는다 -->
-              <span v-if="accidentCost(a)" class="cost">예상 {{ accidentCost(a) }}</span>
-              <span v-else-if="a.imageCount" class="sub" style="font-size:12px">사진 {{ a.imageCount }}장</span>
-            </span>
-            <button class="pdf" :disabled="!a.estimateId || pdfBusyId !== null" :aria-busy="pdfBusyFor(a)" @click.stop="pdf(a)">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ pdfLabel(a) }}
-            </button>
-          </div>
+        <div v-for="a in g.items" :key="a.accidentId" class="card item clickable" role="link" tabindex="0" @click="open(a)" @keydown.enter="open(a)">
+          <!-- 썸네일: 서명 URL 이 없거나(사진 없음·전처리 전) 깨지면 자리표시 -->
+          <span class="th">
+            <img v-if="a.thumbnailUrl && !broken[a.accidentId]" :src="a.thumbnailUrl" alt="" @error="broken[a.accidentId] = true">
+            <svg v-else width="44" height="24" viewBox="0 0 52 28" fill="none" aria-hidden="true"><path d="M4 22V14l8-8h20l12 8v8z" fill="#B0B8C1"/></svg>
+          </span>
+          <span class="flex1" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0">
+            <span class="nowrap" style="font-size:16px;font-weight:700">{{ vehicleName(a) }}</span>
+            <span class="sub" style="font-size:13px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ desc[a.accidentId] || accidentStageText(a.status) }}</span>
+            <span class="tag md" :class="accidentStatus(a.status).cls">{{ accidentStatus(a.status).text }}</span>
+          </span>
+          <!-- 견적이 없는 행도 같은 자리에 비활성 버튼을 둬 행마다 배치가 같게 -->
+          <button class="pdf" :disabled="!a.estimateId || pdfBusyId !== null" :aria-busy="pdfBusyFor(a)" @click.stop="pdf(a)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ pdfLabel(a) }}
+          </button>
         </div>
       </template>
 
@@ -114,12 +133,10 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
 </template>
 
 <style scoped>
-.item { padding: 16px 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
-.item:last-child { border-bottom: 0; }
+.item { margin-top: 8px; padding: 14px; display: flex; align-items: center; gap: 14px; }
 .item.clickable { cursor: pointer; }
-.th { flex: 0 0 60px; width: 60px; height: 48px; border-radius: 10px; background: var(--text-3); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.th { flex: 0 0 76px; width: 76px; height: 76px; border-radius: 12px; background: var(--text-3); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .th img { width: 100%; height: 100%; object-fit: cover; }
-.cost { font-size: 13px; font-weight: 600; color: var(--primary); }
 .pdf { flex: 0 0 auto; height: 40px; padding: 0 10px; white-space: nowrap; border: 1px solid var(--primary-200); border-radius: 10px; background: var(--primary-50); font-size: 13px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 5px; }
 .pdf:hover { background: var(--primary-100); }
 .pdf:disabled { border-color: var(--line); background: var(--bg-2); color: var(--text-4); }
