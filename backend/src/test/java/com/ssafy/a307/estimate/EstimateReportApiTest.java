@@ -31,12 +31,15 @@ import java.net.Socket;
 import java.net.URI;
 import java.time.Instant;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -123,6 +126,28 @@ class EstimateReportApiTest {
                 .andExpect(jsonPath("$.data.basis.items.length()").value(1))
                 .andExpect(jsonPath("$.data.legalNotice").value(EstimateValidationService.LEGAL_NOTICE))
                 .andExpect(jsonPath("$.data.generatedAt").exists());
+    }
+
+    /**
+     * 리포트·견적 PDF 에 체크리스트를 싣지 않기로 했으므로(S15P21A307-532) 체크리스트 안내 고지도
+     * 싣지 않는다(S15P21A307-533). 활성 문구를 일부러 심어 둔다 — 문구가 없으면 예전 코드도
+     * {@code null} 을 내보내 이 테스트가 차이를 가리지 못한다.
+     */
+    @Test
+    @DisplayName("체크리스트 안내 고지는 리포트에 싣지 않는다 — 활성 문구가 있어도")
+    void guidanceNoticeIsNotInReport() throws Exception {
+        String guidance = "본 체크리스트와 질문은 리포트 테스트용 안내 문구입니다";
+        jdbcTemplate.update("""
+                insert into estimate_notice (code, message, display_order, is_active)
+                values ('GUIDANCE_LIMIT_NOTICE', ?, 90, true)
+                on conflict (code) do update set message = excluded.message, is_active = true
+                """, guidance);
+        Fixture f = estimatedFixture(memberId);
+
+        mockMvc.perform(get("/api/estimates/{id}/report", f.estimateId()).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.guidanceNotice").doesNotExist())
+                .andExpect(content().string(not(containsString(guidance))));
     }
 
     /**

@@ -39,7 +39,8 @@ public class EstimateNoticeProvider {
     public static final String LEGAL_NOTICE_CODE = "LEGAL_NOTICE";
 
     /**
-     * 안내 한계 고지 (S15P21A307-487). 체크리스트·질문 화면 상단과 리포트가 쓴다.
+     * 안내 한계 고지 (S15P21A307-487). 체크리스트·질문 화면 상단이 쓴다. 리포트에는 싣지 않는다
+     * (S15P21A307-533).
      *
      * <p><b>왜 이 테이블에 있나.</b> {@code estimate_notice} 는 구조가 범용
      * ({@code code}·{@code message}·{@code display_order}·{@code is_active})이라 그대로 담기고,
@@ -80,10 +81,11 @@ public class EstimateNoticeProvider {
     }
 
     /**
-     * 체크리스트·질문 화면과 리포트가 쓰는 안내 한계 고지 (S15P21A307-487 · -488).
+     * 체크리스트·질문 화면이 쓰는 안내 한계 고지 (S15P21A307-487). 리포트에는 싣지 않는다
+     * (S15P21A307-533).
      *
      * <p><b>없어도 예외를 던지지 않는다.</b> 시드가 빠진 환경에서 이 문구 하나 때문에 체크리스트
-     * 조회나 리포트 전체가 죽으면 안 된다 — {@code LEGAL_NOTICE} 는
+     * 조회 전체가 죽으면 안 된다 — {@code LEGAL_NOTICE} 는
      * {@code EstimateReportService.requireSections()} 가 필수로 막고 있지만, 그 강도를 여기에
      * 그대로 옮기면 2026-09-14 에 났던 "시드가 없어 리포트 전체가 500" 이 한 번 더 난다.
      *
