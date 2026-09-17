@@ -6,7 +6,9 @@ from pathlib import Path
 from pipeline.jobs.ingestion.load_search_data import (
     SEARCH_LABEL_DIRS,
     build_label_index,
+    case_vehicle_fields,
     class_from_labels,
+    load_model_index,
     direct_damage_part_annotations,
     filter_search_labels,
     image_metadata_for_label,
@@ -14,6 +16,7 @@ from pipeline.jobs.ingestion.load_search_data import (
     load_damage_part_documents,
     upsert_damage_features,
     upsert_estimate_items,
+    source_image_for_label,
 )
 from pipeline.standardization.storage_keys import repair_case_image_key
 
@@ -115,6 +118,34 @@ class SearchDataLoaderTest(unittest.TestCase):
             image_metadata_for_label(Path("1.Training/2.라벨링데이터/TL_damage/damage/x_as-0000001.json")),
             ("DAMAGE", "TRAIN"),
         )
+
+    def test_source_image_for_label_maps_subset_copy_to_dataset_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subset_root = root / "estimate_subset"
+            dataset_root = root / "full_dataset"
+            label = subset_root / (
+                "1.Training/2.라벨링데이터/TL_damage_part/damage_part/"
+                "fixture_as-0000001.json"
+            )
+            label.parent.mkdir(parents=True)
+            label.write_text("{}", encoding="utf-8")
+            image = dataset_root / (
+                "1.Training/1.원천데이터/TS_damage_part/damage_part/"
+                "fixture_as-0000001.jpg"
+            )
+            image.parent.mkdir(parents=True)
+            image.write_bytes(b"jpg")
+
+            resolved, source_ref = source_image_for_label(
+                label, dataset_root, subset_root
+            )
+
+            self.assertEqual(resolved, image.resolve())
+            self.assertEqual(
+                source_ref,
+                "1.Training/1.원천데이터/TS_damage_part/damage_part/fixture_as-0000001.jpg",
+            )
 
     def test_estimate_items_use_case_scoped_idempotency_key(self):
         cursor = self.Cursor()
@@ -242,6 +273,66 @@ class SearchDataLoaderTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pipeline_version_id"):
             upsert_damage_features(cursor, 7, [], Path("."), None)
         self.assertEqual(cursor.calls, [])
+
+
+class CaseVehicleFieldsTest(unittest.TestCase):
+    """견적서 차량정보 → repair_case 차량 컬럼.
+
+    이 매핑이 틀리면 검색이 조용히 나빠진다. model_id 가 비면 MODEL 완화 단계가
+    항상 0건을 반환해 전체 검색으로 떨어지는데, 오류가 아니라 fallthrough 라
+    로그에도 남지 않는다.
+    """
+
+    INDEX = {"아반떼": 14, "쏘나타": 17, "티볼리": 26}
+
+    def test_차량명칭에서_마스터_모델을_찾는다(self):
+        vehicle = {"제작사/차종": "현대 / 승용", "차량명칭": "아반떼AD(16)", "모델": "1.6 GDI"}
+        model_id, manufacturer, model_name = case_vehicle_fields(vehicle, self.INDEX)
+        self.assertEqual(model_id, 14)
+        self.assertEqual(manufacturer, "현대")
+        self.assertEqual(model_name, "아반떼")
+
+    def test_제조사는_복합값에서_앞부분만_쓴다(self):
+        # '현대 / RV' 를 그대로 넣던 것이 기존 결함이다. 유사 사례 화면에 그대로 나온다
+        vehicle = {"제작사/차종": "현대 / RV", "차량명칭": "쏘나타(19)"}
+        _, manufacturer, _ = case_vehicle_fields(vehicle, self.INDEX)
+        self.assertEqual(manufacturer, "현대")
+
+    def test_옛_사명은_현재_사명으로_맞춘다(self):
+        vehicle = {"제작사/차종": "한국GM", "차량명칭": "스파크"}
+        _, manufacturer, _ = case_vehicle_fields(vehicle, self.INDEX)
+        self.assertEqual(manufacturer, "쉐보레")
+
+    def test_마스터에_없으면_model_id_를_비우고_원문을_남긴다(self):
+        # 추측해서 붙이면 남의 차 수리비로 견적이 나간다. 비우는 쪽이 안전하다
+        vehicle = {"제작사/차종": "르노삼성", "차량명칭": "뉴SM3(2012)"}
+        model_id, _, model_name = case_vehicle_fields(vehicle, self.INDEX)
+        self.assertIsNone(model_id)
+        self.assertEqual(model_name, "뉴SM3(2012)")
+
+    def test_마스터에_있어도_인덱스에_없으면_비운다(self):
+        # 시드가 덜 적재된 DB. 없는 것을 있다고 하지 않는다
+        model_id, _, model_name = case_vehicle_fields({"차량명칭": "티볼리"}, {"아반떼": 14})
+        self.assertIsNone(model_id)
+        self.assertEqual(model_name, "티볼리")
+
+    def test_차량명칭이_없으면_전부_비운다(self):
+        model_id, manufacturer, model_name = case_vehicle_fields({}, self.INDEX)
+        self.assertIsNone(model_id)
+        self.assertIsNone(manufacturer)
+        self.assertIsNone(model_name)
+
+    def test_모델명이_중복이면_멈춘다(self):
+        # 어느 model_id 에 붙일지 결정할 수 없다. 조용히 덮으면 절반이 틀린다
+        class Cursor:
+            def execute(self, sql):
+                self.sql = sql
+
+            def fetchall(self):
+                return [(1, "아반떼"), (2, "아반떼")]
+
+        with self.assertRaises(ValueError):
+            load_model_index(Cursor())
 
 
 if __name__ == "__main__":

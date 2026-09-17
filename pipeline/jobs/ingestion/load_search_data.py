@@ -27,6 +27,7 @@ for import_root in (REPO_ROOT, PIPELINE_ROOT):
 
 from pipeline.standardization.estimate_items import normalize_estimate_item
 from pipeline.standardization.storage_keys import repair_case_image_key_from_ref
+from pipeline.standardization.vehicle_names import from_estimate, split_manufacturer
 from shared.vision.catalog import PARTS
 from shared.vision.damage_part_pairing import damage_part_roi_rows
 from shared.vision.roi import (
@@ -177,6 +178,45 @@ def image_path_for_label(label_path: Path) -> Path:
     return Path(*parts[:-1])
 
 
+def source_image_for_label(
+    label_path: Path,
+    dataset_root: Path,
+    subset_root: Path | None = None,
+) -> tuple[Path, str]:
+    """라벨에 대응하는 이미지와 원본 dataset 기준 상대 경로를 반환한다.
+
+    견적서 보유 subset은 전체 데이터셋의 복사본일 수 있다. 이 경우 라벨은
+    subset에서 읽지만 DB의 ``source_image_ref``와 S3 key는 전체 데이터셋
+    루트 기준이어야 하므로, subset 기준 상대 경로를 dataset_root에 다시
+    매핑한다.
+    """
+    label_path = Path(label_path)
+    dataset_root = Path(dataset_root).resolve()
+
+    if subset_root is not None:
+        subset_root = Path(subset_root).resolve()
+        try:
+            relative_label = label_path.resolve().relative_to(subset_root)
+        except ValueError:
+            relative_label = None
+        if relative_label is not None:
+            relative_image_dir = image_path_for_label(relative_label)
+            relative_image = relative_image_dir / f"{label_path.stem}.jpg"
+            source_image = dataset_root / relative_image
+            if source_image.is_file():
+                return source_image, relative_image.as_posix()
+
+    image_path = image_path_for_label(label_path) / f"{label_path.stem}.jpg"
+    try:
+        source_image_ref = image_path.resolve().relative_to(dataset_root).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            "라벨 subset과 dataset root 사이의 상대 경로를 계산할 수 없습니다: "
+            f"label={label_path}, dataset_root={dataset_root}, subset_root={subset_root}"
+        ) from exc
+    return image_path, source_image_ref
+
+
 def load_readiness(path: Path, source: str) -> set[str]:
     selected: set[str] = set()
     with path.open(encoding="utf-8-sig", newline="") as fp:
@@ -292,18 +332,60 @@ def apply_mapping_seed(cur, path: Path) -> None:
     cur.execute(path.read_text(encoding="utf-8"))
 
 
-def upsert_case(cur, case_id: str, estimate: dict[str, Any], car_class: str) -> None:
+def load_model_index(cur) -> dict[str, int]:
+    """``vehicle_model.model_name`` → ``model_id``. 적재 시작 전에 한 번만 읽는다.
+
+    마스터의 표준 모델명은 단독으로 유일하다(제조사를 붙이지 않아도 구분된다).
+    중복이 생기면 어느 쪽에 붙일지 알 수 없으므로 조용히 덮지 않고 멈춘다.
+    """
+    cur.execute("SELECT model_id, model_name FROM vehicle_model")
+    rows = cur.fetchall()
+    index = {str(name): int(model_id) for model_id, name in rows}
+    if len(index) != len(rows):
+        raise ValueError("vehicle_model.model_name 이 중복입니다 — model_id 를 결정할 수 없습니다")
+    return index
+
+
+def case_vehicle_fields(vehicle: dict[str, Any],
+                        model_index: dict[str, int]) -> tuple[int | None, str | None, str | None]:
+    """견적서 ``차량정보`` → ``(model_id, manufacturer, model_name)``.
+
+    원천 필드를 그대로 쓰면 세 가지가 어긋난다.
+
+    * ``제작사/차종`` 은 ``'현대 / RV'`` 같은 복합값이라 제조사 컬럼에 넣을 수 없다.
+      앞부분만 떼고 옛 사명(한국GM 등)은 현재 사명으로 맞춘다.
+    * ``모델`` 은 트림명이다. 차량명은 ``차량명칭`` 에 있다.
+    * ``model_id`` 는 아무도 채우지 않아 왔다. 이 값이 없으면 검색의 MODEL 완화
+      단계가 영원히 0건을 반환한다 — 조용히 전체 검색으로 떨어진다.
+
+    마스터에 없는 차량이면 ``model_id`` 는 ``None`` 이다. **추측해서 붙이지 않는다.**
+    비슷한 이름에 잘못 붙이면 남의 차 수리비로 견적을 내게 된다.
+
+    그때 ``model_name`` 에는 원천 ``차량명칭`` 을 그대로 둔다. 유사 사례 화면이
+    이 컬럼을 사용자에게 보여 주므로(``SimilarCaseRepository``), 비워 두는 것보다
+    원문이라도 보이는 편이 낫다. 표준명인지 원문인지는 ``model_id`` 유무로 가린다.
+    """
+    ref = from_estimate(vehicle)
+    manufacturer, _body = split_manufacturer(vehicle.get("제작사/차종"))
+    model_id = model_index.get(ref.model_name) if ref.model_name else None
+    return model_id, manufacturer, (ref.model_name or ref.raw or None)
+
+
+def upsert_case(cur, case_id: str, estimate: dict[str, Any], car_class: str,
+                model_index: dict[str, int]) -> int:
     vehicle = estimate.get("차량정보") or {}
+    model_id, manufacturer, model_name = case_vehicle_fields(vehicle, model_index)
     settlement = estimate.get("수리비 정산정보") or {}
     totals = settlement.get("합계") or {}
     source = source_for_case(case_id)
     cur.execute(
         """
         INSERT INTO repair_case(
-            source, external_ref, manufacturer, model_name, car_class,
+            source, external_ref, model_id, manufacturer, model_name, car_class,
             model_year, repair_year, labor_rate, total_cost, claim_amount, paid_amount)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (source, external_ref) DO UPDATE SET
+            model_id=EXCLUDED.model_id,
             manufacturer=EXCLUDED.manufacturer, model_name=EXCLUDED.model_name,
             car_class=EXCLUDED.car_class, model_year=EXCLUDED.model_year,
             repair_year=EXCLUDED.repair_year, labor_rate=EXCLUDED.labor_rate,
@@ -312,7 +394,7 @@ def upsert_case(cur, case_id: str, estimate: dict[str, Any], car_class: str) -> 
         RETURNING case_id
         """,
         (
-            source, case_id, vehicle.get("제작사/차종"), vehicle.get("모델"), car_class,
+            source, case_id, model_id, manufacturer, model_name, car_class,
             year(vehicle.get("최초등록일")), year(vehicle.get("입고일자")),
             integer(vehicle.get("탈부착M/H")),
             money(totals.get("총계")) if source == "AIHUB_AS" else None,
@@ -324,15 +406,17 @@ def upsert_case(cur, case_id: str, estimate: dict[str, Any], car_class: str) -> 
 
 
 def upsert_images(cur, case_pk: int, source: str, external_ref: str,
-                  label_paths: list[Path], dataset_root: Path) -> dict[str, int]:
+                  label_paths: list[Path], dataset_root: Path,
+                  *, subset_root: Path | None = None) -> dict[str, int]:
     loaded: dict[str, int] = defaultdict(int)
     for label_path in sorted(label_paths):
         # readiness 검증이 라벨·이미지 조인을 끝냈고, 원천 파일명은 라벨 stem과
         # 동일하다. 전수 적재에서 선별된 라벨 JSON을 다시 파싱하지 않는다.
-        image_path = image_path_for_label(label_path) / (label_path.stem + ".jpg")
+        image_path, source_image_ref = source_image_for_label(
+            label_path, dataset_root, subset_root
+        )
         if not image_path.is_file():
             raise FileNotFoundError(f"라벨에 대응하는 이미지가 없습니다: {image_path}")
-        source_image_ref = image_path.relative_to(dataset_root).as_posix()
         storage_key = repair_case_image_key_from_ref(source, external_ref, source_image_ref)
         image_type, source_dataset_split = image_metadata_for_label(label_path)
         cur.execute(
@@ -407,6 +491,7 @@ def upsert_damage_part_annotations(
     label_paths: list[Path],
     dataset_root: Path,
     *,
+    subset_root: Path | None = None,
     documents: dict[Path, dict[str, Any]] | None = None,
 ) -> int:
     """DAMAGE_PART의 직접 part 영역을 보존하되 DAMAGE ROI와 연결하지 않는다."""
@@ -415,9 +500,9 @@ def upsert_damage_part_annotations(
         image_type, _ = image_metadata_for_label(label_path)
         if image_type != "DAMAGE_PART":
             continue
-        source_image_ref = (
-            image_path_for_label(label_path) / (label_path.stem + ".jpg")
-        ).relative_to(dataset_root).as_posix()
+        _, source_image_ref = source_image_for_label(
+            label_path, dataset_root, subset_root
+        )
         cur.execute("SELECT case_image_id FROM repair_case_image WHERE source_image_ref=%s", (source_image_ref,))
         row = cur.fetchone()
         if not row:
@@ -508,6 +593,7 @@ def upsert_damage_features(
     dataset_root: Path,
     pipeline_version_id: int,
     *,
+    subset_root: Path | None = None,
     documents: dict[Path, dict[str, Any]] | None = None,
 ) -> dict[str, int]:
     """DAMAGE_PART의 same-image damage ROI feature를 멱등 적재한다.
@@ -532,9 +618,9 @@ def upsert_damage_features(
 
         document = _document_for_label(label_path, documents)
         image_size = _image_size(document)
-        source_image_ref = (
-            image_path_for_label(label_path) / (label_path.stem + ".jpg")
-        ).relative_to(dataset_root).as_posix()
+        _, source_image_ref = source_image_for_label(
+            label_path, dataset_root, subset_root
+        )
         cur.execute(
             """
             SELECT case_image_id
@@ -721,7 +807,7 @@ def main() -> None:
     mapping.add_argument("--mapping-seed-sql", type=Path,
                          help="generate_part_name_mapping_seed.py로 만든 SQL")
     parser.add_argument("--part-code-seed", type=Path,
-                        default=Path(__file__).resolve().parents[2] / "Docs" / "Erd" / "A307_part_code_seed.sql")
+                        default=REPO_ROOT / "Docs" / "Erd" / "A307_part_code_seed.sql")
     parser.add_argument("--dataset-root", type=Path)
     parser.add_argument("--dsn", help="PostgreSQL DSN")
     parser.add_argument("--pipeline-version-id", type=int, required=True,
@@ -771,7 +857,7 @@ def main() -> None:
             errors.append(("missing_image", case_id, {"reason": "readiness case에 라벨 파일이 없습니다"}))
             continue
         image_paths = [
-            image_path_for_label(label_path) / (label_path.stem + ".jpg")
+            source_image_for_label(label_path, dataset_root, subset_root)[0]
             for label_path in labels
         ]
         missing_images = [str(path) for path in image_paths if not path.is_file()]
@@ -867,6 +953,9 @@ def main() -> None:
             cur.execute("SELECT raw_name, part_code FROM part_name_mapping")
             db_mapping = {str(raw): str(code) for raw, code in cur}
 
+        with conn.cursor() as cur:
+            model_index = load_model_index(cur)
+
         loaded_images: dict[str, int] = defaultdict(int)
         loaded_items = 0
         loaded_part_annotations = 0
@@ -880,18 +969,21 @@ def main() -> None:
                 with conn.cursor() as cur:
                     for case_id, estimate_path, car_class, labels in batch:
                         estimate = json.loads(estimate_path.read_text(encoding="utf-8-sig"))
-                        case_pk = upsert_case(cur, case_id, estimate, car_class)
+                        case_pk = upsert_case(cur, case_id, estimate, car_class, model_index)
                         image_counts = upsert_images(
-                            cur, case_pk, source_for_case(case_id), case_id, labels, dataset_root)
+                            cur, case_pk, source_for_case(case_id), case_id, labels,
+                            dataset_root, subset_root=subset_root)
                         for key, value in image_counts.items():
                             loaded_images[key] += value
                         # part annotation과 feature가 동일한 문서 객체를 공유한다.
                         documents = load_damage_part_documents(labels)
                         loaded_part_annotations += upsert_damage_part_annotations(
-                            cur, case_pk, labels, dataset_root, documents=documents)
+                            cur, case_pk, labels, dataset_root,
+                            subset_root=subset_root, documents=documents)
                         feature_counts = upsert_damage_features(
                             cur, case_pk, labels, dataset_root,
-                            args.pipeline_version_id, documents=documents)
+                            args.pipeline_version_id, subset_root=subset_root,
+                            documents=documents)
                         for key, value in feature_counts.items():
                             pairing_counts[key] += value
                         item_count, stats, item_errors = upsert_estimate_items(
