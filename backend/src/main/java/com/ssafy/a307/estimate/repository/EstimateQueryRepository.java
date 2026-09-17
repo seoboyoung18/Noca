@@ -32,6 +32,7 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
                    e.labor_rate AS laborRate, e.total_hq AS totalHq,
                    e.total_min AS totalMin, e.total_median AS totalMedian, e.total_max AS totalMax,
                    e.ref_case_total AS refCaseTotal, e.confidence_grade AS confidenceGrade,
+                   CAST(e.unresolved_parts AS VARCHAR) AS unresolvedParts,
                    e.created_at AS createdAt
               FROM estimate e
               JOIN analysis_job aj ON aj.job_id = e.job_id
@@ -138,6 +139,12 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
         Integer getRefCaseTotal();
 
         String getConfidenceGrade();
+
+        /**
+         * {@code estimate.unresolved_parts} 원문 (S15P21A307-534). {@code ref_condition} 과 같은 이유로
+         * 문자열로 꺼낸다. 이 열이 생기기 전 견적은 {@code null} 이다.
+         */
+        String getUnresolvedParts();
 
         /**
          * {@code Object} 로 받아 {@link NativeTimestamps#toInstant} 로 바꾼다. 드라이버마다 타입이 달라

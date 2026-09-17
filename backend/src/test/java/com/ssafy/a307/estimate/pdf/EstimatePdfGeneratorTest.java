@@ -4,6 +4,7 @@ import com.ssafy.a307.estimate.dto.EstimateBasisResponse;
 import com.ssafy.a307.estimate.dto.EstimateItemResponse;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse;
 import com.ssafy.a307.estimate.dto.EstimateResponse;
+import com.ssafy.a307.estimate.dto.UnresolvedPartResponse;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.BeforeAll;
@@ -72,6 +73,49 @@ class EstimatePdfGeneratorTest {
     }
 
     /**
+     * 부분 견적(S15P21A307-534). 총액이 산정한 항목만의 합이라, 빠진 부위를 밝히지 않으면 PDF 를
+     * 받은 보험사·정비소가 전체 수리비로 읽는다. 사유 문구를 모르면 사유 없이라도 제외 사실은 남긴다.
+     */
+    @Test
+    @DisplayName("부분 견적은 총액에서 뺀 부위를 부위마다 밝힌다")
+    void rendersExcludedPartsOfPartialEstimate() throws Exception {
+        String text = extract(generator.generate(document(report(true, List.of(
+                new UnresolvedPartResponse("HEAD_LAMP_L", "헤드램프(좌)", "Crushed",
+                        "INSUFFICIENT_CASES", "근거 사례 부족"),
+                new UnresolvedPartResponse("SIDE_MIRROR_R", null, null, "NEW_REASON", null))))));
+
+        assertThat(text)
+                .contains("700,000 ~ 900,000원")
+                .contains("헤드램프(좌): 근거 사례 부족 — 총액에서 제외했습니다")
+                .contains("SIDE_MIRROR_R: 산정하지 못해 총액에서 제외했습니다")
+                .doesNotContain("NEW_REASON")
+                .doesNotContain("산정하지 못한 부위:");
+    }
+
+    @Test
+    @DisplayName("빠진 부위가 없으면 제외 문장이 없다")
+    void rendersNoExclusionWithoutUnresolvedParts() throws Exception {
+        String text = extract(generator.generate(document(report(true))));
+
+        assertThat(text).doesNotContain("총액에서 제외").doesNotContain("산정하지 못한 부위");
+    }
+
+    @Test
+    @DisplayName("산정 불가 견적은 산정하지 못한 부위를 한 줄로 나열한다")
+    void rendersUnresolvedPartsOfNonEstimable() throws Exception {
+        String text = extract(generator.generate(document(report(false, List.of(
+                new UnresolvedPartResponse("HEAD_LAMP_L", "헤드램프(좌)", "Crushed",
+                        "INSUFFICIENT_CASES", "근거 사례 부족"),
+                new UnresolvedPartResponse("REAR_BUMPER", "리어 범퍼", "Scratched",
+                        "INSUFFICIENT_CASES", "근거 사례 부족"))))));
+
+        assertThat(text)
+                .contains("산정 불가")
+                .contains("산정하지 못한 부위: 헤드램프(좌), 리어 범퍼")
+                .doesNotContain("총액에서 제외");
+    }
+
+    /**
      * 추출한 텍스트의 공백·하이픈 변형을 일반 문자로 맞춘다. 렌더러가 줄바꿈 제어를 위해 하이픈을
      * U+2011(줄바꿈 없는 하이픈)로, 공백을 다른 공백 문자로 그려 추출 결과가 달라진다 — 화면 표시는 같다.
      */
@@ -91,6 +135,11 @@ class EstimatePdfGeneratorTest {
     }
 
     private static EstimateReportResponse report(boolean estimable) {
+        return report(estimable, List.of());
+    }
+
+    private static EstimateReportResponse report(boolean estimable,
+                                                 List<UnresolvedPartResponse> unresolvedParts) {
         Instant now = Instant.parse("2026-09-11T03:00:00Z");
         List<EstimateItemResponse> items = estimable
                 ? List.of(new EstimateItemResponse(1L, "FRONT_BUMPER", "앞 범퍼", "FRONT", "Crushed",
@@ -99,9 +148,9 @@ class EstimatePdfGeneratorTest {
                 : List.of();
         EstimateResponse estimate = estimable
                 ? new EstimateResponse(1L, 1L, (short) 1, true, null, 10_000, new BigDecimal("1.50"),
-                        700_000, 800_000, 900_000, 12, "HIGH", items, List.of(), now)
+                        700_000, 800_000, 900_000, 12, "HIGH", items, unresolvedParts, List.of(), now)
                 : new EstimateResponse(1L, 1L, (short) 1, false, "참조 사례 부족", null, null,
-                        null, null, null, null, null, items, List.of(), now);
+                        null, null, null, null, null, items, unresolvedParts, List.of(), now);
 
         return new EstimateReportResponse(
                 new EstimateReportResponse.Vehicle("현대", "아반떼", "SEDAN", "Compact", (short) 2020),

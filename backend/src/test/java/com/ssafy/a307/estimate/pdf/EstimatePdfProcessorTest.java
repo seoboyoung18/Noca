@@ -303,7 +303,7 @@ class EstimatePdfProcessorTest {
     private static EstimateReportResponse report() {
         Instant now = Instant.parse("2026-09-11T03:00:00Z");
         EstimateResponse estimate = new EstimateResponse(ESTIMATE_ID, JOB_ID, (short) 1, true, null,
-                null, null, 700_000, 800_000, 900_000, 12, "HIGH", List.of(), List.of(), now);
+                null, null, 700_000, 800_000, 900_000, 12, "HIGH", List.of(), List.of(), List.of(), now);
         return new EstimateReportResponse(
                 new EstimateReportResponse.Vehicle("현대", "아반떼", "SEDAN", "Compact", (short) 2020),
                 new EstimateReportResponse.Accident(3L, now),

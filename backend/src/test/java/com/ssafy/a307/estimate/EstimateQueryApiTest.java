@@ -133,6 +133,81 @@ class EstimateQueryApiTest {
     }
 
     /**
+     * 부분 견적(S15P21A307-534). 이름은 조회할 때 마스터에서 붙이고, 차례는 항목과 같은 부위
+     * 표시 순서다. 마스터에서 사라진 부위도 빼지 않는다 — 빼면 "총액에서 뺀 부위" 안내가 줄어든다.
+     */
+    @Test
+    @DisplayName("산정하지 못한 부위는 이름·사유 문구를 붙여 부위 표시 순서대로 준다")
+    void unresolvedPartsHaveNamesInDisplayOrder() throws Exception {
+        long accidentId = insertAccident(memberId);
+        long jobId = insertAnalysisJob(accidentId);
+        long estimateId = insertEstimate(jobId, (short) 1, 800_000);
+        insertItem(estimateId, jobId, "front_bumper", "프론트 범퍼", (short) 1, "exchange", 300_000);
+        insertPartCode("rear_lamp", "리어 램프", (short) 9);
+        insertPartCode("hood", "본넷", (short) 5);
+        setUnresolvedParts(estimateId, """
+                [{"partCode":"gone_part","damageType":"Scratched","reason":"INSUFFICIENT_CASES"},
+                 {"partCode":"rear_lamp","damageType":"Crushed","reason":"INSUFFICIENT_CASES"},
+                 {"partCode":"hood","damageType":null,"reason":"NEW_REASON"}]
+                """);
+
+        mockMvc.perform(get("/api/estimates/{id}", estimateId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.estimable").value(true))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.unresolvedParts.length()").value(3))
+                .andExpect(jsonPath("$.data.unresolvedParts[0].partCode").value("hood"))
+                .andExpect(jsonPath("$.data.unresolvedParts[0].partNameKo").value("본넷"))
+                .andExpect(jsonPath("$.data.unresolvedParts[0].damageType").value(nullValue()))
+                .andExpect(jsonPath("$.data.unresolvedParts[0].reason").value("NEW_REASON"))
+                // 모르는 사유는 문구를 지어내지 않는다 — 원래 코드는 reason 에 남는다
+                .andExpect(jsonPath("$.data.unresolvedParts[0].reasonDisplayName").value(nullValue()))
+                .andExpect(jsonPath("$.data.unresolvedParts[1].partNameKo").value("리어 램프"))
+                .andExpect(jsonPath("$.data.unresolvedParts[1].damageType").value("Crushed"))
+                .andExpect(jsonPath("$.data.unresolvedParts[1].reasonDisplayName").value("근거 사례 부족"))
+                .andExpect(jsonPath("$.data.unresolvedParts[2].partCode").value("gone_part"))
+                .andExpect(jsonPath("$.data.unresolvedParts[2].partNameKo").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("산정 불가 견적에도 산정하지 못한 부위가 나간다")
+    void nonEstimableHasUnresolvedParts() throws Exception {
+        long accidentId = insertAccident(memberId);
+        long jobId = insertAnalysisJob(accidentId);
+        long estimateId = insertNonEstimable(jobId, "INSUFFICIENT_CASES");
+        insertPartCode("hood", "본넷", (short) 5);
+        setUnresolvedParts(estimateId, """
+                [{"partCode":"hood","damageType":"Crushed","reason":"INSUFFICIENT_CASES"}]
+                """);
+
+        mockMvc.perform(get("/api/estimates/{id}", estimateId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.estimable").value(false))
+                .andExpect(jsonPath("$.data.unresolvedParts.length()").value(1))
+                .andExpect(jsonPath("$.data.unresolvedParts[0].partNameKo").value("본넷"));
+    }
+
+    /** 이 열이 생기기 전 견적(NULL)과 모양이 틀린 값은 둘 다 빈 배열이다. 조회가 500 이 되면 안 된다. */
+    @Test
+    @DisplayName("빠진 부위 기록이 없거나 읽을 수 없으면 빈 배열이다 — null 이 아니다")
+    void missingOrBrokenUnresolvedPartsIsEmptyArray() throws Exception {
+        long accidentId = insertAccident(memberId);
+        long jobId = insertAnalysisJob(accidentId);
+        long legacyId = insertEstimate(jobId, (short) 1, 800_000);
+        long brokenId = insertEstimate(jobId, (short) 2, 800_000);
+        setUnresolvedParts(brokenId, "{\"partCode\":\"hood\"}");
+
+        mockMvc.perform(get("/api/estimates/{id}", legacyId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.unresolvedParts").isArray())
+                .andExpect(jsonPath("$.data.unresolvedParts.length()").value(0));
+        mockMvc.perform(get("/api/estimates/{id}", brokenId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.unresolvedParts").isArray())
+                .andExpect(jsonPath("$.data.unresolvedParts.length()").value(0));
+    }
+
+    /**
      * 403 과 404 를 나누면 "그 견적은 존재한다"는 사실이 새어 나간다. 수리비가 담긴
      * 자원이라 존재 여부 자체를 감춘다.
      */
@@ -410,6 +485,18 @@ class EstimateQueryApiTest {
         return jdbcTemplate.queryForObject(
                 "select estimate_id from estimate where job_id = ? and version = 1",
                 Long.class, jobId);
+    }
+
+    private void insertPartCode(String partCode, String nameKo, short displayOrder) {
+        jdbcTemplate.update("""
+                insert into part_code (part_code, name_ko, layout_zone, display_order, is_active)
+                values (?, ?, 'FRONT', ?, true)
+                """, partCode, nameKo, displayOrder);
+    }
+
+    private void setUnresolvedParts(long estimateId, String json) {
+        jdbcTemplate.update("update estimate set unresolved_parts = ? FORMAT JSON where estimate_id = ?",
+                json, estimateId);
     }
 
     private void insertItem(long estimateId, long jobId, String partCode, String nameKo,

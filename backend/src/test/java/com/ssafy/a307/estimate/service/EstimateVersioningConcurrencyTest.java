@@ -81,7 +81,7 @@ class EstimateVersioningConcurrencyTest {
                 futures.add(pool.submit(() -> {
                     readyToStart.await();
                     try {
-                        return versioningService.append(jobId, amounts(), ConfidenceGrade.HIGH);
+                        return versioningService.append(jobId, amounts(), ConfidenceGrade.HIGH, null);
                     } catch (Exception e) {
                         return e;
                     }

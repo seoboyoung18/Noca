@@ -278,6 +278,8 @@ CREATE TABLE estimate (
     total_max            INTEGER,
     ref_case_total       INTEGER,
     confidence_grade     VARCHAR(10),
+    -- 정본 JSONB → H2 JSON (S15P21A307-534)
+    unresolved_parts     JSON,
     created_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     CONSTRAINT uk_est UNIQUE (job_id, version),
     CONSTRAINT ck_est_grade CHECK (confidence_grade IS NULL
