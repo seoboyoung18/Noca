@@ -44,6 +44,8 @@ import java.util.List;
  *
  * @param status       작업 전체 상태 {@code QUEUED · PROCESSING · COMPLETED · FAILED}.
  *                     단계별 상태({@link StageProgress#status})와 값 집합이 다르다
+ * @param retryCount   이 작업이 몇 번째 재시도인가 (S15P21A307-161). 처음 요청은 0, 최대 3.
+ *                     {@code FAILED} 이고 3 미만이면 화면이 "다시 시도" 를 보여 줄 수 있다
  * @param currentStage {@code RUNNING} 인 단계. 없으면 {@code null} — 대기 중이거나 이미 끝났다는 뜻이다.
  *                     한글 라벨이 아니라 <b>코드</b>다. 화면 문구는 FE 가 정한다
  * @param doneStages   {@code DONE} 인 단계 수. {@code FAILED} 는 세지 않는다
@@ -57,6 +59,7 @@ public record AnalysisProgressResponse(
         Long jobId,
         AnalysisJobStatus status,
         String failureReason,
+        int retryCount,
         Instant startedAt,
         Instant finishedAt,
         int totalStages,
@@ -113,7 +116,7 @@ public record AnalysisProgressResponse(
     /** 분석을 아직 요청하지 않은 사고. 오류가 아니다. */
     public static AnalysisProgressResponse notRequested() {
         return new AnalysisProgressResponse(
-                null, null, null, null, null, AnalysisStageType.TOTAL, 0, null,
+                null, null, null, 0, null, null, AnalysisStageType.TOTAL, 0, null,
                 List.of(), List.of());
     }
 
@@ -127,6 +130,7 @@ public record AnalysisProgressResponse(
                 job.getJobId(),
                 job.getStatus(),
                 job.getFailureReason(),
+                job.getRetryCount(),
                 job.getStartedAt(),
                 job.getFinishedAt(),
                 AnalysisStageType.TOTAL,

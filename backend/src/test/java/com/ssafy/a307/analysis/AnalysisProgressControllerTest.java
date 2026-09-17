@@ -71,7 +71,7 @@ class AnalysisProgressControllerTest {
     void returnsStageCodes() throws Exception {
         given(currentMemberProvider.currentMemberId()).willReturn(1L);
         given(analysisProgressService.progress(1L, 7L)).willReturn(new AnalysisProgressResponse(
-                42L, AnalysisJobStatus.PROCESSING, null,
+                42L, AnalysisJobStatus.PROCESSING, null, 0,
                 Instant.parse("2026-09-05T01:00:00Z"), null,
                 4, 2, AnalysisStageType.MATCH,
                 List.of(new AnalysisProgressResponse.StageProgress(

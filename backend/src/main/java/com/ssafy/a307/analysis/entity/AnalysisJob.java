@@ -113,6 +113,32 @@ public class AnalysisJob {
         return new AnalysisJob(accident, now);
     }
 
+    /**
+     * 실패한 작업을 다시 시도할 작업 (S15P21A307-161). 같은 사고에 {@code QUEUED} 로 새로 만들고
+     * 재시도 횟수를 이어받아 하나 올린다.
+     *
+     * <p><b>실패한 작업을 되살리지 않는다.</b> 사진이 전부 제외돼 실패한 작업은 사진별 결과와
+     * 산정 불가 견적을 이미 저장했다 — 같은 작업을 다시 돌리면 {@code uk_air(job_id, image_id)} 와
+     * 부딪혀 새 결과가 저장되지 않는다. 실패 사유도 덮인다. 새 작업이면 둘 다 생기지 않고,
+     * 화면은 이미 사고의 최신 작업을 읽는다.
+     *
+     * @throws IllegalStateException 실패한 작업이 아니거나 이미 {@link #MAX_RETRY_COUNT} 번 재시도했다.
+     *                               부르는 쪽이 {@link #retriable()} 로 먼저 거른다
+     */
+    public static AnalysisJob retryOf(AnalysisJob failed, Instant now) {
+        if (failed == null || !failed.retriable()) {
+            throw new IllegalStateException("재시도할 수 없는 작업입니다.");
+        }
+        AnalysisJob retry = queued(failed.getAccident(), now);
+        retry.retryCount = (short) (failed.retryCount + 1);
+        return retry;
+    }
+
+    /** 다시 시도할 수 있는가 — 실패했고 재시도 횟수가 남았다. */
+    public boolean retriable() {
+        return status == AnalysisJobStatus.FAILED && retryCount < MAX_RETRY_COUNT;
+    }
+
     // ── 상태 전이 (S15P21A307-157) ─────────────────────────────────────────
     //
     // 재원님이 적재 계층(S15P21A307-218)에서 이 메서드들을 일부러 두지 않았다 —

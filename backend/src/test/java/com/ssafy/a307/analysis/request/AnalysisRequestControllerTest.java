@@ -66,7 +66,7 @@ class AnalysisRequestControllerTest {
     void acceptedReturnsQueuedProgress() throws Exception {
         given(currentMemberProvider.currentMemberId()).willReturn(1L);
         given(analysisRequestService.request(1L, 7L)).willReturn(new AnalysisProgressResponse(
-                42L, AnalysisJobStatus.QUEUED, null, null, null, 4, 0, null, List.of(), List.of()));
+                42L, AnalysisJobStatus.QUEUED, null, 0, null, null, 4, 0, null, List.of(), List.of()));
 
         mockMvc.perform(post("/api/accidents/7/analysis"))
                 .andExpect(status().isAccepted())
@@ -99,5 +99,43 @@ class AnalysisRequestControllerTest {
 
         mockMvc.perform(post("/api/accidents/7/analysis"))
                 .andExpect(status().isNotFound());
+    }
+
+    // ── 재시도 (S15P21A307-161) ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("재시도도 비로그인이면 401 이고 서비스까지 가지 않는다")
+    void retryUnauthenticatedIsUnauthorized() throws Exception {
+        mockMvc.perform(post("/api/accidents/7/analysis/retry"))
+                .andExpect(status().isUnauthorized());
+
+        then(analysisRequestService).should(never()).retry(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("재시도가 접수되면 202 이고, 새 작업의 진행 상태를 재시도 횟수와 함께 준다")
+    void retryAcceptedReturnsQueuedProgress() throws Exception {
+        given(currentMemberProvider.currentMemberId()).willReturn(1L);
+        given(analysisRequestService.retry(1L, 7L)).willReturn(new AnalysisProgressResponse(
+                43L, AnalysisJobStatus.QUEUED, null, 1, null, null, 4, 0, null, List.of(), List.of()));
+
+        mockMvc.perform(post("/api/accidents/7/analysis/retry"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.jobId").value(43))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"))
+                .andExpect(jsonPath("$.data.retryCount").value(1));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("재시도할 수 없는 상태면 409 다")
+    void retryConflict() throws Exception {
+        given(currentMemberProvider.currentMemberId()).willReturn(1L);
+        given(analysisRequestService.retry(1L, 7L))
+                .willThrow(new BusinessException(ErrorCode.CONFLICT, "재시도 횟수를 모두 사용했습니다."));
+
+        mockMvc.perform(post("/api/accidents/7/analysis/retry"))
+                .andExpect(status().isConflict());
     }
 }

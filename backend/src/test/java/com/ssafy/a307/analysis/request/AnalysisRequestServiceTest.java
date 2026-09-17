@@ -157,7 +157,143 @@ class AnalysisRequestServiceTest {
         }
     }
 
+    /**
+     * 재시도 (S15P21A307-161).
+     *
+     * <p><b>실패한 작업을 되살리지 않고 같은 사고에 작업을 새로 만든다.</b> "사진 전부 제외" 로 끝난
+     * 작업은 사진별 결과·산정 불가 견적을 이미 저장했다 — 같은 작업을 다시 돌리면 그 행과 부딪히고,
+     * 실패 이력도 덮인다. 화면은 이미 "사고의 최신 작업" 을 읽으므로 새 작업이 그대로 보인다.
+     */
+    @Nested
+    @DisplayName("재시도 (S15P21A307-161)")
+    class Retry {
+
+        @Test
+        @DisplayName("실패한 작업이 있으면 QUEUED 작업을 새로 만들고 횟수를 하나 올린다 — 실패 작업은 이력으로 남는다")
+        void failedJobIsRetriedAsNewJob() {
+            uploadedImage(97_801L, MY_ACCIDENT);
+            long failedJobId = insertJob(MY_ACCIDENT, "FAILED", 0, "MODEL_ERROR", "2026-09-17T01:00:00Z");
+
+            AnalysisProgressResponse response = requestService.retry(ME, MY_ACCIDENT);
+
+            assertThat(response.jobId()).isNotNull().isNotEqualTo(failedJobId);
+            assertThat(response.status()).isEqualTo(AnalysisJobStatus.QUEUED);
+            assertThat(response.retryCount()).isEqualTo(1);
+            assertThat(response.failureReason()).isNull();
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(2);
+            assertThat(jdbc.queryForObject("select retry_count from analysis_job where job_id=?",
+                    Integer.class, response.jobId())).isEqualTo(1);
+            // 실패 작업은 손대지 않는다 — 사유가 이력으로 남아야 162(실패 사유 적재)가 쓸 수 있다
+            assertThat(jdbc.queryForMap("select status, failure_reason from analysis_job where job_id=?",
+                    failedJobId)).containsEntry("STATUS", "FAILED").containsEntry("FAILURE_REASON", "MODEL_ERROR");
+            // 멱등 키는 워커가 AI 에 보내기 직전에 새로 심는다
+            assertThat(jdbc.queryForObject("select request_id from analysis_job where job_id=?",
+                    String.class, response.jobId())).isNull();
+        }
+
+        @Test
+        @DisplayName("횟수는 직전 작업에서 이어받는다")
+        void retryCountCarriesOver() {
+            uploadedImage(97_802L, MY_ACCIDENT);
+            insertJob(MY_ACCIDENT, "FAILED", 2, "AI_UNREACHABLE", "2026-09-17T01:00:00Z");
+
+            assertThat(requestService.retry(ME, MY_ACCIDENT).retryCount()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("이미 3회 재시도했으면 409 이고 작업을 만들지 않는다")
+        void retryLimitIsConflict() {
+            uploadedImage(97_803L, MY_ACCIDENT);
+            insertJob(MY_ACCIDENT, "FAILED", 3, "MODEL_ERROR", "2026-09-17T01:00:00Z");
+
+            assertError(() -> requestService.retry(ME, MY_ACCIDENT), ErrorCode.CONFLICT);
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("사진이 전부 제외돼 실패한 작업도 재시도할 수 있다 — 저장된 사진별 결과와 부딪히지 않는다")
+        void allImagesExcludedIsRetriable() {
+            uploadedImage(97_804L, MY_ACCIDENT);
+            long failedJobId = insertJob(MY_ACCIDENT, "FAILED", 0, "ALL_IMAGES_EXCLUDED", "2026-09-17T01:00:00Z");
+            jdbc.update("insert into analysis_image_result(job_id,image_id,is_excluded,exclusion_reason)"
+                    + " values(?,?,true,'NOT_VEHICLE')", failedJobId, 97_804L);
+
+            assertThat(requestService.retry(ME, MY_ACCIDENT).status()).isEqualTo(AnalysisJobStatus.QUEUED);
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("분석을 요청한 적이 없으면 409 다 — 재시도가 아니라 분석 요청을 불러야 한다")
+        void noJobIsConflict() {
+            uploadedImage(97_805L, MY_ACCIDENT);
+
+            assertError(() -> requestService.retry(ME, MY_ACCIDENT), ErrorCode.CONFLICT);
+            assertThat(jobCount(MY_ACCIDENT)).isZero();
+        }
+
+        @Test
+        @DisplayName("진행 중인 작업이 있으면 409 다 — 재시도를 두 번 눌러도 작업은 하나다")
+        void inFlightIsConflict() {
+            uploadedImage(97_806L, MY_ACCIDENT);
+            insertJob(MY_ACCIDENT, "FAILED", 0, "MODEL_ERROR", "2026-09-17T01:00:00Z");
+            requestService.retry(ME, MY_ACCIDENT);
+
+            assertError(() -> requestService.retry(ME, MY_ACCIDENT), ErrorCode.CONFLICT);
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("분석이 끝난 사고는 409 다 — 완료된 분석을 다시 돌리지 않는다(AI 계약: 사용자 재분석 없음)")
+        void completedIsConflict() {
+            uploadedImage(97_807L, MY_ACCIDENT);
+            insertJob(MY_ACCIDENT, "COMPLETED", 0, null, "2026-09-17T01:00:00Z");
+
+            assertError(() -> requestService.retry(ME, MY_ACCIDENT), ErrorCode.CONFLICT);
+        }
+
+        @Test
+        @DisplayName("판정은 가장 최근 작업으로 한다 — 옛 실패가 있어도 최신이 완료면 409 다")
+        void latestJobDecides() {
+            uploadedImage(97_808L, MY_ACCIDENT);
+            insertJob(MY_ACCIDENT, "FAILED", 0, "MODEL_ERROR", "2026-09-17T01:00:00Z");
+            insertJob(MY_ACCIDENT, "COMPLETED", 1, null, "2026-09-17T02:00:00Z");
+
+            assertError(() -> requestService.retry(ME, MY_ACCIDENT), ErrorCode.CONFLICT);
+        }
+
+        @Test
+        @DisplayName("보낼 사진이 없으면 400 이고 작업을 만들지 않는다")
+        void noImageIsBadRequest() {
+            insertJob(MY_ACCIDENT, "FAILED", 0, "NO_IMAGE", "2026-09-17T01:00:00Z");
+
+            assertError(() -> requestService.retry(ME, MY_ACCIDENT), ErrorCode.INVALID_REQUEST);
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("없는 사고·남의 사고는 404 다")
+        void notOwnedIsNotFound() {
+            uploadedImage(97_809L, OTHER_ACCIDENT);
+            insertJob(OTHER_ACCIDENT, "FAILED", 0, "MODEL_ERROR", "2026-09-17T01:00:00Z");
+
+            assertError(() -> requestService.retry(ME, OTHER_ACCIDENT), ErrorCode.NOT_FOUND);
+            assertError(() -> requestService.retry(ME, MISSING_ACCIDENT), ErrorCode.NOT_FOUND);
+            assertThat(jobCount(OTHER_ACCIDENT)).isEqualTo(1);
+        }
+    }
+
     // ── 픽스처 ──────────────────────────────────────────────────────────────
+
+    private long insertJob(long accidentId, String status, int retryCount, String failureReason,
+                           String createdAt) {
+        jdbc.update("insert into analysis_job(accident_id,status,retry_count,failure_reason,created_at)"
+                        + " values(?,?,?,?,?)",
+                accidentId, status, retryCount, failureReason,
+                java.sql.Timestamp.from(java.time.Instant.parse(createdAt)));
+        Long id = jdbc.queryForObject("select max(job_id) from analysis_job where accident_id=?",
+                Long.class, accidentId);
+        return id == null ? 0 : id;
+    }
 
     private void assertError(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, ErrorCode code) {
         assertThatThrownBy(call)
