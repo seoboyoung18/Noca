@@ -15,7 +15,7 @@ import { accidentRoute, accidentStageText, accidentStatus, damageSummaryText, gr
  * 서버가 createdAt 내림차순 페이지로 주고, 그룹("이번 주"·"8월")·한글 배지·금액 포맷은 FE 가 만든다.
  * 썸네일은 10분짜리 서명 URL 이라 화면에 들어올 때마다 목록을 새로 받는다.
  * 삭제(편집 모드)는 서버에 사고 삭제 API 가 없어 두지 않는다 — 사고는 견적·PDF 의 근거라 보존된다.
- * 행 구성(S15P21A307-531): 사고마다 카드 하나 — 썸네일 | 차량명·사고 설명·상태 배지 | 오른쪽 세로 중앙에 PDF 버튼.
+ * 행 구성(S15P21A307-531): 사고마다 카드 하나 — 썸네일 | 차량명+상태 배지 · 사고 설명 | 오른쪽 세로 중앙에 PDF 아이콘 버튼.
  * 예상 금액·사진 장수·접수일은 행에서 뺐다(금액은 견적 화면·홈 카드에서, 날짜는 그룹 라벨로).
  * 사고 설명은 목록 API 에 없어 견적이 있는 행만 GET /api/estimates/{id} 로 항목을 받아 조립한다(행당 1회, 화면 밖 캐시).
  */
@@ -64,7 +64,8 @@ watch(pdfMessage, (m) => { if (m) showToast(m, pdfStep.value === 'error' ? 2800 
 function pdf(a) { if (a.estimateId) downloadPdf(a.estimateId) }
 // estimateId 가 null 인 행과 busyId(null) 가 같다고 판정되지 않도록 estimateId 존재를 먼저 본다
 const pdfBusyFor = (a) => !!a.estimateId && pdfBusyId.value === a.estimateId
-const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 생성 중…' : '준비 중…') : 'PDF 파일 받기')
+// 버튼은 아이콘 중심이라 문구는 aria-label·title 로만 붙인다
+const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 생성 중…' : '준비 중…') : a.estimateId ? 'PDF 파일 받기' : '견적이 없어 PDF 를 받을 수 없어요')
 </script>
 
 <template>
@@ -99,13 +100,23 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
             <svg v-else width="44" height="24" viewBox="0 0 52 28" fill="none" aria-hidden="true"><path d="M4 22V14l8-8h20l12 8v8z" fill="#B0B8C1"/></svg>
           </span>
           <span class="flex1" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0">
-            <span class="nowrap" style="font-size:16px;font-weight:700">{{ vehicleName(a) }}</span>
+            <!-- 차량명 오른쪽에 상태 배지. 차량명이 길면 말줄임하고 배지는 줄지 않는다 -->
+            <span class="row" style="gap:8px;max-width:100%">
+              <span class="nowrap" style="font-size:16px;font-weight:700;overflow:hidden;text-overflow:ellipsis">{{ vehicleName(a) }}</span>
+              <span class="tag" style="flex:0 0 auto" :class="accidentStatus(a.status).cls">{{ accidentStatus(a.status).text }}</span>
+            </span>
             <span class="sub" style="font-size:13px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ desc[a.accidentId] || accidentStageText(a.status) }}</span>
-            <span class="tag md" :class="accidentStatus(a.status).cls">{{ accidentStatus(a.status).text }}</span>
           </span>
-          <!-- 견적이 없는 행도 같은 자리에 비활성 버튼을 둬 행마다 배치가 같게 -->
-          <button class="pdf" :disabled="!a.estimateId || pdfBusyId !== null" :aria-busy="pdfBusyFor(a)" @click.stop="pdf(a)">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ pdfLabel(a) }}
+          <!-- PDF 받기 — 아이콘 버튼(문서+내려받기 화살표, 아래 "PDF"). 견적이 없는 행도 같은 자리에 비활성으로 둬 행마다 배치가 같게 -->
+          <button class="pdf" :class="{ busy: pdfBusyFor(a) }" :disabled="!a.estimateId || pdfBusyId !== null" :aria-busy="pdfBusyFor(a)"
+            :aria-label="pdfLabel(a)" :title="pdfLabel(a)" @click.stop="pdf(a)">
+            <span v-if="pdfBusyFor(a)" class="spin" aria-hidden="true"></span>
+            <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6.5 2.5h7.5l4.5 4.5v12a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-14.5a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+              <path d="M14 2.5v4.5h4.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+              <path d="M12 10.5v6M9.3 14.2L12 16.9l2.7-2.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="pl">PDF</span>
           </button>
         </div>
       </template>
@@ -137,7 +148,9 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
 .item.clickable { cursor: pointer; }
 .th { flex: 0 0 76px; width: 76px; height: 76px; border-radius: 12px; background: var(--text-3); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .th img { width: 100%; height: 100%; object-fit: cover; }
-.pdf { flex: 0 0 auto; height: 40px; padding: 0 10px; white-space: nowrap; border: 1px solid var(--primary-200); border-radius: 10px; background: var(--primary-50); font-size: 13px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 5px; }
+.pdf { flex: 0 0 48px; width: 48px; height: 48px; border: 1px solid var(--primary-200); border-radius: 12px; background: var(--primary-50); color: var(--primary); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
 .pdf:hover { background: var(--primary-100); }
 .pdf:disabled { border-color: var(--line); background: var(--bg-2); color: var(--text-4); }
+.pl { font-size: 9px; font-weight: 700; letter-spacing: 0.02em; line-height: 1; }
+.spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--primary-200); border-top-color: var(--primary); animation: dcspin .8s linear infinite; }
 </style>
