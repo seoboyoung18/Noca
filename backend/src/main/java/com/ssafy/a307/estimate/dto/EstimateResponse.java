@@ -18,8 +18,10 @@ import java.util.List;
  * @param confidenceGrade    HIGH · MEDIUM · LOW. 산정 불가면 null 이다.
  *                           LOW 면 화면이 경고를 띄운다(S15P21A307-290)
  * @param items              파손 부위별 산정 결과. 부위 표시 순서대로 정렬돼 있다
- * @param notices            고지 문구. <b>지금은 항상 빈 배열이다</b> — 문구 테이블이
- *                           들어오면(S15P21A307-288) 채워진다
+ * @param unresolvedParts    산정하지 못해 총액에서 뺀 부위(S15P21A307-534). 부위 표시 순서대로
+ *                           정렬돼 있다. <b>{@code estimable} 이 true 인데 비어 있지 않으면 부분
+ *                           견적이다</b> — 총액이 이 부위를 빼고 계산됐다는 뜻이다. 없으면 빈 배열
+ * @param notices            고지 문구. {@code estimate_notice} 의 활성 문구다(S15P21A307-288)
  */
 public record EstimateResponse(
         Long estimateId,
@@ -35,11 +37,13 @@ public record EstimateResponse(
         Integer refCaseTotal,
         String confidenceGrade,
         List<EstimateItemResponse> items,
+        List<UnresolvedPartResponse> unresolvedParts,
         List<EstimateNotice> notices,
         Instant createdAt) {
 
     public static EstimateResponse of(EstimateDetailView view,
                                       List<EstimateItemResponse> items,
+                                      List<UnresolvedPartResponse> unresolvedParts,
                                       List<EstimateNotice> notices) {
         return new EstimateResponse(
                 view.getEstimateId(),
@@ -55,6 +59,7 @@ public record EstimateResponse(
                 view.getRefCaseTotal(),
                 view.getConfidenceGrade(),
                 items,
+                unresolvedParts,
                 notices,
                 NativeTimestamps.toInstant(view.getCreatedAt()));
     }

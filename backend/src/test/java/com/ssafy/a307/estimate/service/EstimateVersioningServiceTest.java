@@ -52,7 +52,7 @@ class EstimateVersioningServiceTest {
     @Test
     @DisplayName("첫 산정은 버전 1 이다")
     void firstEstimateIsVersionOne() {
-        Estimate first = versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH);
+        Estimate first = versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH, null);
 
         assertThat(first.getVersion()).isEqualTo((short) 1);
         assertThat(first.isFirstVersion()).isTrue();
@@ -62,8 +62,8 @@ class EstimateVersioningServiceTest {
     @Test
     @DisplayName("재산정하면 버전이 올라가고 이전 버전은 그대로 남는다")
     void reestimateAppendsNewVersion() {
-        Estimate first = versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH);
-        Estimate second = versioningService.append(jobId, amounts(950_000), ConfidenceGrade.MEDIUM);
+        Estimate first = versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH, null);
+        Estimate second = versioningService.append(jobId, amounts(950_000), ConfidenceGrade.MEDIUM, null);
 
         assertThat(second.getVersion()).isEqualTo((short) 2);
         assertThat(second.getEstimateId()).isNotEqualTo(first.getEstimateId());
@@ -78,9 +78,9 @@ class EstimateVersioningServiceTest {
     @Test
     @DisplayName("최신 조회는 가장 높은 버전을 준다")
     void findLatestReturnsHighestVersion() {
-        versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH);
-        versioningService.append(jobId, amounts(950_000), ConfidenceGrade.MEDIUM);
-        versioningService.append(jobId, amounts(910_000), ConfidenceGrade.LOW);
+        versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH, null);
+        versioningService.append(jobId, amounts(950_000), ConfidenceGrade.MEDIUM, null);
+        versioningService.append(jobId, amounts(910_000), ConfidenceGrade.LOW, null);
 
         assertThat(versioningService.findLatest(jobId))
                 .get()
@@ -93,8 +93,8 @@ class EstimateVersioningServiceTest {
     void versionIsScopedToJob() {
         long otherJobId = insertAnalysisJob();
 
-        versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH);
-        Estimate other = versioningService.append(otherJobId, amounts(500_000), ConfidenceGrade.HIGH);
+        versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH, null);
+        Estimate other = versioningService.append(otherJobId, amounts(500_000), ConfidenceGrade.HIGH, null);
 
         // 다른 job 의 견적이 있다고 해서 2번부터 시작하면 안 된다
         assertThat(other.getVersion()).isEqualTo((short) 1);
@@ -107,8 +107,8 @@ class EstimateVersioningServiceTest {
     @Test
     @DisplayName("산정 불가도 버전을 차지한다 — 금액은 비고 사유만 남는다")
     void nonEstimableTakesAVersion() {
-        versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH);
-        Estimate failed = versioningService.appendNonEstimable(jobId, "참조할 유사 사례가 부족합니다.");
+        versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH, null);
+        Estimate failed = versioningService.appendNonEstimable(jobId, "참조할 유사 사례가 부족합니다.", null);
 
         assertThat(failed.getVersion()).isEqualTo((short) 2);
         assertThat(failed.isEstimable()).isFalse();
@@ -120,7 +120,7 @@ class EstimateVersioningServiceTest {
     @Test
     @DisplayName("산정 불가 사유가 비어 있으면 만들지 않는다")
     void nonEstimableRequiresReason() {
-        assertThatThrownBy(() -> versioningService.appendNonEstimable(jobId, "  "))
+        assertThatThrownBy(() -> versioningService.appendNonEstimable(jobId, "  ", null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

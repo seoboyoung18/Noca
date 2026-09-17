@@ -3,18 +3,28 @@ package com.ssafy.a307.estimate.service;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.estimate.domain.RefConditionReader;
+import com.ssafy.a307.estimate.domain.UnresolvedPart;
+import com.ssafy.a307.estimate.domain.UnresolvedPartsReader;
+import com.ssafy.a307.estimate.domain.UnresolvedReasonDisplay;
 import com.ssafy.a307.estimate.dto.EstimateBasisItemResponse;
 import com.ssafy.a307.estimate.dto.EstimateBasisResponse;
 import com.ssafy.a307.estimate.dto.EstimateItemResponse;
 import com.ssafy.a307.estimate.dto.EstimateNotice;
 import com.ssafy.a307.estimate.dto.EstimateResponse;
 import com.ssafy.a307.estimate.dto.EstimateSummaryResponse;
+import com.ssafy.a307.estimate.dto.UnresolvedPartResponse;
 import com.ssafy.a307.estimate.repository.EstimateQueryRepository;
+import com.ssafy.a307.estimatevalidation.entity.PartCode;
+import com.ssafy.a307.estimatevalidation.repository.PartCodeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 견적 조회. 상세 한 건과 사고별 이력 목록을 준다.
@@ -29,6 +39,8 @@ public class EstimateQueryService {
 
     private final EstimateQueryRepository estimateQueryRepository;
     private final RefConditionReader refConditionReader;
+    private final UnresolvedPartsReader unresolvedPartsReader;
+    private final PartCodeRepository partCodeRepository;
     private final EstimateNoticeProvider noticeProvider;
 
     @Transactional(readOnly = true)
@@ -41,7 +53,42 @@ public class EstimateQueryService {
                 .map(EstimateItemResponse::from)
                 .toList();
 
-        return EstimateResponse.of(view, items, notices());
+        return EstimateResponse.of(view, items, unresolvedParts(view.getUnresolvedParts()), notices());
+    }
+
+    /**
+     * 산정하지 못한 부위 (S15P21A307-534).
+     *
+     * <p><b>이름을 조회할 때 붙인다.</b> 저장할 때 복사하면 마스터 이름을 고쳤을 때 과거 견적만
+     * 옛 이름으로 남는다 — {@code findItems} 가 {@code part_code} 를 조인하는 것과 같은 판단이다.
+     *
+     * <p>정렬은 {@code items} 와 같은 부위 표시 순서다. 마스터에서 행이 사라진 부위는 이름 없이
+     * 맨 뒤에 둔다 — 빼 버리면 "총액에서 뺀 부위" 안내가 조용히 줄어든다.
+     */
+    private List<UnresolvedPartResponse> unresolvedParts(String json) {
+        List<UnresolvedPart> parts = unresolvedPartsReader.read(json);
+        if (parts.isEmpty()) {
+            return List.of();
+        }
+        Map<String, PartCode> master = partCodeRepository
+                .findAllById(parts.stream().map(UnresolvedPart::partCode).toList()).stream()
+                .collect(Collectors.toMap(PartCode::getPartCode, Function.identity()));
+
+        return parts.stream()
+                .sorted(Comparator
+                        .comparingInt((UnresolvedPart part) -> displayOrder(master.get(part.partCode())))
+                        .thenComparing(UnresolvedPart::partCode))
+                .map(part -> new UnresolvedPartResponse(
+                        part.partCode(),
+                        master.containsKey(part.partCode()) ? master.get(part.partCode()).getNameKo() : null,
+                        part.damageType(),
+                        part.reason(),
+                        UnresolvedReasonDisplay.displayNameOf(part.reason())))
+                .toList();
+    }
+
+    private static int displayOrder(PartCode partCode) {
+        return partCode == null ? Integer.MAX_VALUE : partCode.getDisplayOrder();
     }
 
     /**

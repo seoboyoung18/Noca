@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * AI 서버가 분석을 마치고 보내는 callback 본문 (S15P21A307-157).
@@ -43,7 +44,9 @@ import java.util.List;
  * @param estimable         산정 가능 여부. false 면 {@code totals}·{@code items} 가 비고
  *                          {@code nonEstimableReason} 만 온다
  * @param confidenceGrade   {@code HIGH}·{@code MEDIUM}·{@code LOW}·{@code null}
- * @param error             있으면 실패 callback 이다. 이때 작업은 FAILED 로 간다
+ * @param unresolvedParts   산정하지 못해 {@code totals} 에서 빠진 부위 (S15P21A307-534).
+ *                          {@code estimable} 이 true 여도 올 수 있다 — 부분 견적이다
+ * @param error            있으면 실패 callback 이다. 이때 작업은 FAILED 로 간다
  */
 public record AnalysisCallbackRequest(
 
@@ -74,12 +77,18 @@ public record AnalysisCallbackRequest(
 
         @Valid List<CallbackItem> items,
 
+        List<CallbackUnresolvedPart> unresolvedParts,
+
         @Valid List<CallbackImageResult> imageResults,
 
         @Valid CallbackError error) {
 
     public AnalysisCallbackRequest {
         items = items == null ? List.of() : List.copyOf(items);
+        // List.copyOf 는 null 원소에서 NPE 를 던진다. 안내용 목록이라 [null] 하나로 결과 전체를
+        // 잃지 않게 걸러 낸다 — CallbackUnresolvedPart 가 검증을 걸지 않는 것과 같은 판단이다.
+        unresolvedParts = unresolvedParts == null ? List.of()
+                : unresolvedParts.stream().filter(Objects::nonNull).toList();
         imageResults = imageResults == null ? List.of() : List.copyOf(imageResults);
     }
 

@@ -458,6 +458,10 @@ CREATE TABLE estimate (
     total_max            INTEGER,
     ref_case_total       INTEGER,
     confidence_grade     VARCHAR(10),
+    -- 부분 견적에서 산정하지 못해 총액에서 뺀 부위. AI 가 준 unresolvedParts[] 를
+    -- [{partCode, damageType, reason}] 모양 그대로 넣되, 마스터에 없는 부위·items[] 와
+    -- 겹치는 부위·중복은 수신 계층이 거른다. 이 열 이전 견적은 NULL (S15P21A307-534).
+    unresolved_parts     JSONB,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uk_est       UNIQUE (job_id, version),
     CONSTRAINT ck_est_grade CHECK (confidence_grade IS NULL

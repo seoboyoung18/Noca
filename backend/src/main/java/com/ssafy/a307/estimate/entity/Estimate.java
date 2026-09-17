@@ -12,6 +12,8 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
@@ -101,6 +103,20 @@ public class Estimate {
     @Column(name = "confidence_grade", length = 10)
     private ConfidenceGrade confidenceGrade;
 
+    /**
+     * 산정하지 못해 총액에서 뺀 부위 (S15P21A307-534). 내용 계약은
+     * {@link com.ssafy.a307.estimate.domain.UnresolvedPart} 의 JSON 배열이다.
+     *
+     * <p>부분 견적({@code estimable=true})과 산정 불가 견적 모두에 올 수 있다. callback 으로 만든
+     * 견적은 빠진 부위가 없어도 {@code []} 를 담고, {@code null} 은 이 열이 생기기 전 견적이다.
+     * 조회 쪽은 둘을 똑같이 빈 목록으로 내보낸다.
+     *
+     * <p>{@code EstimateItem.refCondition} 과 같은 이유로 {@code String} 으로 든다.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "unresolved_parts")
+    private String unresolvedParts;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -113,11 +129,12 @@ public class Estimate {
     /**
      * 금액이 산정된 견적. 총액 세 값은 함께 오거나 함께 비어야 의미가 있다.
      *
-     * @param version 채번은 호출부가 한다 — 같은 {@code job_id} 안에서 정해지는 값이라
-     *                엔티티 혼자서는 알 수 없다
+     * @param version         채번은 호출부가 한다 — 같은 {@code job_id} 안에서 정해지는 값이라
+     *                        엔티티 혼자서는 알 수 없다
+     * @param unresolvedParts 총액에서 빠진 부위의 JSON 배열. 없으면 {@code null}
      */
     public static Estimate estimated(Long jobId, short version, Amounts amounts,
-                                     ConfidenceGrade confidenceGrade) {
+                                     ConfidenceGrade confidenceGrade, String unresolvedParts) {
         Estimate estimate = new Estimate(requireJobId(jobId), requireVersion(version));
         estimate.estimable = true;
         estimate.laborRate = amounts.laborRate();
@@ -127,6 +144,7 @@ public class Estimate {
         estimate.totalMax = amounts.totalMax();
         estimate.refCaseTotal = amounts.refCaseTotal();
         estimate.confidenceGrade = confidenceGrade;
+        estimate.unresolvedParts = unresolvedParts;
         return estimate;
     }
 
@@ -134,14 +152,18 @@ public class Estimate {
      * 산정하지 못한 견적. 금액 칸은 비워 두고 사유만 남긴다.
      * <p>
      * 행 자체를 만들지 않으면 "분석은 끝났는데 견적이 없다"는 상태를 화면이 구분하지 못한다.
+     *
+     * @param unresolvedParts 산정하지 못한 부위의 JSON 배열. 없으면 {@code null}
      */
-    public static Estimate nonEstimable(Long jobId, short version, String reason) {
+    public static Estimate nonEstimable(Long jobId, short version, String reason,
+                                        String unresolvedParts) {
         if (reason == null || reason.isBlank()) {
             throw new IllegalArgumentException("산정 불가 사유는 필수입니다.");
         }
         Estimate estimate = new Estimate(requireJobId(jobId), requireVersion(version));
         estimate.estimable = false;
         estimate.nonEstimableReason = reason;
+        estimate.unresolvedParts = unresolvedParts;
         return estimate;
     }
 

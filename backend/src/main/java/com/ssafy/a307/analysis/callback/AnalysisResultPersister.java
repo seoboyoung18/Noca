@@ -12,6 +12,7 @@ import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.estimate.domain.FallbackStage;
 import com.ssafy.a307.estimate.domain.LowConfidenceRule;
 import com.ssafy.a307.estimate.domain.RefCondition;
+import com.ssafy.a307.estimate.domain.UnresolvedPart;
 import com.ssafy.a307.estimate.entity.ConfidenceGrade;
 import com.ssafy.a307.estimate.entity.Estimate;
 import com.ssafy.a307.estimate.entity.EstimateItem;
@@ -25,10 +26,12 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * callback 이 실어 온 결과를 서비스 DB 에 옮긴다 (S15P21A307-157).
@@ -39,6 +42,7 @@ import java.util.Map;
  *
  * <pre>
  *   imageResults[] → analysis_image_result   (estimable 여부와 무관)
+ *   unresolvedParts[] → estimate.unresolved_parts (estimable 여부와 무관, S15P21A307-534)
  *   estimable=false → estimate(비산정) 한 행으로 끝
  *   items[]        → damaged_part → estimate → estimate_item
  * </pre>
@@ -66,11 +70,13 @@ public class AnalysisResultPersister {
      */
     public void persist(AnalysisJob job, AnalysisCallbackRequest request) {
         saveImageResults(job, request);
+        String unresolvedParts = unresolvedParts(job, request);
 
         if (!Boolean.TRUE.equals(request.estimable())) {
             // 산정하지 못한 것도 행으로 남긴다. 없으면 화면이 "분석 중" 과
             // "분석은 끝났는데 산정이 안 됨" 을 구분하지 못한다.
-            versioningService.appendNonEstimable(job.getJobId(), request.nonEstimableReason());
+            versioningService.appendNonEstimable(
+                    job.getJobId(), request.nonEstimableReason(), unresolvedParts);
             log.info("산정 불가 견적 저장. jobId={} reason={}",
                     job.getJobId(), request.nonEstimableReason());
             return;
@@ -78,7 +84,7 @@ public class AnalysisResultPersister {
 
         Map<String, DamagedPart> parts = saveDamagedParts(job, request.items());
         Estimate estimate = versioningService.append(
-                job.getJobId(), amounts(request), grade(request.confidenceGrade()));
+                job.getJobId(), amounts(request), grade(request.confidenceGrade()), unresolvedParts);
         saveItems(estimate, request, parts);
     }
 
@@ -146,6 +152,82 @@ public class AnalysisResultPersister {
                     "금액이 있는 항목에는 repairMethod 가 필요합니다: " + item.partCode());
         }
         return AnalysisRepairMethod.from(item.repairMethod());
+    }
+
+    // ── 산정하지 못한 부위 ──────────────────────────────────────────────────
+
+    /**
+     * {@code unresolvedParts[]} 를 {@code estimate.unresolved_parts} 에 넣을 JSON 으로 바꾼다
+     * (S15P21A307-534).
+     *
+     * <p><b>이상한 원소는 끊지 않고 버린다.</b> {@link #saveDamagedParts} 가 모르는 부품 코드에서
+     * 400 을 내는 것과 판단이 다르다 — 그쪽은 금액이 걸린 항목이라 틀린 값을 저장하면 안 되지만,
+     * 이쪽은 "이 부위는 총액에 없다" 는 안내다. 원소 하나 때문에 산정된 금액까지 잃는 것이 더 크다.
+     * 버리는 기준은 화면에 그대로 보여도 되는가다.
+     * <ul>
+     *   <li>부품 코드가 비었거나 {@code part_code} 마스터에 없다 — 이름을 붙일 수 없다</li>
+     *   <li>같은 부위가 {@code items[]} 에 있다 — "총액에 있다" 와 "총액에서 뺐다" 가 함께 보인다</li>
+     *   <li>같은 부위가 이미 나왔다 — 앞엣것을 남긴다</li>
+     * </ul>
+     * 손상 유형·사유는 모르는 값이어도 부위를 버리지 않고 그 칸만 비운다.
+     *
+     * @return JSON 배열. 남은 원소가 없으면 {@code "[]"}, 직렬화에 실패하면 {@code null}
+     */
+    private String unresolvedParts(AnalysisJob job, AnalysisCallbackRequest request) {
+        Set<String> itemPartCodes = new HashSet<>();
+        for (CallbackItem item : request.items()) {
+            itemPartCodes.add(item.partCode().strip());
+        }
+
+        Map<String, UnresolvedPart> byPartCode = new LinkedHashMap<>();
+        for (CallbackUnresolvedPart part : request.unresolvedParts()) {
+            String partCode = part.partCode() == null ? "" : part.partCode().strip();
+            if (partCode.isEmpty()) {
+                log.warn("부품 코드가 없는 미산정 부위를 버린다. jobId={}", job.getJobId());
+                continue;
+            }
+            if (byPartCode.containsKey(partCode)) {
+                log.warn("같은 미산정 부위가 두 번 왔다 — 뒤엣것을 버린다. jobId={} partCode={}",
+                        job.getJobId(), partCode);
+                continue;
+            }
+            if (itemPartCodes.contains(partCode)) {
+                log.warn("산정된 항목과 겹치는 미산정 부위를 버린다. jobId={} partCode={}",
+                        job.getJobId(), partCode);
+                continue;
+            }
+            if (!partCodeRepository.existsById(partCode)) {
+                log.warn("알 수 없는 부품 코드의 미산정 부위를 버린다. jobId={} partCode={}",
+                        job.getJobId(), partCode);
+                continue;
+            }
+            byPartCode.put(partCode, new UnresolvedPart(
+                    partCode, unresolvedDamageType(part.damageType()), blankToNull(part.reason())));
+        }
+
+        try {
+            return objectMapper.writeValueAsString(List.copyOf(byPartCode.values()));
+        } catch (RuntimeException e) {
+            log.warn("미산정 부위를 직렬화하지 못해 비운다. jobId={}", job.getJobId(), e);
+            return null;
+        }
+    }
+
+    /** DDL 표기로 맞춘다. 모르는 값은 비운다 — 부위 자체는 안내해야 하므로 버리지 않는다. */
+    private String unresolvedDamageType(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return AnalysisDamageType.from(value).columnValue();
+        } catch (IllegalArgumentException e) {
+            log.warn("알 수 없는 미산정 부위 damageType 을 비운다: {}", value);
+            return null;
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     // ── 견적 ────────────────────────────────────────────────────────────────

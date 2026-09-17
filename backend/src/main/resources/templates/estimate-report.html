@@ -91,6 +91,16 @@
    th:text="${'대표값(중앙값) ' + #numbers.formatInteger(report.estimate().totalMedian(), 1, 'COMMA') + '원'}">중앙값</p>
 <p class="empty" th:unless="${report.estimate().estimable()}"
    th:text="${'산정 불가 — ' + (report.estimate().nonEstimableReason() != null ? report.estimate().nonEstimableReason() : '사유 없음')}">산정 불가</p>
+<!--/* 부분 견적(S15P21A307-534): 총액이 산정한 항목만의 합이라 빠진 부위를 밝힌다.
+       문장에 조사를 붙이지 않는다 — 사유 문구가 늘면 받침에 따라 '으로/로' 가 어긋난다. */-->
+<p class="empty" th:if="${report.estimate().estimable()}"
+   th:each="part : ${report.estimate().unresolvedParts()}"
+   th:text="${(part.partNameKo() != null ? part.partNameKo() : part.partCode()) + ': '
+            + (part.reasonDisplayName() != null ? part.reasonDisplayName() + ' — 총액에서 제외했습니다' : '산정하지 못해 총액에서 제외했습니다')}">제외 부위</p>
+<!--/* 한 문자열로 만든다. 부위마다 span 으로 나누면 PDF 텍스트 조각의 추출 순서가 섞인다. */-->
+<p class="empty"
+   th:if="${!report.estimate().estimable() and !#lists.isEmpty(report.estimate().unresolvedParts())}"
+   th:text="${'산정하지 못한 부위: ' + #strings.listJoin(report.estimate().unresolvedParts().![partNameKo() != null ? partNameKo() : partCode()], ', ')}">산정하지 못한 부위</p>
 
 <table th:unless="${#lists.isEmpty(report.estimate().items())}">
     <thead>

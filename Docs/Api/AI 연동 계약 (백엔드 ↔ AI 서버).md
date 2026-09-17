@@ -350,6 +350,7 @@ AI 응답 없음       → analysis_job = FAILED, retry_count +1 (최대 3)
 | `totals` · `confidenceGrade` | `EstimateVersioningService.append()` | **완료** (-299) |
 | 견적 조회 | `GET /api/estimates/{id}` | **완료** (-300) |
 | `items[]` 근거 필드 | `estimate_item.ref_condition` | 진행 중 (-285) |
+| `unresolvedParts[]` | `estimate.unresolved_parts` → 견적 조회 `unresolvedParts[]` · 리포트 PDF | 진행 중 (-534) |
 | 근거 조회 | `GET /api/estimates/{id}/basis` | 진행 중 (-286) |
 | `referencedCaseIds` → 사례 조회 | — | 해야 할 일 (-236) |
 | **수신 API** | — | 해야 할 일 (**-157**) |

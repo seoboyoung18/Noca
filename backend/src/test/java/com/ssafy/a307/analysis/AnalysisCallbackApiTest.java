@@ -4,6 +4,8 @@ import com.ssafy.a307.analysis.callback.AnalysisCallbackController;
 import com.ssafy.a307.analysis.dto.AnalysisProgressResponse;
 import com.ssafy.a307.analysis.entity.AnalysisStageType;
 import com.ssafy.a307.analysis.service.AnalysisProgressService;
+import com.ssafy.a307.estimate.domain.UnresolvedPart;
+import com.ssafy.a307.estimate.domain.UnresolvedPartsReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,6 +44,7 @@ class AnalysisCallbackApiTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private AnalysisProgressService analysisProgressService;
+    @Autowired private UnresolvedPartsReader unresolvedPartsReader;
 
     @BeforeEach
     void setUp() {
@@ -93,7 +96,7 @@ class AnalysisCallbackApiTest {
         jdbcTemplate.update("delete from vehicle where vehicle_id = 98301");
         jdbcTemplate.update("delete from vehicle_model where model_id = 98301");
         jdbcTemplate.update("delete from member where member_id = ?", MEMBER_ID);
-        jdbcTemplate.update("delete from part_code where part_code = 'REAR_BUMPER'");
+        jdbcTemplate.update("delete from part_code where part_code in ('REAR_BUMPER', 'HEAD_LAMP_L')");
     }
 
     // ── 은닉 ────────────────────────────────────────────────────────────────
@@ -444,6 +447,97 @@ class AnalysisCallbackApiTest {
         assertThat(count("analysis_image_result where job_id = " + JOB_ID)).isEqualTo(1);
     }
 
+    // ── 산정하지 못한 부위 (S15P21A307-534) ──────────────────────────────────
+    // 저장한 값은 조회 쪽 UnresolvedPartsReader 로 다시 읽어 본다. 문자열 포함만 보면 JSON 이
+    // 한 번 더 문자열로 감싸져 저장돼도 통과해 버린다 — 그러면 조회 화면에서만 조용히 빈 목록이 된다.
+
+    @Test
+    @DisplayName("부분 견적이면 총액은 그대로 두고 빠진 부위를 견적 행에 남긴다")
+    void partialEstimateKeepsUnresolvedParts() throws Exception {
+        insertPartCode("HEAD_LAMP_L", "헤드램프(좌)", 5);
+        String body = withUnresolvedParts(successBody(JOB_ID, REQUEST_ID), """
+                [{"partCode":"HEAD_LAMP_L","damageType":"CRUSHED","reason":"INSUFFICIENT_CASES"}]
+                """);
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("COMPLETED");
+        assertThat(jdbcTemplate.queryForObject(
+                "select total_median from estimate where job_id = ?", Integer.class, JOB_ID))
+                .isEqualTo(550_000);
+        assertThat(count("damaged_part where job_id = " + JOB_ID)).isEqualTo(1);
+        // 손상 유형은 DDL 표기로 맞춰 둔다 — 항목의 damageType 과 같은 어휘로 나가야 한다
+        assertThat(storedUnresolvedParts()).containsExactly(
+                new UnresolvedPart("HEAD_LAMP_L", "Crushed", "INSUFFICIENT_CASES"));
+    }
+
+    @Test
+    @DisplayName("산정 불가여도 산정하지 못한 부위를 남긴다")
+    void nonEstimableKeepsUnresolvedParts() throws Exception {
+        insertPartCode("HEAD_LAMP_L", "헤드램프(좌)", 5);
+        String body = """
+                {
+                  "requestId":"%s","jobId":%d,"modelVersion":"m1","pipelineVersionId":3,
+                  "estimable":false,"nonEstimableReason":"INSUFFICIENT_CASES",
+                  "unresolvedParts":[
+                    {"partCode":"HEAD_LAMP_L","damageType":"Crushed","reason":"INSUFFICIENT_CASES"},
+                    {"partCode":"REAR_BUMPER","damageType":"SCRATCHED","reason":"INSUFFICIENT_CASES"}
+                  ],
+                  "imageResults":[{"imageId":501,"width":1600,"height":1200,
+                                   "excluded":false,"exclusionReason":null,"detections":[]}]
+                }
+                """.formatted(REQUEST_ID, JOB_ID);
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(storedUnresolvedParts()).containsExactly(
+                new UnresolvedPart("HEAD_LAMP_L", "Crushed", "INSUFFICIENT_CASES"),
+                new UnresolvedPart("REAR_BUMPER", "Scratched", "INSUFFICIENT_CASES"));
+    }
+
+    @Test
+    @DisplayName("unresolvedParts 가 없으면 빈 배열로 남긴다 — 이 열 이전 견적(NULL)과 구분된다")
+    void missingUnresolvedPartsIsStoredAsEmptyArray() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        assertThat(storedUnresolvedPartsRaw()).isNotNull();
+        assertThat(storedUnresolvedParts()).isEmpty();
+    }
+
+    /**
+     * 모르는 부품 코드가 items[] 에 있으면 400 이지만(위 {@code unknownPartCodeIsRejected}), 여기서는
+     * 버리고 200 이다. 안내용 목록의 원소 하나 때문에 산정된 금액까지 잃으면 안 된다.
+     */
+    @Test
+    @DisplayName("이상한 원소는 거절하지 않고 버린다 — 산정된 금액을 잃지 않는다")
+    void invalidUnresolvedPartsAreDropped() throws Exception {
+        insertPartCode("HEAD_LAMP_L", "헤드램프(좌)", 5);
+        String body = withUnresolvedParts(successBody(JOB_ID, REQUEST_ID), """
+                [
+                  null,
+                  {"partCode":"  ","damageType":"CRUSHED","reason":"INSUFFICIENT_CASES"},
+                  {"partCode":"NO_SUCH_PART","damageType":"CRUSHED","reason":"INSUFFICIENT_CASES"},
+                  {"partCode":"REAR_BUMPER","damageType":"SCRATCHED","reason":"INSUFFICIENT_CASES"},
+                  {"partCode":" HEAD_LAMP_L ","damageType":"MELTED","reason":" "},
+                  {"partCode":"HEAD_LAMP_L","damageType":"CRUSHED","reason":"INSUFFICIENT_CASES"}
+                ]
+                """);
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(jobStatus(JOB_ID)).isEqualTo("COMPLETED");
+        assertThat(count("estimate_item ei join estimate e on e.estimate_id = ei.estimate_id"
+                + " where e.job_id = " + JOB_ID)).isEqualTo(1);
+        // 빈 코드·마스터에 없는 코드·items[] 와 겹치는 코드는 버리고, 같은 부위는 앞엣것을 남긴다.
+        // 앞엣것의 모르는 손상 유형·빈 사유는 그 칸만 비운다
+        assertThat(storedUnresolvedParts()).containsExactly(
+                new UnresolvedPart("HEAD_LAMP_L", null, null));
+    }
+
     // ── 낮은 신뢰도 파생 (S15P21A307-291) ───────────────────────────────────
 
     @Test
@@ -688,6 +782,28 @@ class AnalysisCallbackApiTest {
     private String jobStatus(long jobId) {
         return jdbcTemplate.queryForObject(
                 "select status from analysis_job where job_id = ?", String.class, jobId);
+    }
+
+    private void insertPartCode(String partCode, String nameKo, int displayOrder) {
+        jdbcTemplate.update("""
+                insert into part_code (part_code, name_ko, layout_zone, display_order, is_active)
+                values (?, ?, 'FRONT', ?, true)
+                """, partCode, nameKo, displayOrder);
+    }
+
+    /** 성공 본문의 {@code items} 뒤에 {@code unresolvedParts} 를 끼운다. */
+    private static String withUnresolvedParts(String body, String unresolvedPartsJson) {
+        return body.replace("\"imageResults\":", "\"unresolvedParts\":" + unresolvedPartsJson + ", \"imageResults\":");
+    }
+
+    private String storedUnresolvedPartsRaw() {
+        return jdbcTemplate.queryForObject(
+                "select cast(unresolved_parts as varchar) from estimate where job_id = ?",
+                String.class, JOB_ID);
+    }
+
+    private java.util.List<UnresolvedPart> storedUnresolvedParts() {
+        return unresolvedPartsReader.read(storedUnresolvedPartsRaw());
     }
 
     private int count(String whereClause) {

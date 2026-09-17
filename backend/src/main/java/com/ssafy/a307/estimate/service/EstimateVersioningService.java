@@ -34,22 +34,27 @@ public class EstimateVersioningService {
 
     /**
      * 산정된 견적을 다음 버전으로 저장한다. 첫 산정이면 버전 1이다.
+     *
+     * @param unresolvedParts 총액에서 빠진 부위의 JSON 배열(S15P21A307-534). 없으면 {@code null}
      */
     @Transactional
-    public Estimate append(Long jobId, Estimate.Amounts amounts, ConfidenceGrade confidenceGrade) {
+    public Estimate append(Long jobId, Estimate.Amounts amounts, ConfidenceGrade confidenceGrade,
+                           String unresolvedParts) {
         short version = nextVersion(jobId);
-        return save(Estimate.estimated(jobId, version, amounts, confidenceGrade));
+        return save(Estimate.estimated(jobId, version, amounts, confidenceGrade, unresolvedParts));
     }
 
     /**
      * 산정하지 못한 견적을 다음 버전으로 저장한다.
      * <p>
      * 행을 만들지 않으면 화면이 "분석 중"과 "분석은 끝났는데 산정이 안 됨"을 구분하지 못한다.
+     *
+     * @param unresolvedParts 산정하지 못한 부위의 JSON 배열(S15P21A307-534). 없으면 {@code null}
      */
     @Transactional
-    public Estimate appendNonEstimable(Long jobId, String reason) {
+    public Estimate appendNonEstimable(Long jobId, String reason, String unresolvedParts) {
         short version = nextVersion(jobId);
-        return save(Estimate.nonEstimable(jobId, version, reason));
+        return save(Estimate.nonEstimable(jobId, version, reason, unresolvedParts));
     }
 
     @Transactional(readOnly = true)
