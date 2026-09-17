@@ -83,7 +83,8 @@ class EstimateService:
             return _non_estimable("PART_NOT_RESOLVED", unresolved=[])
 
         case_ids = sorted({
-            case_id for part in strict_parts for case_id in part.get("referencedCaseIds", [])
+            int(case_id)
+            for part in strict_parts for case_id in part.get("referencedCaseIds", [])
         })
         part_codes = sorted({part["partCode"] for part in strict_parts})
         rows = self._repository.fetch_case_items(case_ids, part_codes)
@@ -142,7 +143,7 @@ def _resolve_item(
 ) -> dict[str, Any] | UnresolvedPart:
     part_code = part["partCode"]
     damage_type = part["damageType"]
-    case_ids: list[int] = part.get("referencedCaseIds", [])
+    case_ids: list[int] = [int(case_id) for case_id in part.get("referencedCaseIds", [])]
 
     case_costs: list[_CaseCost] = []
     for case_id in case_ids:
@@ -240,17 +241,28 @@ def _aggregate_case(case_id: int, part_code: str, rows: list[CostCaseRow]) -> _C
 
     if part_price_rows:
         # PART_PRICE 행 자체엔 work_code가 없다(DDL). 결국 이 사례의 부품 비용에
-        # 그대로 합산되므로, WORK 행이 하나라도 있으면(어떤 repairMethod든) 포함하고
-        # 없으면 무엇에 귀속시킬지 알 수 없으니 제외한다(exchange로 추정하지 않는다).
-        if work_rows:
+        # 그대로 합산되므로, 매핑된 WORK 행이 하나라도 있으면(어떤 repairMethod든)
+        # 포함하고 없으면 무엇에 귀속시킬지 알 수 없으니 제외한다(exchange로 추정하지 않는다).
+        if methods:
             for row in part_price_rows:
                 is_sc = config.USE_SOURCE_AWARE_COST_COLUMNS and row.source == "AIHUB_SC"
                 part_cost += (row.post_adjustment_part_cost if is_sc else row.part_cost) or 0
         else:
             logger.warning(
-                "PART_PRICE row(s) with no sibling WORK row: case_id=%s part_code=%s",
+                "PART_PRICE row(s) with no mapped WORK repairMethod: case_id=%s part_code=%s",
                 case_id, part_code,
             )
+
+    # 2026-09-17 팀 합의: 교환은 비용 대부분이 부품비인데, AS는 교환 행 부품비가
+    # 99.97% 결측이고 적재 시에도 다른 필드로 채우지 않는다. 부품비 0인 채로 계산에
+    # 넣으면 범위·중앙값이 왜곡되므로, 교환이 섞인 사례 중 부품비 합이 0(이하)이면
+    # 출처명이 아니라 이 조건으로 제외한다 (COST_POLICY §2-5, DUPLICATE_AND_MISSING_NOTES §B4).
+    if "exchange" in methods and part_cost <= 0:
+        logger.debug(
+            "exchange case with no part cost excluded: case_id=%s part_code=%s",
+            case_id, part_code,
+        )
+        return None
 
     total = part_cost + labor_cost + paint_material_cost
     if total <= 0:
