@@ -25,11 +25,11 @@ SSAFY 15기 · 팀 A307 · 2026-08-25 ~ 2026-09-17 (git 첫 커밋 ~ 현재)
 | 디렉터리 | 무엇이 있나 |
 | --- | --- |
 | `backend/` | Spring Boot 서버. `src/main/java` 498파일 · 컨트롤러 33개 · API 매핑 97개 |
-| `frontend/` | Vue SPA. 화면 25개 · 공용 컴포넌트 10개 · 스토어 4개 |
+| `frontend/` | Vue SPA. 화면 25개 · 공용 컴포넌트 10개 · 스토어 5개 |
 | `AI/` | FastAPI 추론 서버(`server/`) · 학습 스크립트(`training/`) · 모델 가중치(`models/`) |
 | `pipeline/` | 오프라인 데이터 파이프라인 (정규화 · 검증 · 적재) |
 | `shared/` | 파이프라인과 AI 서버가 **같은 결과를 내야 하는** 공용 파이썬 모듈 (ROI · 임베딩 · 정규화) |
-| `Docs/` | 설계·명세·데이터 노트 96개 → **[Docs/README.md](Docs/README.md) 가 안내판이다** |
+| `Docs/` | 설계·명세·데이터 노트 102개 → **[Docs/README.md](Docs/README.md) 가 안내판이다** |
 | `docker-compose.yml` | 로컬 개발용 PostgreSQL(pgvector) + Redis. **애플리케이션은 여기 없다** |
 
 ---
@@ -116,10 +116,11 @@ uvicorn app.main:app --app-dir AI/server --port 8000
 | 견적서 검증 (OCR → 판정 → 리포트) | 구현 · **워커 꺼짐 · 화면 없음** | `ESTIMATE_WORKER_ENABLED` · 판정 임계값은 `estimate_validation_rule` 테이블이 정본. FE 에 `/api/estimate-validations` 호출 코드가 없다 |
 | 검증 결과 PDF · 견적 PDF | 구현 · **꺼짐** | `VALIDATION_PDF_ENABLED` · `ESTIMATE_PDF_ENABLED` |
 | LLM 요약 · 정비 체크리스트 · 정비소 질문 | 구현 · **기본 꺼짐** | `ESTIMATE_SUMMARY_ENABLED` · `REPAIR_CHECKLIST_WORKER_ENABLED` · `REPAIR_QUESTION_WORKER_ENABLED`. `GMS_KEY` 없으면 503 |
-| LLM 벤더 `gpt-5.4` (OpenAI chat/completions) | 구현 · **실호출 미검증** | 기본값은 Gemini. 배포 env 가 OpenAI 로 바꾼다 |
+| LLM 벤더 `gpt-5.4` (OpenAI chat/completions) | 구현 · **GMS 직접 호출 확인** | 기본값은 Gemini. 배포 env 가 OpenAI 로 바꾼다. 2026-09-17 GMS 로 직접 호출해 `gpt-5.4-2026-03-05` 200 을 받았다. 앱을 거친 체크리스트 생성 완주는 아직 확인하지 않았다 |
 | 정비소 검색 (주변·지도) | 구현 · **화면은 백엔드를 안 쓴다** | BE `GET /api/repair-shops` 는 있으나 `ShopsView` 는 `lib/kakao.js` 로 카카오 지도 SDK 를 브라우저에서 직접 호출한다 |
 | 관리자 마스터 · 규칙 관리 (31 API) | 구현 · **화면 없음** | API·문서만 있고 관리자 UI 는 만들지 않았다 |
-| 체크리스트 화면 연동 | **일부** | 목록(`ChecklistsView`)은 `GET /api/accidents/me` 로 실제 사고를 그리고 `MyPageView` 가 완료 건수를 센다. 그러나 **생성 요청(POST)과 항목 렌더링은 화면에 없다** — `ChecklistView`·`ChecklistGeneratingView` 는 API 호출 0건이고, 정비소 질문 API 는 FE 클라이언트 자체가 없다 |
+| 체크리스트 화면 연동 | 구현 · **화면 연동** | `lib/api.js` 에 조회·생성(POST)·재생성·항목 추가/체크/삭제 6개 함수가 있고, `stores/checklist.js` 를 `ChecklistView`·`ChecklistGeneratingView`·`ChecklistsView` 가 쓴다 |
+| 정비소 질문 화면 | 구현 · **화면 없음** | BE `/api/accidents/{id}/repair-questions` 는 있으나 `lib/api.js` 에 호출 함수가 없다 |
 
 **테스트** — `cd backend && ./gradlew test` 기준 **1614건**.
 
@@ -132,5 +133,5 @@ uvicorn app.main:app --app-dir AI/server --port 8000
 
 ## 더 읽을 곳
 
-**[Docs/README.md](Docs/README.md)** — 문서 96개의 안내판. 스키마·API·AI 계약·데이터 노트로 가는 입구다.
+**[Docs/README.md](Docs/README.md)** — 문서 102개의 안내판. 스키마·API·AI 계약·데이터 노트로 가는 입구다.
 담당 범위는 [Docs/담당 범위.md](<Docs/담당 범위.md>) 에 있다.
