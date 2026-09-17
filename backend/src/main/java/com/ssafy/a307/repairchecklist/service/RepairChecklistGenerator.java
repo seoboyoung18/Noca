@@ -73,11 +73,13 @@ public class RepairChecklistGenerator {
                     "properties": {
                       "content": { "type": "string" }
                     },
-                    "required": ["content"]
+                    "required": ["content"],
+                    "additionalProperties": false
                   }
                 }
               },
-              "required": ["items"]
+              "required": ["items"],
+              "additionalProperties": false
             }
             """;
 

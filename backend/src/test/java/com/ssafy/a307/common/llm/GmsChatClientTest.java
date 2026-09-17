@@ -80,6 +80,25 @@ class GmsChatClientTest {
         }
 
         @Test
+        @DisplayName("OpenAI chat 모드는 Chat Completions 경로와 본문 형식을 쓴다")
+        void openAiChatUrlHeaderAndBody() {
+            Fixture fixture = fixture(GmsProvider.OPENAI, "gpt-5.4", OpenAiApi.CHAT, creditOk());
+            fixture.server.expect(requestTo(BASE + "/api.openai.com/v1/chat/completions"))
+                    .andExpect(header("Authorization", "Bearer " + KEY))
+                    .andExpect(jsonPath("$.model").value("gpt-5.4"))
+                    .andExpect(jsonPath("$.messages[0].role").value("developer"))
+                    .andExpect(jsonPath("$.messages[0].content").value("지시문"))
+                    .andExpect(jsonPath("$.messages[1].role").value("user"))
+                    .andExpect(jsonPath("$.max_completion_tokens").value(1024))
+                    .andExpect(jsonPath("$.max_output_tokens").doesNotExist())
+                    .andRespond(withSuccess(chatBody("{\"ok\":true}"), MediaType.APPLICATION_JSON));
+
+            fixture.client.complete(LlmChatPort.ChatRequest.textOnly("지시문", null));
+
+            fixture.server.verify();
+        }
+
+        @Test
         @DisplayName("모델명에 경로 문자가 있으면 요청을 만들지 않는다")
         void rejectsUnsafeModelName() {
             for (String unsafe : List.of("../secret", "models/x", "a:b", "with space", "")) {
@@ -97,7 +116,10 @@ class GmsChatClientTest {
         @DisplayName("구조화 출력 스키마를 벤더별 자리에 싣는다")
         void carriesResponseSchema() {
             LlmChatPort.JsonSchema schema = new LlmChatPort.JsonSchema(
-                    "items", "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"}}}");
+                    "items", """
+                            {"type":"object","properties":{"a":{"type":"string"}},
+                             "required":["a"],"additionalProperties":false}
+                            """);
 
             Fixture gemini = fixture(GmsProvider.GEMINI, "gemini-2.5-flash", creditOk());
             gemini.server.expect(requestTo(org.hamcrest.Matchers.containsString("generateContent")))
@@ -114,6 +136,16 @@ class GmsChatClientTest {
                     .andRespond(withSuccess(openAiBody("{\"a\":\"x\"}"), MediaType.APPLICATION_JSON));
             openAi.client.complete(LlmChatPort.ChatRequest.textOnly("지시문", schema));
             openAi.server.verify();
+
+            Fixture chat = fixture(GmsProvider.OPENAI, "gpt-5.4", OpenAiApi.CHAT, creditOk());
+            chat.server.expect(requestTo(org.hamcrest.Matchers.containsString("chat/completions")))
+                    .andExpect(jsonPath("$.response_format.type").value("json_schema"))
+                    .andExpect(jsonPath("$.response_format.json_schema.name").value("items"))
+                    .andExpect(jsonPath("$.response_format.json_schema.strict").value(true))
+                    .andExpect(jsonPath("$.response_format.json_schema.schema.type").value("object"))
+                    .andRespond(withSuccess(chatBody("{\"a\":\"x\"}"), MediaType.APPLICATION_JSON));
+            chat.client.complete(LlmChatPort.ChatRequest.textOnly("지시문", schema));
+            chat.server.verify();
         }
 
         @Test
@@ -138,6 +170,33 @@ class GmsChatClientTest {
                     .andRespond(withSuccess(openAiBody("{\"a\":1}"), MediaType.APPLICATION_JSON));
             openAi.client.complete(new LlmChatPort.ChatRequest("지시문", List.of(pdf), null));
             openAi.server.verify();
+
+            Fixture chat = fixture(GmsProvider.OPENAI, "gpt-5.4", OpenAiApi.CHAT, creditOk());
+            chat.server.expect(requestTo(org.hamcrest.Matchers.containsString("chat/completions")))
+                    .andExpect(jsonPath("$.messages[1].content[1].type").value("file"))
+                    .andExpect(jsonPath("$.messages[1].content[1].file.filename").value("attachment.pdf"))
+                    .andExpect(jsonPath("$.messages[1].content[1].file.file_data")
+                            .value("data:application/pdf;base64,JVBERg=="))
+                    .andRespond(withSuccess(chatBody("{\"a\":1}"), MediaType.APPLICATION_JSON));
+            chat.client.complete(new LlmChatPort.ChatRequest("지시문", List.of(pdf), null));
+            chat.server.verify();
+        }
+
+        @Test
+        @DisplayName("OpenAI chat 모드는 이미지 첨부를 image_url data URI 로 싣는다")
+        void carriesChatImageAttachment() {
+            LlmChatPort.Attachment image = new LlmChatPort.Attachment(
+                    "image/jpeg", new byte[]{1, 2, 3});
+            Fixture chat = fixture(GmsProvider.OPENAI, "gpt-5.4", OpenAiApi.CHAT, creditOk());
+            chat.server.expect(requestTo(org.hamcrest.Matchers.containsString("chat/completions")))
+                    .andExpect(jsonPath("$.messages[1].content[1].type").value("image_url"))
+                    .andExpect(jsonPath("$.messages[1].content[1].image_url.url")
+                            .value("data:image/jpeg;base64,AQID"))
+                    .andRespond(withSuccess(chatBody("{\"a\":1}"), MediaType.APPLICATION_JSON));
+
+            chat.client.complete(new LlmChatPort.ChatRequest("지시문", List.of(image), null));
+
+            chat.server.verify();
         }
     }
 
@@ -169,6 +228,27 @@ class GmsChatClientTest {
         }
 
         @Test
+        @DisplayName("OpenAI chat 응답의 JSON·모델·토큰 사용량을 파싱한다")
+        void parsesChatJsonWithMetadata() {
+            Fixture fixture = fixture(GmsProvider.OPENAI, "gpt-5.4", OpenAiApi.CHAT, creditOk());
+            fixture.server.expect(requestTo(org.hamcrest.Matchers.any(String.class)))
+                    .andRespond(withSuccess("""
+                            {"choices":[{"message":{"content":"{\\"items\\":[1,2]}"},
+                                          "finish_reason":"stop"}],
+                             "usage":{"prompt_tokens":120,"completion_tokens":40,"total_tokens":160},
+                             "model":"gpt-5.4-2026-03-05"}
+                            """, MediaType.APPLICATION_JSON));
+
+            LlmChatPort.ChatResult result =
+                    fixture.client.complete(LlmChatPort.ChatRequest.textOnly("지시문", null));
+
+            assertThat(result.json()).isEqualTo("{\"items\":[1,2]}");
+            assertThat(result.model()).isEqualTo("gpt-5.4-2026-03-05");
+            assertThat(result.usage().inputTokens()).isEqualTo(120);
+            assertThat(result.usage().outputTokens()).isEqualTo(40);
+        }
+
+        @Test
         @DisplayName("코드펜스로 감싸 와도 벗겨 낸다")
         void stripsCodeFence() {
             Fixture fixture = fixture(GmsProvider.GEMINI, "gemini-2.5-flash", creditOk());
@@ -188,6 +268,25 @@ class GmsChatClientTest {
                     .andRespond(withSuccess("""
                             {"candidates":[{"content":{"parts":[{"text":"{\\"a\\":"}]},
                                             "finishReason":"MAX_TOKENS"}]}
+                            """, MediaType.APPLICATION_JSON));
+
+            assertThatThrownBy(() -> fixture.client.complete(
+                    LlmChatPort.ChatRequest.textOnly("지시문", null)))
+                    .isInstanceOfSatisfying(LlmChatException.class, e -> {
+                        assertThat(e.reason()).isEqualTo(LlmChatException.Reason.TRUNCATED_RESPONSE);
+                        assertThat(e.isRetryable()).isFalse();
+                    });
+        }
+
+        @Test
+        @DisplayName("OpenAI chat finish_reason=length 는 잘린 응답이다")
+        void detectsChatTruncation() {
+            Fixture fixture = fixture(GmsProvider.OPENAI, "gpt-5.4", OpenAiApi.CHAT, creditOk());
+            fixture.server.expect(requestTo(org.hamcrest.Matchers.any(String.class)))
+                    .andRespond(withSuccess("""
+                            {"choices":[{"message":{"content":"{\\"a\\":"},
+                                          "finish_reason":"length"}],
+                             "model":"gpt-5.4"}
                             """, MediaType.APPLICATION_JSON));
 
             assertThatThrownBy(() -> fixture.client.complete(
@@ -384,8 +483,13 @@ class GmsChatClientTest {
      * "크레딧 때문에 호출이 안 나갔는지" 를 단언할 수 없다 — 요청 하나가 어느 쪽인지 구분되지 않는다.
      */
     private Fixture fixture(GmsProvider provider, String model, KeyInfoStub keyInfo) {
+        return fixture(provider, model, OpenAiApi.RESPONSES, keyInfo);
+    }
+
+    private Fixture fixture(
+            GmsProvider provider, String model, OpenAiApi openAiApi, KeyInfoStub keyInfo) {
         GmsProperties properties = new GmsProperties(
-                BASE, provider, model, Duration.ofSeconds(1), Duration.ofSeconds(2),
+                BASE, provider, model, openAiApi, Duration.ofSeconds(1), Duration.ofSeconds(2),
                 1024, 2, 1, Duration.ofMinutes(5));
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -449,6 +553,14 @@ class GmsChatClientTest {
                 {"output":[{"type":"message","content":[{"type":"output_text","text":"%s"}]}],
                  "usage":{"input_tokens":1,"output_tokens":1},
                  "model":"gpt-4o"}
+                """.formatted(text.replace("\"", "\\\""));
+    }
+
+    private static String chatBody(String text) {
+        return """
+                {"choices":[{"message":{"content":"%s"},"finish_reason":"stop"}],
+                 "usage":{"prompt_tokens":1,"completion_tokens":1},
+                 "model":"gpt-5.4"}
                 """.formatted(text.replace("\"", "\\\""));
     }
 }

@@ -56,6 +56,7 @@ class GmsLlmContextTest {
             GmsProperties properties = context.getBean(GmsProperties.class);
 
             assertThat(properties.provider()).isEqualTo(GmsProvider.GEMINI);
+            assertThat(properties.openAiApi()).isEqualTo(OpenAiApi.RESPONSES);
             assertThat(properties.isBaseUrlSecure()).isTrue();
             assertThat(properties.maxAttempts()).isBetween(1, 3);
         }

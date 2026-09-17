@@ -32,12 +32,14 @@ import java.util.Locale;
  * app.gms.base-url             APP_GMS_BASEURL      · APP_GMS_BASE_URL
  * app.gms.provider             APP_GMS_PROVIDER
  * app.gms.model                APP_GMS_MODEL
+ * app.gms.openai-api           APP_GMS_OPENAIAPI    · APP_GMS_OPENAI_API
  * app.gms.max-attempts         APP_GMS_MAXATTEMPTS  · APP_GMS_MAX_ATTEMPTS
  * </pre>
  *
  * @param baseUrl          GMS 프록시 기준 URL. 벤더 호스트를 포함한 경로가 이 뒤에 붙는다
  * @param provider         띄울 벤더 구현 하나를 고른다
  * @param model            벤더별 모델 이름. 코드에 박지 않는다
+ * @param openAiApi        OpenAI 호출 형식. 기본 {@code RESPONSES}, 선택 {@code CHAT}
  * @param connectTimeout   연결 타임아웃. 기본값에 의존하지 않는다
  * @param readTimeout      응답 타임아웃. 첨부가 큰 요청은 느리므로 넉넉히 잡되 무한은 안 된다
  * @param maxOutputTokens  출력 토큰 상한. <b>크레딧 보호 장치</b>다
@@ -54,6 +56,8 @@ public record GmsProperties(
         @NotNull GmsProvider provider,
 
         @NotBlank String model,
+
+        @NotNull OpenAiApi openAiApi,
 
         @NotNull Duration connectTimeout,
 

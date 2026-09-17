@@ -91,13 +91,15 @@ public class RepairQuestionGenerator {
                     "type": "object",
                     "properties": {
                       "content": { "type": "string" },
-                      "partCode": { "type": "string" }
+                      "partCode": { "type": ["string", "null"] }
                     },
-                    "required": ["content"]
+                    "required": ["content", "partCode"],
+                    "additionalProperties": false
                   }
                 }
               },
-              "required": ["questions"]
+              "required": ["questions"],
+              "additionalProperties": false
             }
             """;
 
@@ -159,7 +161,7 @@ public class RepairQuestionGenerator {
                 - 문장을 조각으로 쪼개지 마세요. 화면에서 이어 붙이지 않고 그대로 복사해 씁니다.
                 - 부품 이름은 위에 적힌 한글 이름을 그대로 쓰세요. 영문 코드를 문장에 넣지 마세요.
                 - 특정 부품에 대한 질문이면 partCode 에 위 목록의 부품코드를 그대로 적으세요.
-                  목록에 없는 코드를 지어내지 마세요. 부품과 무관한 질문이면 partCode 를 비웁니다.
+                  목록에 없는 코드를 지어내지 마세요. 부품과 무관한 질문이면 partCode 를 null 로 둡니다.
                 - 금액, 수리비, 공임 단가를 단정해 적지 마세요. 이 도구는 금액을 판정하지 않습니다.
                   금액을 물어보는 질문은 괜찮습니다.
                 - 정비소를 의심하거나 비난하는 표현을 쓰지 마세요. 사기, 허위, 바가지, 부당,
