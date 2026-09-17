@@ -35,7 +35,9 @@ search_service = SearchService(
     pipeline_version_id=settings.pipeline_version_id,
     top_k=settings.search_top_k,
 )
-analysis_service = AnalysisService(settings, inference_service)
+analysis_service = AnalysisService(
+    settings, inference_service, search_service, estimate_service,
+)
 
 app = FastAPI(title="A307 AI Server", version="0.1.0")
 app.include_router(build_router(

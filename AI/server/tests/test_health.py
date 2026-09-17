@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 from app.api.routes import build_router
@@ -32,7 +33,8 @@ class _Search:
 
 def _settings() -> Settings:
     return Settings(
-        internal_token="test-token", pipeline_version_id=1, inference_concurrency=1,
+        internal_token="test-token", pipeline_version_id=1, analysis_profile="production",
+        inference_concurrency=1,
         model_imgsz=960, part_weights=Path("part.pt"), damage_weights=Path("damage.pt"),
         part_model_version="1", damage_model_version="1", database_url="postgresql://test",
         embedding_model_name="model", embedding_model_revision="revision",
@@ -42,7 +44,10 @@ def _settings() -> Settings:
 
 class HealthRouteTest(unittest.TestCase):
     def test_health_reports_live_dependency_states(self):
-        router = build_router(_settings(), _Inference(True), _Search(_Repository(True)), _Embedding(True))
+        router = build_router(
+            _settings(), _Inference(True), _Search(_Repository(True)), _Embedding(True),
+            SimpleNamespace(can_orchestrate=True),
+        )
         endpoint = next(route.endpoint for route in router.routes if route.path == "/health")
 
         self.assertEqual(endpoint(), {

@@ -23,8 +23,16 @@ app/schemas/      HTTP 요청·응답 DTO
 - `POST /estimate`: `repair_case`·`repair_case_item`을 읽는 Postgres 비용 gateway를 통해
   견적을 계산한다. `DATABASE_URL`이 없거나 조회에 실패하면 `503 COST_DATA_UNAVAILABLE`을
   반환한다.
-- `POST /analyze`: `ANALYSIS_PROFILE=mock`일 때만 실제 inference 결과를 포함한
-  `202 → callback` mock 흐름을 실행한다. 기본 `production` 프로필에서는 아직 `501`이다.
+- `POST /analyze`: 기본 `production` 프로필에서 inference → search → estimate 를 이어
+  실행하고 백엔드 `callbackUrl` 로 **한 번만** 콜백한다(`202` 는 접수 응답이다).
+  사진이 전부 제외됐거나 손상이 하나도 없으면 검색·비용 조회를 건너뛰고 바로
+  `PART_NOT_RESOLVED`·`NO_DAMAGE_DETECTED` 로 끝낸다. 어느 단계에서 실패하든
+  `error` 를 담은 콜백으로 작업을 끝내며, `error.code` 는 오류·재시도 명세의 4종
+  (`IMAGE_FETCH_FAILED`·`INVALID_MODEL_OUTPUT`·`MODEL_ERROR`·`INTERNAL`)뿐이라
+  검색·비용 조회 실패는 `INTERNAL`(`retryable: true`)로 보낸다.
+  `ANALYSIS_PROFILE=mock`은 검색·견적을 타지 않고 실제 inference 결과만 담아
+  `estimable: false`로 콜백하는 BE 연동 테스트용 경로로 남는다. 검색·견적
+  서비스가 주입되지 않은 구성에서는 `501` 이다.
 
 `app/adapters/yolo_adapter.py`는 AI 서버 소유다. batch 적재와 실시간 분석에서 같은
 판정을 보장하기 위해 부품/손상 코드·ROI 매칭·정규화 규칙만
@@ -42,7 +50,7 @@ pip install -r AI/requirements.txt -r AI/server/requirements.txt
 $env:AI_INTERNAL_TOKEN = "<백엔드와 합의한 내부 토큰>"
 $env:FEATURE_PIPELINE_VERSION_ID = "<활성 feature_pipeline_version ID>"
 $env:DATABASE_URL = "postgresql://<AI서버 읽기전용 계정>:<password>@<host>:5432/<db>"
-$env:ANALYSIS_PROFILE = "mock"  # 오늘의 BE 연동 테스트에서만 사용
+# $env:ANALYSIS_PROFILE = "mock"  # 검색·비용 데이터 없이 BE 연동만 볼 때
 uvicorn app.main:app --app-dir AI/server --host 0.0.0.0 --port 8000 --reload
 ```
 
