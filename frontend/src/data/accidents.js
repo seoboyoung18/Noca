@@ -75,6 +75,14 @@ export function accidentDate(createdAt, now = new Date()) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** 짧은 날짜 — "9/5" (체크리스트 카드). 올해가 아니면 "2025/9/5" */
+export function accidentDateShort(createdAt, now = new Date()) {
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return ''
+  const md = `${d.getMonth() + 1}/${d.getDate()}`
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}/${md}`
+}
+
 /** 그룹 라벨 — 최근 7일은 "이번 주", 올해는 "M월", 그 전은 "YYYY년 M월". 목록이 createdAt 내림차순이라 그룹도 순서대로 쌓인다 */
 export function accidentGroupLabel(createdAt, now = new Date()) {
   const d = new Date(createdAt)

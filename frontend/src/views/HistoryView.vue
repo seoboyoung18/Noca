@@ -8,9 +8,8 @@ import BottomSheet from '../components/BottomSheet.vue'
 import { useAccidentStore } from '../stores/accidents'
 import { useEstimatePdf } from '../lib/estimatePdf'
 import { vehicleName } from '../data/vehicles'
-import { AUTH_GUARD_OFF } from '../router'
-import { fetchEstimate } from '../lib/api'
-import { accidentRoute, accidentStageText, accidentStatus, damageSummaryText, groupAccidents } from '../data/accidents'
+import { useAccidentDesc } from '../lib/accidentDesc'
+import { accidentRoute, accidentStatus, groupAccidents } from '../data/accidents'
 
 /* ===== 사고 이력 (S12d) — GET /api/accidents/me =====
  * 서버가 createdAt 내림차순 페이지로 주고, 그룹("이번 주"·"8월")·한글 배지·금액 포맷은 FE 가 만든다.
@@ -19,7 +18,7 @@ import { accidentRoute, accidentStageText, accidentStatus, damageSummaryText, gr
  * 사고와 체크리스트는 1:1 이라 숨기면 체크리스트도 함께 숨겨진다고 안내한다. 더보기(세로 ⋮) → 이력 숨기기 → 카드마다 숨기기 버튼 → 확인 시트.
  * 행 구성(S15P21A307-531): 사고마다 카드 하나 — 썸네일 | 차량명+상태 배지 · 사고 설명 | 오른쪽 세로 중앙에 PDF 아이콘 버튼.
  * 예상 금액·사진 장수·접수일은 행에서 뺐다(금액은 견적 화면·홈 카드에서, 날짜는 그룹 라벨로).
- * 사고 설명은 목록 API 에 없어 견적이 있는 행만 GET /api/estimates/{id} 로 항목을 받아 조립한다(행당 1회, 화면 밖 캐시).
+ * 사고 설명은 목록 API 에 없어 견적이 있는 행만 견적 항목으로 조립한다(lib/accidentDesc — 나의 체크리스트와 공유).
  */
 const router = useRouter()
 const store = useAccidentStore()
@@ -49,25 +48,9 @@ function confirmHide() {
 }
 function undoHide() { if (lastHidden.value != null) store.unhide(lastHidden.value); lastHidden.value = null; toast.value = '' }
 
-/* ===== 사고 설명 — 견적 항목의 부위·손상 유형으로 조립 =====
- * 견적은 확정 뒤 바뀌지 않으므로 estimateId 별로 모듈 캐시에 둔다. 실패한 행은 단계 문구로 대신한다.
- */
-const descCache = new Map() // estimateId → 문구
-const desc = reactive({}) // accidentId → 문구
-const MOCK_DESC = { 1: '프론트 범퍼, 헤드램프(좌) 외 2곳 파손' } // 가드 off 목업(견적 1)
-async function loadDesc(a) {
-  if (!a.estimateId) { desc[a.accidentId] = accidentStageText(a.status); return }
-  if (descCache.has(a.estimateId)) { desc[a.accidentId] = descCache.get(a.estimateId); return }
-  desc[a.accidentId] = '손상 정보 불러오는 중…'
-  let text = ''
-  try {
-    text = AUTH_GUARD_OFF ? (MOCK_DESC[a.estimateId] || '') : damageSummaryText((await fetchEstimate(a.estimateId)).items)
-  } catch { text = '' }
-  text = text || accidentStageText(a.status)
-  descCache.set(a.estimateId, text)
-  desc[a.accidentId] = text
-}
-watch(() => store.items, (items) => { for (const a of items) if (!(a.accidentId in desc)) loadDesc(a) }, { immediate: true })
+/* ===== 사고 설명 — 견적 항목의 부위·손상 유형으로 조립 (lib/accidentDesc) ===== */
+const { ensure: ensureDesc, text: descText } = useAccidentDesc()
+watch(() => store.items, ensureDesc, { immediate: true })
 
 /* ===== PDF 파일 받기 — 견적 id 기준 (요청 → 생성 대기 → 302 다운로드) =====
  * 판정은 estimateId !== null 하나(§5-3). null 이면 받을 PDF 가 없다는 뜻이라 버튼을 끈다.
@@ -147,7 +130,7 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
               <span class="nowrap" style="font-size:16px;font-weight:700;overflow:hidden;text-overflow:ellipsis">{{ vehicleName(a) }}</span>
               <span class="tag" style="flex:0 0 auto" :class="accidentStatus(a.status).cls">{{ accidentStatus(a.status).text }}</span>
             </span>
-            <span class="sub" style="font-size:13px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ desc[a.accidentId] || accidentStageText(a.status) }}</span>
+            <span class="sub" style="font-size:13px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ descText(a) }}</span>
           </span>
           <!-- 숨기기 모드: PDF 자리에 숨기기 버튼 -->
           <button v-if="hideMode" class="pdf hide" :aria-label="`${vehicleName(a)} 이력 숨기기`" @click.stop="askHide(a)">
