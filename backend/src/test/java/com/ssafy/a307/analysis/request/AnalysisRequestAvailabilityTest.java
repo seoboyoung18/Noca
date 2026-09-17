@@ -84,6 +84,21 @@ class AnalysisRequestAvailabilityTest {
         assertError(service, ErrorCode.NOT_FOUND);
     }
 
+    @Test
+    @DisplayName("재시도도 설정이 없으면 503 이고, 작업을 찾거나 만들지 않는다 (S15P21A307-161)")
+    void retryWithoutConfigurationIsUnavailable() {
+        ownedAccident();
+        AnalysisRequestService service = service(properties("http://ai.test", "http://backend.test"),
+                "token", Optional.empty());
+
+        assertThatThrownBy(() -> service.retry(1L, 7L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+        then(jobRepository).should(never()).findByAccidentIdAndMemberId(any(), any());
+        then(jobRepository).should(never()).saveAndFlush(any());
+    }
+
     private void ownedAccident() {
         given(accidentRepository.findByAccidentIdAndMemberId(7L, 1L))
                 .willReturn(Optional.of(mock(Accident.class)));

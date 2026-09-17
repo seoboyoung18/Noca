@@ -169,10 +169,12 @@ class AnalysisProgressServiceTest {
             // excludedImages 는 S15P21A307-186 에서 더했다. 이 목록에 넣어도 되는 이유는
             // 저장된 값(analysis_image_result.is_excluded · exclusion_reason)을 그대로
             // 전달할 뿐 서버가 만들어 낸 수치가 아니기 때문이다.
+            // retryCount 는 S15P21A307-161 에서 더했다. 같은 이유로 저장된 analysis_job.retry_count 를
+            // 그대로 전달한다 — 화면이 "다시 시도" 버튼을 보일지 정하는 데 쓴다.
             // 퍼센트와 남은 시간은 여전히 없고, 앞으로도 없어야 한다.
             assertThat(AnalysisProgressResponse.class.getRecordComponents())
                     .extracting(java.lang.reflect.RecordComponent::getName)
-                    .containsExactly("jobId", "status", "failureReason", "startedAt", "finishedAt",
+                    .containsExactly("jobId", "status", "failureReason", "retryCount", "startedAt", "finishedAt",
                             "totalStages", "doneStages", "currentStage", "stages", "excludedImages");
         }
 

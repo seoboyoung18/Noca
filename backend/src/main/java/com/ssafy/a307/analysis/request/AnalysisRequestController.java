@@ -37,4 +37,16 @@ public class AnalysisRequestController {
         return ApiResponse.of(analysisRequestService.request(
                 currentMemberProvider.currentMemberId(), accidentId));
     }
+
+    /**
+     * 실패한 분석을 다시 시도한다 (S15P21A307-161). 같은 사고에 작업을 새로 만들어 접수하고 202 다.
+     * 404(없는·남의 사고) · 503(AI 설정 없음) · 409(작업 없음·최신 작업이 실패가 아님·3회 초과) ·
+     * 400(보낼 사진 없음).
+     */
+    @PostMapping("/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ApiResponse<AnalysisProgressResponse> retry(@PathVariable Long accidentId) {
+        return ApiResponse.of(analysisRequestService.retry(
+                currentMemberProvider.currentMemberId(), accidentId));
+    }
 }
