@@ -254,6 +254,98 @@ def test_part_price_without_sibling_work_row_is_dropped_not_guessed_as_exchange(
     assert item["repairMethod"] == "repair"
 
 
+def test_as_exchange_case_without_part_cost_is_excluded():
+    # 2026-09-17 팀 합의: AS 교환 행은 부품비가 99.97% 결측이라, 공임만 있어도
+    # 부품비 0인 채로 계산에 넣지 않고 사례 자체를 제외한다.
+    rows = [_row(1, "PART_A", "WORK", work_code="EXCHANGE", labor_cost=50000)]
+
+    result = _aggregate_case(1, "PART_A", rows)
+
+    assert result is None
+
+
+def test_sc_exchange_case_with_part_price_is_included():
+    # SC는 PART_PRICE로 부품비가 채워지므로 제외 규칙에 걸리지 않아야 한다.
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="EXCHANGE", source="AIHUB_SC",
+             post_adjustment_part_cost=0, post_adjustment_labor_cost=50000),
+        _row(1, "PART_A", "PART_PRICE", source="AIHUB_SC", post_adjustment_part_cost=200000),
+    ]
+
+    result = _aggregate_case(1, "PART_A", rows)
+
+    assert result is not None
+    assert result.part_cost == 200000
+    assert result.labor_cost == 50000
+    assert result.total == 250000
+
+
+def test_all_as_exchange_cases_excluded_leads_to_insufficient_cases():
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="EXCHANGE", labor_cost=50000),
+        _row(2, "PART_A", "WORK", work_code="EXCHANGE", labor_cost=55000),
+        _row(3, "PART_A", "WORK", work_code="EXCHANGE", labor_cost=48000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", damage_type="Separated", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    assert result["estimable"] is False
+    assert result["nonEstimableReason"] == "INSUFFICIENT_CASES"
+    assert result["unresolvedParts"] == [
+        {"partCode": "PART_A", "damageType": "Separated", "reason": "INSUFFICIENT_CASES"},
+    ]
+
+
+def test_as_sheet_metal_and_coating_case_without_part_cost_is_not_excluded():
+    # 제외 규칙은 exchange에만 걸려야 한다 — 판금+도장(부품비 없음)은 그대로 포함.
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="SHEET_METAL", labor_cost=50000),
+        _row(1, "PART_A", "WORK", work_code="COATING", paint_material_cost=60000, labor_cost=30000),
+    ]
+
+    result = _aggregate_case(1, "PART_A", rows)
+
+    assert result is not None
+    assert result.methods == frozenset({"sheet_metal", "coating"})
+    assert result.part_cost == 0
+    assert result.total == 140000
+
+
+def test_part_price_not_attributed_when_work_row_exists_but_unmapped(caplog):
+    # WORK 행이 존재해도 매핑에 실패해 methods가 비어 있으면 PART_PRICE를 귀속하지 않는다.
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="TRULY_UNKNOWN", part_cost=99999),
+        _row(1, "PART_A", "PART_PRICE", part_cost=200000),
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="app.services.estimate_service"):
+        result = _aggregate_case(1, "PART_A", rows)
+
+    assert result is None  # 매핑된 비용이 없어 total이 0
+    assert any("no mapped WORK repairMethod" in r.getMessage() for r in caplog.records)
+
+
+def test_referenced_case_ids_as_strings_still_match_int_case_ids():
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="REPAIR", part_cost=60000, labor_cost=40000),
+        _row(2, "PART_A", "WORK", work_code="REPAIR", part_cost=70000, labor_cost=40000),
+        _row(3, "PART_A", "WORK", work_code="REPAIR", part_cost=80000, labor_cost=40000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", referenced_case_ids=["1", "2", "3"])  # 문자열로 옴
+
+    result = service.calculate(_request([part]))
+
+    assert result["estimable"] is True
+    item = result["items"][0]
+    assert item["refCaseCount"] == 3
+    assert set(item["referencedCaseIds"]) == {1, 2, 3}
+
+
 def test_totals_sum_each_items_p25_median_p75_across_multiple_parts():
     rows = [
         # part A: REPAIR, totals 100000/110000/120000
