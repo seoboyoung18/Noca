@@ -1,7 +1,7 @@
 -- S15P21A307-503 · 마이그레이션 적용 여부 확인
 --
 -- 무엇을 하나
---   Docs/Erd/migrations/ 의 2026-*.sql 9개가 이 DB 에 반영됐는지 파일별로 판정한다.
+--   Docs/Erd/migrations/ 의 2026-*.sql 10개가 이 DB 에 반영됐는지 파일별로 판정한다.
 --   (check-applied.sql 자신은 마이그레이션이 아니라 이 확인 스크립트다)
 --   각 파일이 만드는 대표 객체(테이블·컬럼·시드 행)의 존재로 판정한다.
 --
@@ -95,7 +95,13 @@ WITH probe(seq, migration, object_kind, detail, applied) AS (
     (9, '2026-09-15-accident-review.sql', '테이블 1',
         'accident_review',
         EXISTS (SELECT 1 FROM information_schema.tables
-                 WHERE table_schema = 'public' AND table_name = 'accident_review'))
+                 WHERE table_schema = 'public' AND table_name = 'accident_review')),
+
+    (10, '2026-09-17-estimate-unresolved-parts.sql', '컬럼 1',
+        'estimate.unresolved_parts',
+        EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'estimate' AND column_name = 'unresolved_parts'))
 )
 SELECT seq                                AS "#",
        CASE WHEN applied THEN 'O' ELSE 'X' END AS "적용",
@@ -123,8 +129,8 @@ SELECT code                                     AS "코드",
 
 -- 행이 하나도 안 나오면 시드가 빠진 것이다.
 -- LEGAL_NOTICE 가 없으면 리포트 전체가 500 이 난다 (2026-09-14 에 실제로 났다).
--- GUIDANCE_LIMIT_NOTICE 가 없으면 체크리스트 조회의 notice 와 리포트의
--- guidanceNotice 가 null 이 된다 (앱은 정상 기동한다).
+-- GUIDANCE_LIMIT_NOTICE 가 없으면 체크리스트 조회의 notice 가 null 이 된다
+-- (앱은 정상 기동한다). 리포트는 2026-09-17 부터 이 문구를 싣지 않는다 (S15P21A307-533).
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 전체 테이블 수 — 정본과 맞는지 눈으로 확인
