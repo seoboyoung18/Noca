@@ -139,17 +139,18 @@ OpenAI `gpt-5.4` 로 바꾼다.
 | 사고 접수 · 사진 업로드 | 구현 · 화면 연동 | S3 presigned. 버킷 미설정이면 503 |
 | 사진 품질 판정 | 구현 · **꺼짐** | `app.image-quality.enabled=false` |
 | 분석 결과 · 견적 조회 · 리포트 | 구현 · 화면 연동 | `EstimateView` · `ReportView` |
-| AI 분석 요청 · 콜백 수신 | 구현 · **워커 꺼짐** | `ANALYSIS_REQUEST_WORKER_ENABLED` |
+| AI 분석 요청 · 콜백 수신 | 구현 · **배포에서 켜짐** | `ANALYSIS_REQUEST_WORKER_ENABLED=true` (운영 컨테이너 env). 워커가 큐를 집어 AI 서버에 보내고, 결과는 `POST /internal/analysis-jobs/{jobId}/result` 로 받는다 |
 | AI 손상 인식 (`POST /inference`) | 구현 | YOLO 2모델 → 표준화 결과 |
 | AI 유사 사례 검색 (`POST /search`) | 구현 | ROI 임베딩 + pgvector. `FEATURE_PIPELINE_VERSION_ID` 없으면 503 |
 | AI 수리비 산정 (`POST /estimate`) | 구현 | 수리 사례 DB 조회. 데이터 없으면 503 |
-| AI 분석 오케스트레이션 (`POST /analyze`) | 구현 · **실경로** | 추론 → 검색 → 견적을 이어 실행하고 실제 견적 값(`totals` · `confidenceGrade`)을 콜백한다. `ANALYSIS_PROFILE=mock` 은 BE 연동 테스트 전용이며 여기서는 `estimable: false` 다 |
-| 견적서 검증 (OCR → 판정 → 리포트) | 구현 · **워커 꺼짐 · 화면 없음** | `ESTIMATE_WORKER_ENABLED`. FE 에 호출 코드가 없다 |
-| 검증 결과 PDF · 견적 PDF | 구현 · **꺼짐** | `VALIDATION_PDF_ENABLED` · `ESTIMATE_PDF_ENABLED` |
-| LLM 요약 · 체크리스트 · 정비소 질문 | 구현 · **기본 꺼짐** | `ESTIMATE_SUMMARY_ENABLED` · `REPAIR_CHECKLIST_WORKER_ENABLED` · `REPAIR_QUESTION_WORKER_ENABLED`. `GMS_KEY` 없으면 503 |
+| AI 분석 오케스트레이션 (`POST /analyze`) | 구현 · **운영에서 실경로로 동작** | 추론 → 검색 → 견적을 이어 실행하고 실제 견적 값(`totals` · `confidenceGrade`)을 콜백한다. 운영 컨테이너가 `ANALYSIS_PROFILE=production` · `FEATURE_PIPELINE_VERSION_ID=1` 이고 `/health` 가 `modelsLoaded` · `embeddingModelLoaded` 를 `true` 로 보고한다. `ANALYSIS_PROFILE=mock` 은 BE 연동 테스트 전용이며 그 경우에만 `estimable: false` 다 |
+| 견적서 검증 (OCR → 판정 → 리포트) | **백엔드 구현 · 이번 범위 제외** | 판정 규칙·리포트·PDF 까지 백엔드 101개 파일로 완성. OCR 판독 벤더(`ESTIMATE_OCR_PROVIDER`)를 확정하지 않아 이번 범위에서 제외했다 — 사진 기반 견적을 먼저 완성하는 쪽을 택했다 |
+| 견적 PDF | 구현 · **배포에서 켜짐** | `ESTIMATE_PDF_ENABLED=true` (운영 컨테이너 env) |
+| 검증 결과 PDF | 구현 · **꺼짐** | `VALIDATION_PDF_ENABLED`. 견적서 검증과 함께 이번 범위에서 제외 |
+| LLM 리포트 요약 · 체크리스트 · 정비소 질문 | 구현 · **배포에서 켜짐** | 운영 컨테이너 env 가 `ESTIMATE_NARRATIVE_WORKER_ENABLED` · `REPAIR_CHECKLIST_WORKER_ENABLED` · `REPAIR_QUESTION_WORKER_ENABLED` 를 `true` 로 둔다. 저장소 기본값은 `false` 이고 `GMS_KEY` 없으면 503 |
 | 체크리스트 화면 | 구현 · 화면 연동 | `stores/checklist.js` 를 세 화면이 쓴다 |
-| 정비소 검색 | 구현 · **화면은 백엔드를 안 쓴다** | BE `GET /api/repair-shops` 는 있으나 `ShopsView` 가 카카오 지도 SDK 를 브라우저에서 직접 호출한다 |
-| 정비소 질문 화면 | 구현 · **화면 없음** | BE API 는 있으나 `lib/api.js` 에 호출 함수가 없다 |
+| 정비소 검색 | 구현 · **카카오 지도 SDK 직접 연동** | `ShopsView` 가 브라우저에서 카카오 지도 SDK 를 직접 부른다. 지도 렌더링과 검색 결과가 같은 SDK 에서 나와 좌표가 어긋나지 않고, 서버를 한 번 거치지 않아 응답이 빠르다. BE `GET /api/repair-shops` 는 서버 경유가 필요해질 때를 위해 남겨 두었다 |
+| 정비소 질문 | **백엔드 구현 · 이번 범위 제외** | API·스키마·LLM 워커까지 완성. 정비 체크리스트가 "정비소에서 확인할 항목" 이라는 같은 목적을 덮어, 화면을 둘로 나누지 않기로 했다 |
 | 관리자 마스터 · 규칙 관리 | **백엔드 구현 · 화면 미구현** | 마스터·규칙 관리 API 34개와 문서는 완성. 관리자 UI 는 이번 범위에서 제외했다 — 사용자 화면을 먼저 완성하는 쪽을 택했다 |
 
 ## 기술문서
@@ -168,7 +169,7 @@ OpenAI `gpt-5.4` 로 바꾼다.
   39,676 사례(`dataset_split=TRAIN_ONLY`)라 약 1/39 다. 조건에 맞는 유사 사례·유효 비용
   행이 부족하면 `estimable: false` / `INSUFFICIENT_CASES` 로 응답한다. 검색·임베딩 로직
   확정 후 전수 적재 예정.
-- 관리자 API 34개와 정비소 질문 API 는 화면이 없다.
+- 관리자 API 34개와 정비소 질문 API 는 백엔드만 있고 화면은 이번 범위에서 제외했다.
 - 정비소 검색 화면은 백엔드 API 를 쓰지 않고 카카오 지도 SDK 를 직접 호출한다.
 - 기능 플래그 대부분이 배포에서 꺼져 있다. 위 표의 스위치를 참고한다.
 - 스키마 변경은 사람이 적용한다. 순서를 틀리면 앱 전체가 기동하지 않는다.
