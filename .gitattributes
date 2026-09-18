@@ -1,0 +1,6 @@
+# 셸 스크립트는 언제나 LF 로 둔다.
+#
+# Windows 작업 트리에서 CRLF 로 바뀌면 그 파일을 그대로 리눅스 서버에 올렸을 때
+# `#!/usr/bin/env bash\r` 이 되어 "command not found" 로 죽는다.
+# Docs/Architecture/analysis-latency.sh 는 서버에 scp 해서 쓰는 파일이라 실제로 걸린다.
+*.sh text eol=lf
