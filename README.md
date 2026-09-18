@@ -143,7 +143,7 @@ OpenAI `gpt-5.4` 로 바꾼다.
 | AI 손상 인식 (`POST /inference`) | 구현 | YOLO 2모델 → 표준화 결과 |
 | AI 유사 사례 검색 (`POST /search`) | 구현 | ROI 임베딩 + pgvector. `FEATURE_PIPELINE_VERSION_ID` 없으면 503 |
 | AI 수리비 산정 (`POST /estimate`) | 구현 | 수리 사례 DB 조회. 데이터 없으면 503 |
-| AI 분석 오케스트레이션 (`POST /analyze`) | **목 프로파일까지** | `ANALYSIS_PROFILE=mock` 에서만 202. 목은 YOLO 추론은 실제로 하지만 `estimable: false` 로 답한다 |
+| AI 분석 오케스트레이션 (`POST /analyze`) | 구현 · **실경로** | 추론 → 검색 → 견적을 이어 실행하고 실제 견적 값(`totals` · `confidenceGrade`)을 콜백한다. `ANALYSIS_PROFILE=mock` 은 BE 연동 테스트 전용이며 여기서는 `estimable: false` 다 |
 | 견적서 검증 (OCR → 판정 → 리포트) | 구현 · **워커 꺼짐 · 화면 없음** | `ESTIMATE_WORKER_ENABLED`. FE 에 호출 코드가 없다 |
 | 검증 결과 PDF · 견적 PDF | 구현 · **꺼짐** | `VALIDATION_PDF_ENABLED` · `ESTIMATE_PDF_ENABLED` |
 | LLM 요약 · 체크리스트 · 정비소 질문 | 구현 · **기본 꺼짐** | `ESTIMATE_SUMMARY_ENABLED` · `REPAIR_CHECKLIST_WORKER_ENABLED` · `REPAIR_QUESTION_WORKER_ENABLED`. `GMS_KEY` 없으면 503 |
@@ -164,8 +164,10 @@ OpenAI `gpt-5.4` 로 바꾼다.
 
 ## 알려진 제한사항
 
-- `POST /analyze` 오케스트레이션은 목 프로파일까지만 확인됐다. 실제 추론 프로파일의 종단
-  동작은 검증하지 못했다.
+- 검색 corpus 는 DEV 표본 1,000 사례만 적재돼 있다. 누수 없이 적재 가능한 전체 대상은
+  39,676 사례(`dataset_split=TRAIN_ONLY`)라 약 1/39 다. 조건에 맞는 유사 사례·유효 비용
+  행이 부족하면 `estimable: false` / `INSUFFICIENT_CASES` 로 응답한다. 검색·임베딩 로직
+  확정 후 전수 적재 예정.
 - 관리자 API 34개와 정비소 질문 API 는 화면이 없다.
 - 정비소 검색 화면은 백엔드 API 를 쓰지 않고 카카오 지도 SDK 를 직접 호출한다.
 - 기능 플래그 대부분이 배포에서 꺼져 있다. 위 표의 스위치를 참고한다.
