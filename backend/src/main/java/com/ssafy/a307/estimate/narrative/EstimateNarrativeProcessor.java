@@ -127,7 +127,7 @@ public class EstimateNarrativeProcessor {
 
         return new EstimateNarrativeContext(
                 vehicle.getManufacturer(), vehicle.getModelName(), vehicle.getModelYear(),
-                estimate.estimable(), estimate.nonEstimableReason(), estimate.confidenceGrade(),
+                estimate.estimable(), estimate.nonEstimableReason(),
                 estimate.totalMin(), estimate.totalMedian(), estimate.totalMax(),
                 estimate.refCaseTotal(), items, unresolved);
     }

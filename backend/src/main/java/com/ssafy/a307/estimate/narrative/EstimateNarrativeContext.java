@@ -19,7 +19,6 @@ public record EstimateNarrativeContext(
         Short modelYear,
         boolean estimable,
         String nonEstimableReason,
-        String confidenceGrade,
         Integer totalMin,
         Integer totalMedian,
         Integer totalMax,

@@ -128,6 +128,14 @@ public class EstimateNarrativeGenerator {
      *
      * <p>표현 제약은 {@code ReportNarrativeGenerator} · {@code RepairChecklistGenerator} 와 같은
      * 선이다 — 이 문서는 사용자가 정비소·보험사에 들고 가는 것이지 그들을 고발하는 문서가 아니다.
+     *
+     * <p><b>신뢰도 등급을 넘기지 않는다</b> (S15P21A307-547). 넘겼더니 "신뢰도는 LOW이므로" 가
+     * 요약에 그대로 실렸는데, 하단 고지가 이미 참고용 추정치임을 밝히고 있어 같은 말을 두 번
+     * 하는 셈이었다. 등급이 필요한 화면은 {@code EstimateResponse} 로 따로 받는다.
+     *
+     * <p><b>금액은 넘기되 문장에 옮겨 적지 못하게 한다.</b> 값을 알아야 "경미하다" 와 "큰
+     * 수리다" 를 가려 쓸 수 있지만, 숫자를 다시 적으면 바로 위 표와 같은 말이 두 번 나온다 —
+     * {@code EstimateReportResponse.Narrative} 가 애초에 "숫자가 없다" 고 정한 자리다.
      */
     private String instruction(EstimateNarrativeContext context) {
         return """
@@ -136,7 +144,6 @@ public class EstimateNarrativeGenerator {
 
                 차량: %s %s %s
                 견적: %s
-                신뢰도 등급: %s
                 참조한 유사 사례: %s
 
                 항목:
@@ -146,16 +153,18 @@ public class EstimateNarrativeGenerator {
                 %s
 
                 써야 할 것:
-                1) summary — 이 견적을 어떻게 읽어야 하는지 한 문단. 300자 이내.
-                   무엇이 손상됐고 어떤 수리 방식이며 이 금액이 무엇을 뜻하는지 적습니다.
+                1) summary — 이 견적을 어떻게 읽어야 하는지 두세 문장. 200자 이내.
+                   무엇이 손상됐고 어떤 수리 방식인지, 이 추정치를 무엇에 쓰면 되는지 적습니다.
                    산정하지 못한 견적이면 왜 그런지와 다음에 무엇을 하면 되는지를 적습니다.
-                2) cautions — 지금 확인해 두면 좋은 것 %d개 이내. 한 줄에 한 가지, 80자 이내.
+                2) cautions — 지금 확인해 두면 좋은 것 %d개 이내. 한 줄에 한 가지, 60자 이내.
                 3) basisNotes — 위 항목의 "근거" 문장을 더 읽기 쉽게 다듬은 것.
                    partCode 는 위 목록에 있는 것만 씁니다. 근거가 없는 항목은 넣지 마세요.
 
                 규칙:
                 - 위에 적힌 정보에만 근거해서 쓰세요. 없는 손상이나 부품을 덧붙이지 마세요.
                 - 금액을 새로 계산하거나 바꾸지 마세요. 숫자는 위에 적힌 그대로 씁니다.
+                - summary 와 cautions 에는 금액을 옮겨 적지 마세요. 바로 위 표에 이미 있습니다.
+                  문장은 그 숫자를 어떻게 읽을지만 말합니다.
                 - basisNotes 는 원문에 없는 숫자를 넣지 마세요. 표현만 다듬습니다.
                 - 이 금액은 예상값입니다. 확정 금액이나 보상 금액처럼 쓰지 마세요.
                 - 정비소나 보험사를 의심하거나 비난하는 표현을 쓰지 마세요. 사기, 허위, 바가지,
@@ -167,7 +176,6 @@ public class EstimateNarrativeGenerator {
                 blankToUnknown(context.modelName()),
                 context.modelYear() == null ? "" : context.modelYear() + "년식",
                 totalLine(context),
-                blankToUnknown(context.confidenceGrade()),
                 context.refCaseTotal() == null ? "(미상)" : context.refCaseTotal() + "건",
                 itemLines(context),
                 unresolvedLines(context),

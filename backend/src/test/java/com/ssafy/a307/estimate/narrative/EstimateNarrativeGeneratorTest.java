@@ -29,7 +29,7 @@ class EstimateNarrativeGeneratorTest {
     /** 근거가 있는 부위 하나와 없는 부위 하나. 지시문에 적히는 것도 이 둘뿐이다. */
     private static final EstimateNarrativeContext CONTEXT = new EstimateNarrativeContext(
             "현대", "아반떼", (short) 2020,
-            true, null, "HIGH", 700_000, 800_000, 900_000, 12,
+            true, null, 700_000, 800_000, 900_000, 12,
             List.of(new EstimateNarrativeContext.ItemView(
                             "FRONT_BUMPER", "앞 범퍼", "교환", 800_000, 12, BASIS),
                     new EstimateNarrativeContext.ItemView(
@@ -218,7 +218,7 @@ class EstimateNarrativeGeneratorTest {
     @DisplayName("산정 불가 견적에도 요약을 만든다")
     void worksForNonEstimable() {
         EstimateNarrativeContext nonEstimable = new EstimateNarrativeContext(
-                "현대", "아반떼", (short) 2020, false, "INSUFFICIENT_CASES", null,
+                "현대", "아반떼", (short) 2020, false, "INSUFFICIENT_CASES",
                 null, null, null, null, List.of(), List.of());
         port.json = """
                 {

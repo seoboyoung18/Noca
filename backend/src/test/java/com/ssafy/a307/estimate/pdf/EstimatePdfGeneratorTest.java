@@ -50,7 +50,7 @@ class EstimatePdfGeneratorTest {
     }
 
     @Test
-    @DisplayName("한글·번호·금액·고지 문구가 텍스트로 들어가고, 오버레이 없는 칸은 분석 이미지 없음이다")
+    @DisplayName("한글·번호·금액·고지 문구가 텍스트로 들어간다")
     void rendersKoreanPdf() throws Exception {
         byte[] pdf = generator.generate(document(report(true)));
 
@@ -61,8 +61,20 @@ class EstimatePdfGeneratorTest {
                 .contains("R-20260911-0001")
                 .contains("현대 아반떼")
                 .contains("700,000 ~ 900,000원")
-                .contains("분석 이미지 없음")
                 .contains("참고용 추정치");
+    }
+
+    /**
+     * S15P21A307-547 이전에는 오버레이가 없으면 "분석 이미지 없음" 이 그려졌다. 오버레이가
+     * 2026-09-11 에 폐기돼 그 문구가 <b>모든 리포트에 항상</b> 떴고, 사진 칸이 통째로 비었다.
+     * 이제 그 자리에 사용자가 올린 사진이 들어간다 — 읽지도 못했을 때만 빈칸이다.
+     */
+    @Test
+    @DisplayName("사진을 실었으면 분석 이미지 없음 문구가 나오지 않는다")
+    void noPlaceholderWhenPhotoIsRendered() throws Exception {
+        String text = extract(generator.generate(document(report(true))));
+
+        assertThat(text).doesNotContain("분석 이미지 없음");
     }
 
     @Test
@@ -143,6 +155,33 @@ class EstimatePdfGeneratorTest {
     }
 
     /**
+     * 오버레이는 2026-09-11 에 폐기돼 키가 늘 비어 있다. 그 자리에 <b>사용자가 올린 사진</b>을
+     * 싣는 것이 S15P21A307-547 이고, 캡션이 둘을 구분한다 — 파손 표시가 없는 사진을
+     * "분석 이미지" 라고 부르면 없는 근거가 있는 것처럼 보인다.
+     */
+    @Test
+    @DisplayName("오버레이가 아닌 사진은 캡션이 업로드한 사진이라고 밝힌다 (S15P21A307-547)")
+    void marksUploadedPhoto() throws Exception {
+        String text = extract(generator.generate(document(report(true))));
+
+        assertThat(text)
+                .contains("FRONT · 분석 표시 포함")
+                .contains("REAR · 업로드한 사진")
+                .doesNotContain("분석 이미지 없음");
+    }
+
+    /** 중앙값 하나만 보여 주면 "왜 이 금액인지" 를 알 수 없다 (S15P21A307-547). */
+    @Test
+    @DisplayName("금액 구성(부품·공임·도장)이 표에 들어간다")
+    void rendersCostBreakdown() throws Exception {
+        String text = extract(generator.generate(document(report(true))));
+
+        assertThat(text)
+                .contains("부품").contains("공임").contains("도장")
+                .contains("87,900").contains("92,000").contains("33,200");
+    }
+
+    /**
      * 추출한 텍스트의 공백·하이픈 변형을 일반 문자로 맞춘다. 렌더러가 줄바꿈 제어를 위해 하이픈을
      * U+2011(줄바꿈 없는 하이픈)로, 공백을 다른 공백 문자로 그려 추출 결과가 달라진다 — 화면 표시는 같다.
      */
@@ -156,8 +195,8 @@ class EstimatePdfGeneratorTest {
 
     private static EstimatePdfDocument document(EstimateReportResponse report) {
         return new EstimatePdfDocument("R-20260911-0001", report,
-                List.of(new EstimatePdfDocument.Image(1L, "FRONT", PNG_DATA_URI),
-                        new EstimatePdfDocument.Image(2L, "REAR", null)),
+                List.of(new EstimatePdfDocument.Image(1L, "FRONT", PNG_DATA_URI, true),
+                        new EstimatePdfDocument.Image(2L, "REAR", PNG_DATA_URI, false)),
                 Instant.parse("2026-09-11T03:00:00Z"));
     }
 
@@ -176,7 +215,7 @@ class EstimatePdfGeneratorTest {
         Instant now = Instant.parse("2026-09-11T03:00:00Z");
         List<EstimateItemResponse> items = estimable
                 ? List.of(new EstimateItemResponse(1L, "FRONT_BUMPER", "앞 범퍼", "FRONT", "Crushed",
-                        "exchange", "교환", new BigDecimal("1.50"), null, 92_000,
+                        "exchange", "교환", new BigDecimal("1.50"), 87_900, 92_000, 33_200,
                         700_000, 800_000, 900_000, 12, false))
                 : List.of();
         EstimateResponse estimate = estimable

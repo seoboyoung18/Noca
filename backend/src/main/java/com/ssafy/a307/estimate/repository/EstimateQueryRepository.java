@@ -53,6 +53,7 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
                    pc.layout_zone AS layoutZone, dp.damage_type AS damageType,
                    ei.repair_method AS repairMethod, ei.standard_hq AS standardHq,
                    ei.part_cost_median AS partCostMedian, ei.labor_cost_median AS laborCostMedian,
+                   ei.paint_material_cost AS paintMaterialCost,
                    ei.item_min AS itemMin, ei.item_median AS itemMedian, ei.item_max AS itemMax,
                    ei.ref_case_count AS refCaseCount, ei.is_low_confidence AS lowConfidence
               FROM estimate_item ei
@@ -171,6 +172,12 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
         Integer getPartCostMedian();
 
         Integer getLaborCostMedian();
+
+        /**
+         * 도장 재료비 (S15P21A307-547). AI 가 항목별로 내려 주는 값이고 <b>없을 수 있다</b> —
+         * 도장을 하지 않는 수리 방식이면 비어 있다.
+         */
+        Integer getPaintMaterialCost();
 
         Integer getItemMin();
 

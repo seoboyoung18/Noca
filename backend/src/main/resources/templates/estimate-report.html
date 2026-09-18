@@ -32,8 +32,18 @@
         tr { page-break-inside: avoid; }
 
         .image-cell { text-align: center; }
-        .image-cell img { max-width: 100%; max-height: 95mm; }
+        .image-cell img { max-width: 100%; max-height: 95mm; display: block; }
         .no-image { color: #777; padding: 12mm 0; margin: 0; }
+
+        /* 파손 위치 박스 (S15P21A307-547). 틀은 사진 크기를 그대로 따르고(inline-block),
+           박스는 그 안에서 퍼센트로 자리를 잡는다 - 사진을 얼마로 줄이든 같은 곳을 가리킨다.
+           색은 화면과 같은 파랑이다. 같은 손상을 두 문서가 다른 색으로 칠하지 않는다. */
+        .photo { position: relative; display: inline-block; }
+        /* 틀이 정해진 사진만 꽉 채운다. 치수를 모르는 사진은 위의 max-* 규칙으로 그린다. */
+        .photo img.fill { width: 100%; height: 100%; max-width: none; max-height: none; }
+        .box { position: absolute; border: 1.2pt solid #1E88E5; }
+        .box-no { position: absolute; left: 0; top: 0; background: #1E88E5; color: #fff;
+                  font-size: 7.5pt; font-weight: bold; padding: 0.3mm 1.2mm; }
         .caption { font-size: 8pt; color: #666; margin: 1mm 0 0 0; }
 
         .notice { margin-top: 8mm; padding: 3mm; border: 1px solid #999; background: #f7f7f7;
@@ -68,19 +78,43 @@
     </tbody>
 </table>
 
-<h2>파손 분석 이미지</h2>
+<h2>파손 사진</h2>
 <p class="empty" th:if="${#lists.isEmpty(doc.images())}">분석에 사용된 사진이 없습니다.</p>
 <table th:unless="${#lists.isEmpty(doc.images())}">
     <tbody>
     <tr th:each="img : ${doc.images()}">
         <td class="image-cell">
-            <img th:if="${img.hasOverlay()}" th:src="${img.dataUri()}" alt="파손 분석 이미지"/>
-            <p class="no-image" th:unless="${img.hasOverlay()}">분석 이미지 없음</p>
-            <p class="caption" th:text="${img.angleCode() != null} ? ${img.angleCode()} : ''">촬영 각도</p>
+            <!-- 오버레이가 있으면 그것을, 없으면 사용자가 올린 사진을 싣는다 (S15P21A307-547).
+                 캡션이 둘을 구분한다 — 파손 표시가 없는 사진을 "분석 이미지" 라고 부르면
+                 없는 근거가 있는 것처럼 보인다. -->
+            <div class="photo" th:if="${img.hasImage()}"
+                 th:style="${img.hasFrame()}
+                           ? |width:${img.frame().widthMm()}mm;height:${img.frame().heightMm()}mm|
+                           : _">
+                <img th:src="${img.dataUri()}" alt="파손 사진"
+                     th:class="${img.hasFrame()} ? 'fill' : null"/>
+                <!-- AI 가 보낸 좌표 그대로다. 화면이 그리는 것과 같은 값이라 두 문서가
+                     같은 자리를 가리킨다. 좌표나 치수를 모르면 목록이 비어 사진만 나간다. -->
+                <span class="box" th:each="box : ${img.boxes()}"
+                      th:style="|left:${box.left()}%;top:${box.top()}%;width:${box.width()}%;height:${box.height()}%|">
+                    <span class="box-no" th:if="${box.hasNumber()}"
+                          th:text="${box.number()}">1</span>
+                </span>
+            </div>
+            <p class="no-image" th:unless="${img.hasImage()}">사진을 읽지 못했습니다</p>
+            <p class="caption"
+               th:text="${(img.angleCode() != null ? img.angleCode() + ' · ' : '')
+                        + (img.hasOverlay() ? '분석 표시 포함' : '업로드한 사진')}">촬영 각도</p>
         </td>
     </tr>
     </tbody>
 </table>
+<!-- 박스가 하나라도 있을 때만 적는다. 없는 표시를 설명하면 "왜 안 보이지" 가 된다. -->
+<p class="caption" th:if="${#lists.size(doc.images().?[hasBoxes()]) > 0}">
+    파란 사각형은 AI 가 인식한 손상 부위이고, 번호는 아래 예상 수리비 표의 순번과 같습니다.</p>
+<p class="empty"
+   th:if="${#lists.size(report.images()) > #lists.size(doc.images())}"
+   th:text="${'외 ' + (#lists.size(report.images()) - #lists.size(doc.images())) + '장은 분석에 함께 쓰였지만 문서에는 싣지 않았습니다.'}">외 N장</p>
 
 <h2>예상 수리비</h2>
 <p class="total"
@@ -107,19 +141,33 @@
     <tr>
         <th>부위</th>
         <th>수리 방식</th>
-        <th>예상 범위</th>
+        <th>부품</th>
+        <th>공임</th>
+        <th>도장</th>
         <th>중앙값</th>
         <th>참조 사례</th>
     </tr>
     </thead>
     <tbody>
-    <tr th:each="item : ${report.estimate().items()}">
-        <td th:text="${item.partNameKo()}">부위</td>
+    <tr th:each="item, stat : ${report.estimate().items()}">
+        <!-- 순번이 사진의 박스 번호다 (S15P21A307-547). 번호를 서버가 따로 계산하지 않고
+             행 순서를 그대로 쓴다 - EstimatePdfProcessor.partNumbers 가 같은 순서를 센다. -->
+        <td th:text="${stat.count + '. ' + item.partNameKo()}">부위</td>
         <td class="mid" th:text="${item.repairMethodDisplayName()}">수리 방식</td>
+        <!-- 금액 구성 (S15P21A307-547). 중앙값 하나만 보여 주면 "왜 이 금액인지" 를 알 수 없다.
+             셋의 합이 중앙값과 다를 수 있다 - 합계가 아니라 사례들의 중앙값이기 때문이다. -->
         <td class="num"
-            th:text="${item.itemMin() != null and item.itemMax() != null}
-                     ? ${#numbers.formatInteger(item.itemMin(), 1, 'COMMA') + ' ~ ' + #numbers.formatInteger(item.itemMax(), 1, 'COMMA') + '원'}
-                     : '-'">범위</td>
+            th:text="${item.partCostMedian() != null}
+                     ? ${#numbers.formatInteger(item.partCostMedian(), 1, 'COMMA')} : '-'">부품</td>
+        <td class="num"
+            th:text="${item.laborCostMedian() != null}
+                     ? ${#numbers.formatInteger(item.laborCostMedian(), 1, 'COMMA')} : '-'">공임</td>
+        <td class="num"
+            th:text="${item.paintMaterialCost() != null}
+                     ? ${#numbers.formatInteger(item.paintMaterialCost(), 1, 'COMMA')} : '-'">도장</td>
+        <!-- 항목별 범위 열은 두지 않는다 (S15P21A307-547). 계약의 itemTotal 이 값 하나라
+             EstimateItem 이 min·median·max 를 같은 값으로 채운다 - "222,070 ~ 222,070원" 은
+             범위가 아니다. 진짜 범위는 위의 총액과 산정 근거의 "사례 금액 분포" 에 있다. -->
         <td class="num"
             th:text="${item.itemMedian() != null} ? ${#numbers.formatInteger(item.itemMedian(), 1, 'COMMA') + '원'} : '-'">중앙값</td>
         <td class="mid" th:text="${item.refCaseCount() != null} ? ${item.refCaseCount() + '건'} : '-'">사례</td>
@@ -144,16 +192,39 @@
     <thead>
     <tr>
         <th>부위</th>
-        <th>근거</th>
+        <th>참조 사례</th>
+        <th>기준 연식</th>
+        <th>사례를 찾은 범위</th>
+        <th>사례 금액 분포</th>
     </tr>
     </thead>
     <tbody>
     <tr th:each="basis : ${report.basis().items()}">
         <td th:text="${basis.partNameKo()}">부위</td>
-        <td th:text="${basis.narrative() != null} ? ${basis.narrative()} : '근거 없음'">근거</td>
+        <td class="mid"
+            th:text="${basis.refCaseCount() != null} ? ${basis.refCaseCount() + '건'} : '-'">사례</td>
+        <!-- 어느 연식의 사례를 봤는지. 내 차 연식과 멀면 사용자가 그 사실을 알아야 한다. -->
+        <td class="mid"
+            th:text="${basis.refYearFrom() != null and basis.refYearTo() != null}
+                     ? ${basis.refYearFrom() + '~' + basis.refYearTo() + '년'} : '-'">연식</td>
+        <!-- 같은 차량명 사례가 모자라면 비슷한 수리비대, 그래도 모자라면 전체로 물러난다.
+             "동일 차량명 3건" 과 "전체 사례 3건" 은 믿을 근거가 전혀 다르다. -->
+        <td class="mid"
+            th:text="${basis.fallbackStageDisplayName() != null} ? ${basis.fallbackStageDisplayName()} : '-'">범위</td>
+        <td class="num"
+            th:text="${basis.costDistribution() != null and basis.costDistribution().p25() != null
+                       and basis.costDistribution().p75() != null}
+                     ? ${#numbers.formatInteger(basis.costDistribution().p25(), 1, 'COMMA') + ' ~ '
+                        + #numbers.formatInteger(basis.costDistribution().p75(), 1, 'COMMA') + '원'}
+                     : '-'">분포</td>
     </tr>
     </tbody>
 </table>
+<!-- 표가 숫자를 보여 주고, 문장이 그것을 읽는 법을 말한다. 문장은 규칙이 만들고
+     요약 생성이 끝났으면 다듬어진 것으로 바뀐다(S15P21A307-537). -->
+<p class="empty" th:each="basis : ${report.basis().items()}"
+   th:if="${basis.narrative() != null}"
+   th:text="${basis.partNameKo() + ': ' + basis.narrative()}">근거 문장</p>
 
 <div th:if="${report.validation() != null}">
     <h2>견적서 검증 결과</h2>

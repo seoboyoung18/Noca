@@ -29,6 +29,9 @@ public record EstimateItemResponse(
         BigDecimal standardHq,
         Integer partCostMedian,
         Integer laborCostMedian,
+
+        /** 도장 재료비 (S15P21A307-547). 도장을 하지 않는 수리 방식이면 {@code null} 이다. */
+        Integer paintMaterialCost,
         Integer itemMin,
         Integer itemMedian,
         Integer itemMax,
@@ -47,6 +50,7 @@ public record EstimateItemResponse(
                 view.getStandardHq(),
                 view.getPartCostMedian(),
                 view.getLaborCostMedian(),
+                view.getPaintMaterialCost(),
                 view.getItemMin(),
                 view.getItemMedian(),
                 view.getItemMax(),

@@ -1,6 +1,7 @@
 package com.ssafy.a307.estimate.pdf;
 
 import com.ssafy.a307.accident.image.AccidentImageStoragePort;
+import com.ssafy.a307.estimate.dto.EstimateItemResponse;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse;
 import com.ssafy.a307.estimate.pdf.EstimatePdfRepository.JobView;
 import com.ssafy.a307.estimate.pdf.EstimatePdfStoragePort.StoredPdf;
@@ -46,10 +47,29 @@ public class EstimatePdfProcessor {
     /** {@code failure_reason VARCHAR(200)}. 넘치면 기록조차 실패한다. */
     static final int MAX_FAILURE_REASON_LENGTH = 200;
 
+    /**
+     * PDF 에 실을 사진 수 상한 (S15P21A307-547).
+     *
+     * <p>사고당 20장까지 올릴 수 있는데 전부 실으면 base64 로 4MB 가까이 된다. 축소본이
+     * 평균 144KB 라 8장이면 1.5MB 선에서 멈춘다. 넘는 사진은 칸을 만들지 않고 아래에
+     * "외 N장" 으로 알린다 — 조용히 빼면 사용자는 자기 사진이 분석에 안 쓰인 줄 안다.
+     */
+    static final int MAX_IMAGES_IN_PDF = 8;
+
+    /**
+     * 사진 틀의 최대 크기. <b>템플릿의 {@code .image-cell img} 와 같은 값이어야 한다</b> —
+     * 둘이 어긋나면 사진은 CSS 대로 줄어드는데 박스는 여기 값으로 자리를 잡아 밀린다.
+     * 폭은 A4 본문 180mm 에서 표 안쪽 여백을 뺀 값이다.
+     */
+    private static final double MAX_PHOTO_WIDTH_MM = 165;
+
+    private static final double MAX_PHOTO_HEIGHT_MM = 95;
+
     private final EstimatePdfRepository pdfRepository;
     private final EstimateReportRepository reportRepository;
     private final EstimateReportService reportService;
     private final EstimatePdfGenerator generator;
+    private final DetectionBoxReader boxReader;
     private final Optional<EstimatePdfStoragePort> pdfStorage;
     private final Optional<AccidentImageStoragePort> imageStorage;
 
@@ -82,10 +102,14 @@ public class EstimatePdfProcessor {
                 .orElseThrow(() -> new IllegalStateException("견적이 사라졌다: " + job.getEstimateId()));
 
         EstimateReportResponse report = reportService.report(job.getEstimateId(), ownerId);
-        Map<Long, String> overlayKeys = overlayKeys(job.getEstimateId(), ownerId);
+        Map<Long, ImageSource> sources = imageSources(job.getEstimateId(), ownerId);
+        // 박스 번호는 예상 수리비 표의 순번과 같아야 한다 - 표의 부위와 사진의 번호가
+        // 이어지지 않으면 번호는 장식일 뿐이다.
+        Map<String, Integer> partNumbers = partNumbers(report);
         List<EstimatePdfDocument.Image> images = report.images().stream()
-                .map(image -> new EstimatePdfDocument.Image(
-                        image.imageId(), image.angleCode(), overlayDataUri(overlayKeys.get(image.imageId()))))
+                .limit(MAX_IMAGES_IN_PDF)
+                .map(image -> toPdfImage(image.imageId(), image.angleCode(),
+                        sources.get(image.imageId()), partNumbers))
                 .toList();
 
         byte[] pdf = generator.generate(
@@ -144,24 +168,106 @@ public class EstimatePdfProcessor {
         }
     }
 
-    /** 사진별 오버레이 키. 리포트 응답은 키를 담지 않으므로(서명 URL 만) 같은 쿼리로 다시 읽는다. */
-    private Map<Long, String> overlayKeys(Long estimateId, Long ownerId) {
-        ReportContextView context = reportRepository.findContext(estimateId, ownerId)
-                .orElseThrow(() -> new IllegalStateException("리포트 문맥이 사라졌다: " + estimateId));
-        Map<Long, String> keys = new HashMap<>();
-        for (ReportImageView image : reportRepository.findAnalyzedImages(context.getJobId())) {
-            keys.put(image.getImageId(), image.getOverlayKey());
-        }
-        return keys;
+    /**
+     * 사진 한 장에 딸린 것. 리포트 응답은 키를 담지 않으므로(서명 URL 만) 같은 쿼리로 다시 읽는다.
+     *
+     * @param detections 파손 위치 좌표 원문. {@code width}·{@code height} 와 기준이 같다
+     */
+    private record ImageSource(String overlayKey, String resizedKey, String detections,
+                               Short width, Short height) {
     }
 
-    private String overlayDataUri(String overlayKey) {
-        if (overlayKey == null || overlayKey.isBlank()) {
+    private Map<Long, ImageSource> imageSources(Long estimateId, Long ownerId) {
+        ReportContextView context = reportRepository.findContext(estimateId, ownerId)
+                .orElseThrow(() -> new IllegalStateException("리포트 문맥이 사라졌다: " + estimateId));
+        Map<Long, ImageSource> sources = new HashMap<>();
+        for (ReportImageView image : reportRepository.findAnalyzedImages(context.getJobId())) {
+            sources.put(image.getImageId(), new ImageSource(
+                    image.getOverlayKey(), image.getResizedKey(), image.getDetections(),
+                    image.getResizedWidth(), image.getResizedHeight()));
+        }
+        return sources;
+    }
+
+    /**
+     * 부위 코드 → 예상 수리비 표의 순번 (S15P21A307-547).
+     *
+     * <p>같은 부위가 두 행에 있으면 <b>먼저 나온 행</b>의 번호를 쓴다. 번호는 행마다 하나씩
+     * 올라가므로 템플릿의 {@code stat.count} 와 어긋나지 않는다.
+     */
+    private static Map<String, Integer> partNumbers(EstimateReportResponse report) {
+        Map<String, Integer> numbers = new HashMap<>();
+        int number = 1;
+        for (EstimateItemResponse item : report.estimate().items()) {
+            if (item.partCode() != null) {
+                numbers.putIfAbsent(item.partCode(), number);
+            }
+            number++;
+        }
+        return numbers;
+    }
+
+    /**
+     * 실을 사진을 고른다 (S15P21A307-547).
+     *
+     * <p><b>오버레이가 있으면 그것을, 없으면 사용자가 올린 축소본을 싣는다.</b> 오버레이는
+     * 2026-09-11 에 폐기돼 키가 늘 비어 있어, 이 대체가 없으면 리포트의 사진 칸이 통째로
+     * "분석 이미지 없음" 으로 남는다 — 파손 사진 없는 견적 리포트는 근거를 보여 주지 못한다.
+     *
+     * <p>둘 다 없으면 {@code null} 이고 템플릿이 그 칸을 비운다. 칸 자체를 없애지 않는 것은
+     * 분석에 쓰인 사진 수를 사용자가 알 수 있어야 하기 때문이다.
+     *
+     * <p><b>오버레이에는 박스를 얹지 않는다.</b> 그 그림에 이미 파손 표시가 들어 있어,
+     * 두 표시가 겹치면 어느 쪽이 AI 의 판단인지 알 수 없다.
+     */
+    private EstimatePdfDocument.Image toPdfImage(Long imageId, String angleCode,
+                                                 ImageSource source,
+                                                 Map<String, Integer> partNumbers) {
+        if (source == null) {
+            return new EstimatePdfDocument.Image(imageId, angleCode, null, false);
+        }
+        String overlay = readDataUri(source.overlayKey());
+        if (overlay != null) {
+            return new EstimatePdfDocument.Image(imageId, angleCode, overlay, true);
+        }
+        return new EstimatePdfDocument.Image(imageId, angleCode,
+                readDataUri(source.resizedKey()), false,
+                frame(source.width(), source.height()),
+                boxReader.read(source.detections(), source.width(), source.height(), partNumbers));
+    }
+
+    /**
+     * 원본 비율을 지키면서 지면에 들어갈 크기로 (S15P21A307-547).
+     *
+     * <p>치수를 모르면 {@code null} 이고, 템플릿이 예전처럼 {@code max-width}·
+     * {@code max-height} 로만 그린다 — 그때는 박스도 없으므로 틀이 필요 없다.
+     */
+    private static EstimatePdfDocument.Frame frame(Short width, Short height) {
+        if (width == null || height == null || width <= 0 || height <= 0) {
+            return null;
+        }
+        double ratio = (double) height / width;
+        double frameWidth = MAX_PHOTO_WIDTH_MM;
+        double frameHeight = frameWidth * ratio;
+        if (frameHeight > MAX_PHOTO_HEIGHT_MM) {
+            frameHeight = MAX_PHOTO_HEIGHT_MM;
+            frameWidth = frameHeight / ratio;
+        }
+        return new EstimatePdfDocument.Frame(round(frameWidth), round(frameHeight));
+    }
+
+    /** 소수 둘째 자리까지. 인쇄물에서 그 아래는 보이지 않는다. */
+    private static double round(double value) {
+        return Math.round(value * 100) / 100.0;
+    }
+
+    private String readDataUri(String key) {
+        if (key == null || key.isBlank()) {
             return null;
         }
         byte[] bytes = imageStorage
-                .orElseThrow(() -> new MissingStorageException("사고 이미지 저장소가 없어 오버레이를 읽을 수 없다"))
-                .read(overlayKey);
+                .orElseThrow(() -> new MissingStorageException("사고 이미지 저장소가 없어 사진을 읽을 수 없다"))
+                .read(key);
         return toDataUri(bytes);
     }
 
