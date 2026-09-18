@@ -1,0 +1,282 @@
+erDiagram
+    part_code ||--o{ part_name_mapping : "part_code"
+    member ||--o{ terms_agreement : "member_id"
+    member ||--o{ vehicle : "member_id"
+    vehicle_model ||--o{ vehicle : "model_id"
+    vehicle ||--o{ accident : "vehicle_id"
+    accident ||--o{ accident_image : "accident_id"
+    accident_image ||--o{ accident_image_asset : "image_id"
+    accident ||--o{ analysis_job : "accident_id"
+    analysis_job ||--o{ analysis_stage : "job_id"
+    analysis_job ||--o{ analysis_image_result : "job_id"
+    accident_image ||--o{ analysis_image_result : "image_id"
+    analysis_job ||--o{ damaged_part : "job_id"
+    part_code ||--o{ damaged_part : "part_code"
+    vehicle_model |o--o{ repair_case : "model_id"
+    repair_case ||--o{ repair_case_item : "case_id"
+    part_code |o--o{ repair_case_item : "part_code"
+    batch_job_execution ||--o{ data_validation_error : "batch_job_execution_id"
+    repair_case ||--o{ repair_case_image : "case_id"
+    repair_case_image ||--o{ repair_case_damage_feature : "case_image_id"
+    feature_pipeline_version ||--o{ repair_case_damage_feature : "pipeline_version_id"
+    part_code |o--o{ repair_case_damage_feature : "part_code"
+    repair_case_image ||--o{ repair_case_roi_embedding : "case_image_id"
+    embedding_model_version ||--o{ repair_case_roi_embedding : "model_version_id"
+    repair_case_damage_feature ||--o{ repair_case_roi_embedding : "damage_feature_id"
+    repair_case_image ||--o{ repair_case_image_part_annotation : "case_image_id"
+    part_code ||--o{ repair_case_image_part_annotation : "part_code"
+    analysis_job ||--o{ estimate : "job_id"
+    estimate ||--o{ estimate_item : "estimate_id"
+    damaged_part ||--o{ estimate_item : "damaged_part_id"
+    estimate ||--o{ estimate_report : "estimate_id"
+    part_code |o--o{ repair_method_rule : "part_code"
+    member |o--o{ estimate_validation_rule : "changed_by"
+    member ||--o{ estimate_validation : "member_id"
+    accident ||--o{ estimate_validation : "accident_id"
+    estimate |o--o{ estimate_validation : "estimate_id"
+    estimate_validation_rule |o--o{ estimate_validation : "rule_version"
+    estimate_validation ||--o{ estimate_validation_item : "validation_id"
+    part_code |o--o{ estimate_validation_item : "part_code"
+    estimate_validation ||--o{ estimate_validation_report : "validation_id"
+    estimate_validation ||--o{ estimate_validation_question : "validation_id"
+    estimate_validation_item |o--o{ estimate_validation_question : "validation_item_id"
+    member |o--o{ audit_log : "actor_member_id"
+    accident ||--o| repair_checklist : "accident_id"
+    repair_checklist ||--o{ repair_checklist_item : "checklist_id"
+    repair_checklist_common_item |o--o{ repair_checklist_item : "common_code"
+    accident ||--o| repair_question : "accident_id"
+    repair_question ||--o{ repair_question_item : "question_id"
+    part_code |o--o{ repair_question_item : "part_code"
+    accident ||--o| accident_review : "accident_id"
+    analysis_job |o--o{ accident_review : "reviewed_job_id"
+    member |o--o{ accident_review : "reviewer_member_id"
+    vehicle_model ||..o{ accident : "snapshot_model_id (논리)"
+    feature_pipeline_version ||..o{ analysis_job : "pipeline_version_id (논리)"
+    part_code ||..o{ repair_cost_stat : "part_code (논리)"
+    accident ||..o{ repair_case : "external_ref (논리)"
+
+    member {
+        bigserial member_id PK
+        varchar provider UK
+        varchar provider_user_id UK
+        varchar status
+    }
+    terms_agreement {
+        bigserial agreement_id PK
+        bigint member_id FK
+    }
+    vehicle_model {
+        bigserial model_id PK
+        varchar manufacturer UK
+        varchar model_name UK
+        boolean is_active
+    }
+    vehicle {
+        bigserial vehicle_id PK
+        bigint member_id FK
+        bigint model_id FK
+    }
+    accident {
+        bigserial accident_id PK
+        bigint vehicle_id FK
+    }
+    accident_image {
+        bigserial image_id PK
+        bigint accident_id FK
+    }
+    accident_image_asset {
+        bigserial asset_id PK
+        bigint image_id FK
+        varchar variant UK
+    }
+    analysis_job {
+        bigserial job_id PK
+        bigint accident_id FK
+        varchar status
+    }
+    analysis_stage {
+        bigserial stage_id PK
+        bigint job_id FK
+        varchar stage UK
+        varchar status
+    }
+    analysis_image_result {
+        bigserial result_id PK
+        bigint job_id FK
+        bigint image_id FK
+    }
+    damaged_part {
+        bigserial damaged_part_id PK
+        bigint job_id FK
+        varchar part_code FK
+    }
+    estimate {
+        bigserial estimate_id PK
+        bigint job_id FK
+        smallint version UK
+    }
+    estimate_item {
+        bigserial estimate_item_id PK
+        bigint estimate_id FK
+        bigint damaged_part_id FK
+    }
+    estimate_notice {
+        varchar code PK
+        boolean is_active
+    }
+    estimate_report {
+        bigserial report_id PK
+        bigint estimate_id FK
+        varchar report_no UK
+        varchar status
+    }
+    estimate_validation {
+        bigserial validation_id PK
+        bigint member_id FK
+        bigint accident_id FK
+        bigint estimate_id FK
+        varchar status
+        integer rule_version FK
+    }
+    estimate_validation_item {
+        bigserial validation_item_id PK
+        bigint validation_id FK
+        smallint line_no UK
+        varchar part_code FK
+    }
+    estimate_validation_report {
+        bigint validation_id PK
+        varchar status
+    }
+    estimate_validation_question {
+        bigserial question_id PK
+        bigint validation_id FK
+        bigint validation_item_id FK
+        varchar source_flag UK
+        smallint display_order UK
+    }
+    estimate_validation_rule {
+        integer rule_version PK
+        bigint changed_by FK
+    }
+    repair_checklist_common_item {
+        varchar code PK
+        boolean is_active
+    }
+    repair_checklist {
+        bigserial checklist_id PK
+        bigint accident_id FK
+        varchar status
+    }
+    repair_checklist_item {
+        bigserial item_id PK
+        bigint checklist_id FK
+        varchar source
+        varchar common_code FK
+    }
+    repair_question {
+        bigserial question_id PK
+        bigint accident_id FK
+        varchar status
+    }
+    repair_question_item {
+        bigserial item_id PK
+        bigint question_id FK
+        varchar source
+        varchar part_code FK
+    }
+    accident_review {
+        bigserial review_id PK
+        bigint accident_id FK
+        varchar status
+        bigint reviewed_job_id FK
+        bigint reviewer_member_id FK
+    }
+    part_code {
+        varchar part_code PK
+        boolean is_active
+        varchar code_scope
+    }
+    part_name_mapping {
+        varchar raw_name PK
+        varchar part_code FK
+    }
+    repair_code {
+        varchar code_type PK
+        varchar code PK
+        boolean is_active
+    }
+    repair_method_rule {
+        bigserial rule_id PK
+        varchar part_code FK
+        boolean is_active
+    }
+    audit_log {
+        bigserial audit_log_id PK
+        bigint actor_member_id FK
+    }
+    repair_case {
+        bigserial case_id PK
+        varchar source UK
+        varchar external_ref UK
+        bigint model_id FK
+    }
+    repair_case_item {
+        bigserial case_item_id PK
+        bigint case_id FK
+        varchar source_item_key UK
+        varchar part_code FK
+        varchar line_type
+    }
+    repair_case_image {
+        bigserial case_image_id PK
+        bigint case_id FK
+        varchar source_image_ref UK
+    }
+    repair_case_damage_feature {
+        bigserial damage_feature_id PK
+        bigint case_image_id FK
+        bigint pipeline_version_id FK
+        smallint roi_index UK
+        varchar part_code FK
+    }
+    repair_case_roi_embedding {
+        bigserial roi_embedding_id PK
+        bigint case_image_id FK
+        bigint model_version_id FK
+        bigint damage_feature_id FK
+    }
+    repair_case_image_part_annotation {
+        bigserial case_image_part_annotation_id PK
+        bigint case_image_id FK
+        varchar part_code FK
+        varchar source_annotation_ref UK
+    }
+    embedding_model_version {
+        bigserial model_version_id PK
+        varchar model_name UK
+        varchar version UK
+        boolean is_active
+    }
+    feature_pipeline_version {
+        bigserial pipeline_version_id PK
+        varchar pipeline_name UK
+        varchar version UK
+        boolean is_active
+    }
+    repair_cost_stat {
+        bigserial stat_id PK
+        varchar car_class UK
+        varchar part_code UK
+        varchar damage_type UK
+        varchar repair_method UK
+        varchar source UK
+    }
+    batch_job_execution {
+        bigserial batch_job_execution_id PK
+        varchar status
+    }
+    data_validation_error {
+        bigserial data_validation_error_id PK
+        bigint batch_job_execution_id FK
+    }
