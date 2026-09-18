@@ -5,6 +5,7 @@ import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import BottomSheet from '../components/BottomSheet.vue'
 import Avatar from '../components/Avatar.vue'
+import GoogleMark from '../components/GoogleMark.vue'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useVehicleStore } from '../stores/vehicles'
@@ -195,7 +196,7 @@ async function logout() { sh.logout = false; store.agreed = false; await auth.lo
           </span>
           <!-- 로그인 방식 — 세션의 provider(KAKAO | GOOGLE)에 따라 표시. 세션 정보가 없으면 기존 목업대로 카카오 -->
           <span v-if="auth.me?.provider === 'GOOGLE'" class="kakao google">
-            <b class="gm" aria-hidden="true">G</b>구글 로그인
+            <GoogleMark :size="11" />구글 로그인
           </span>
           <span v-else class="kakao">
             <svg width="11" height="11" viewBox="0 0 12 12" fill="#191F28" aria-hidden="true"><path d="M6 1.5C3.2 1.5 1 3.3 1 5.5c0 1.4.9 2.6 2.3 3.3L2.8 11l2.4-1.6c.3 0 .5.1.8.1 2.8 0 5-1.8 5-4S8.8 1.5 6 1.5z"/></svg>카카오 로그인
@@ -306,7 +307,6 @@ export default { components: { Chev, ChevR } }
 .nkedit:hover { background: var(--bg-2); color: var(--text); }
 .over { color: var(--danger-2); }
 .err { margin-top: 10px; color: var(--danger-2); }
-.gm { font-family: Arial, sans-serif; font-size: 12px; font-weight: 700; color: #4285F4; }
 .stats { margin-top: 20px; padding: 20px 0; border: 1px solid var(--line); border-radius: 12px; display: flex; }
 .stat { flex: 1 1 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .stat:last-child { border-right: 0; }
