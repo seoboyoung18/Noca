@@ -47,6 +47,9 @@ public class RepairChecklistItem {
     /** {@code memo VARCHAR(500)}. 넘치면 UPDATE 가 깨져 메모가 통째로 저장되지 않는다. */
     public static final int MAX_MEMO_LENGTH = 500;
 
+    /** {@code reason VARCHAR(300)}. {@code HIDDEN} 항목이 "왜 이것도 보라는가" 를 적는 자리다. */
+    public static final int MAX_REASON_LENGTH = 300;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "item_id")
@@ -65,6 +68,28 @@ public class RepairChecklistItem {
 
     @Column(name = "content", nullable = false, length = MAX_CONTENT_LENGTH)
     private String content;
+
+    /**
+     * 무엇에 대한 항목인가. <b>{@code source} 와 다른 축이다</b> — 사용자가 직접 넣은 항목도
+     * 부위별일 수 있다. 화면은 이 값으로 세 탭을 가른다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category", nullable = false, length = 10)
+    private RepairChecklistItemCategory category;
+
+    /**
+     * 그 항목이 가리키는 부위. 부위와 무관하거나 <b>LLM 이 지어낸 코드</b>면 {@code null} 이다.
+     *
+     * <p>한글 이름을 사본으로 두지 않는다. 화면이 마스터의 현재 이름으로 그룹 제목을 그리므로
+     * 이름이 바뀌면 바뀐 이름으로 보이는 편이 맞다 — {@code content} 를 복사해 두는 것과는
+     * 다른 판단이고, 그 차이는 문안에 부품 이름이 박히느냐에서 온다.
+     */
+    @Column(name = "part_code", length = 50)
+    private String partCode;
+
+    /** {@code HIDDEN} 인 이유 한 문장. 나머지 분류는 {@code null} 이다. */
+    @Column(name = "reason", length = MAX_REASON_LENGTH)
+    private String reason;
 
     @Column(name = "is_checked", nullable = false)
     private boolean checked;
@@ -85,22 +110,37 @@ public class RepairChecklistItem {
     private Instant updatedAt;
 
     private RepairChecklistItem(RepairChecklist checklist, RepairChecklistItemSource source,
-                                String commonCode, String content, int displayOrder, Instant now) {
+                                String commonCode, String content,
+                                RepairChecklistItemCategory category, String partCode,
+                                String reason, int displayOrder, Instant now) {
         this.checklist = checklist;
         this.source = source;
         this.commonCode = commonCode;
         this.content = content;
+        this.category = category;
+        this.partCode = partCode;
+        this.reason = reason;
         this.checked = false;
         this.displayOrder = (short) displayOrder;
         this.createdAt = now;
         this.updatedAt = now;
     }
 
-    /** LLM 이 만든 사고별 항목. {@code common_code} 는 비운다({@code ck_rcli_link}). */
+    /**
+     * LLM 이 만든 사고별 항목. {@code common_code} 는 비운다({@code ck_rcli_link}).
+     *
+     * @param category {@code PART} 또는 {@code HIDDEN}. {@code null} 이면 {@code PART} 로 둔다 —
+     *                 분류를 못 정한 항목 때문에 생성 전체를 버리지 않는다
+     * @param partCode <b>마스터에 있는 코드만 온다.</b> 거르는 곳은
+     *                 {@code RepairChecklistGenerator} 다
+     * @param reason   {@code HIDDEN} 인 이유. 공백이면 {@code null} 로 둔다
+     */
     public static RepairChecklistItem ai(RepairChecklist checklist, String content,
-                                         int displayOrder, Instant now) {
+                                         RepairChecklistItemCategory category, String partCode,
+                                         String reason, int displayOrder, Instant now) {
         return new RepairChecklistItem(checklist, RepairChecklistItemSource.AI, null,
-                requireContent(content), displayOrder, now);
+                requireContent(content), categoryOrPart(category), blankToNull(partCode),
+                truncateOrNull(reason, MAX_REASON_LENGTH), displayOrder, now);
     }
 
     /**
@@ -115,7 +155,8 @@ public class RepairChecklistItem {
             throw new IllegalArgumentException("공통 항목 마스터는 필수입니다.");
         }
         return new RepairChecklistItem(checklist, RepairChecklistItemSource.COMMON, master.getCode(),
-                requireContent(master.getMessage()), displayOrder, now);
+                requireContent(master.getMessage()), RepairChecklistItemCategory.COMMON, null, null,
+                displayOrder, now);
     }
 
     /**
@@ -176,9 +217,11 @@ public class RepairChecklistItem {
      *                     적은 것이 AI·공통 항목 사이에 끼어들면 순서가 뜻을 잃는다
      */
     public static RepairChecklistItem user(RepairChecklist checklist, String content,
+                                           RepairChecklistItemCategory category, String partCode,
                                            int displayOrder, Instant now) {
         return new RepairChecklistItem(checklist, RepairChecklistItemSource.USER, null,
-                requireContent(content), displayOrder, now);
+                requireContent(content), categoryOrPart(category), blankToNull(partCode),
+                null, displayOrder, now);
     }
 
     /** 사용자가 직접 넣은 항목인가. {@code AI}·{@code COMMON} 은 고치거나 지울 수 없다. */
@@ -214,5 +257,25 @@ public class RepairChecklistItem {
     private static String truncate(String value, int max) {
         String stripped = value.strip();
         return stripped.length() <= max ? stripped : stripped.substring(0, max);
+    }
+
+    /**
+     * 분류를 못 정했으면 {@code PART} 다.
+     *
+     * <p>{@code category} 는 {@code NOT NULL} 이라 빈 값으로 둘 수 없고, 셋 중 하나를 골라야
+     * 한다면 {@code PART} 다 — 화면의 기본 탭이고, 이 변경 이전에 만들어진 행도 같은 값으로
+     * 채워졌다({@code DEFAULT 'PART'}).
+     */
+    private static RepairChecklistItemCategory categoryOrPart(RepairChecklistItemCategory category) {
+        return category == null ? RepairChecklistItemCategory.PART : category;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
+    }
+
+    private static String truncateOrNull(String value, int max) {
+        String stripped = blankToNull(value);
+        return stripped == null ? null : truncate(stripped, max);
     }
 }

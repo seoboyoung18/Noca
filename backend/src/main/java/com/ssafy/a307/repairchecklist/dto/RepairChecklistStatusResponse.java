@@ -43,6 +43,10 @@ import java.util.List;
  * @param failureReason 실패 <b>코드</b>다. 한글 문구가 아니다
  *                      ({@link com.ssafy.a307.repairchecklist.domain.RepairChecklistFailure})
  * @param generationNo  몇 번째 생성분인가. 재생성({@code S15P21A307-486})이 올린다
+ * @param summary       AI 한 줄 요약 (S15P21A307-544). <b>없으면 {@code null}</b> — 이
+ *                      변경 이전에 만들어진 체크리스트에는 없고, 화면은 그때 요약 영역을
+ *                      그리지 않는다. <b>생성이 끝나기 전에도 {@code null}</b> 이다 —
+ *                      항목과 같은 규칙이다
  * @param items         {@code display_order} 순. 생성 전·중에는 빈 목록
  * @param progress      완료/전체 두 수. <b>퍼센트가 아니다</b>
  * @param notice        안내 한계 고지 문구. <b>없으면 {@code null}</b> — 시드가 빠진 환경에서
@@ -56,6 +60,7 @@ public record RepairChecklistStatusResponse(
         Instant createdAt,
         Instant completedAt,
         Instant regeneratedAt,
+        String summary,
         List<RepairChecklistItemResponse> items,
         RepairChecklistProgress progress,
         String notice) {
@@ -63,7 +68,7 @@ public record RepairChecklistStatusResponse(
     /** 아직 생성을 요청하지 않은 사고. 오류가 아니다. */
     public static RepairChecklistStatusResponse notRequested(String notice) {
         return new RepairChecklistStatusResponse(null, null, (short) 0, null, null, null, null,
-                List.of(), RepairChecklistProgress.EMPTY, notice);
+                null, List.of(), RepairChecklistProgress.EMPTY, notice);
     }
 
     /**
@@ -86,8 +91,23 @@ public record RepairChecklistStatusResponse(
                 checklist.getCreatedAt(),
                 checklist.getCompletedAt(),
                 checklist.getRegeneratedAt(),
+                summaryOf(checklist),
                 copied,
                 RepairChecklistProgress.of(copied),
                 notice);
+    }
+
+    /**
+     * <b>생성이 끝난 것만 요약을 준다.</b> 항목을 {@code COMPLETED} 일 때만 싣는 것과 같은
+     * 규칙이다 — 재생성으로 큐에 돌아간 건은 앞 세대의 요약이 아직 행에 남아 있고, 그것을
+     * 그대로 주면 항목은 비었는데 요약만 예전 것인 화면이 된다.
+     *
+     * <p>행을 지우지는 않는다. 다음 생성이 덮어쓸 값이고, 생성이 실패하면 그때까지 남아 있던
+     * 요약이 기록으로는 쓸모가 있다.
+     */
+    private static String summaryOf(RepairChecklist checklist) {
+        return checklist.getStatus() == RepairChecklistStatus.COMPLETED
+                ? checklist.getSummary()
+                : null;
     }
 }

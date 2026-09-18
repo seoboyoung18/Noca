@@ -5,6 +5,7 @@ import com.ssafy.a307.analysis.entity.AnalysisJob;
 import com.ssafy.a307.analysis.entity.AnalysisJobStatus;
 import com.ssafy.a307.analysis.repository.AnalysisJobRepository;
 import com.ssafy.a307.analysis.repository.DamagedPartRepository;
+import com.ssafy.a307.repairchecklist.domain.RepairChecklistDraft;
 import com.ssafy.a307.repairchecklist.domain.RepairChecklistFailure;
 import com.ssafy.a307.repairchecklist.domain.RepairChecklistGenerationException;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklist;
@@ -77,7 +78,7 @@ public class RepairChecklistProcessor {
                 .orElseThrow(() -> new RepairChecklistGenerationException(
                         RepairChecklistFailure.INTERNAL, "선점한 체크리스트가 사라졌다: " + checklistId));
 
-        List<String> aiContents = generator.generate(context(checklist.getAccident()));
+        RepairChecklistDraft draft = generator.generate(context(checklist.getAccident()));
 
         // 앞 시도가 남긴 생성분을 먼저 비운다. 실패한 건을 다시 만들 때 두 시도가 섞이면
         // 사용자는 어느 줄이 최신인지 알 수 없다. 벌크 DELETE 라 이 줄에서 바로 나간다 —
@@ -93,8 +94,9 @@ public class RepairChecklistProcessor {
         Instant now = Instant.now();
         List<RepairChecklistItem> items = new ArrayList<>();
         int order = 1;
-        for (String content : aiContents) {
-            items.add(RepairChecklistItem.ai(checklist, content, order++, now));
+        for (RepairChecklistDraft.DraftItem item : draft.items()) {
+            items.add(RepairChecklistItem.ai(checklist, item.content(), item.category(),
+                    item.partCode(), item.reason(), order++, now));
         }
 
         List<RepairChecklistCommonItem> masters =
@@ -104,9 +106,10 @@ public class RepairChecklistProcessor {
         }
 
         itemRepository.saveAll(items);
-        checklist.markCompleted(now);
-        log.info("체크리스트 생성 완료: checklistId={}, AI={}건, 공통={}건",
-                checklistId, aiContents.size(), masters.size());
+        checklist.markCompleted(draft.summary(), now);
+        log.info("체크리스트 생성 완료: checklistId={}, AI={}건, 공통={}건, 요약={}",
+                checklistId, draft.items().size(), masters.size(),
+                draft.summary() == null ? "없음" : "있음");
     }
 
     /**

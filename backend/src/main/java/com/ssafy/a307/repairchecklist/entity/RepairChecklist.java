@@ -42,6 +42,12 @@ public class RepairChecklist {
     /** {@code failure_reason VARCHAR(200)}. 넘치면 INSERT 가 깨져 실패조차 기록되지 않는다. */
     public static final int MAX_FAILURE_REASON_LENGTH = 200;
 
+    /**
+     * {@code summary VARCHAR(300)}. 생성은 200자 이내로 지시하고 열은 300 으로 둔다 —
+     * 모델이 조금 넘겨도 저장이 깨지지 않게 하고, 넘친 만큼은 여기서 자른다.
+     */
+    public static final int MAX_SUMMARY_LENGTH = 300;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "checklist_id")
@@ -70,6 +76,15 @@ public class RepairChecklist {
 
     @Column(name = "regenerated_at")
     private Instant regeneratedAt;
+
+    /**
+     * AI 한 줄 요약 (S15P21A307-544). 사고 성격과 중점 확인 권장을 한 문장으로 적는다.
+     *
+     * <p><b>{@code null} 일 수 있다.</b> 이 변경 이전에 만들어진 체크리스트에는 없고,
+     * 모델이 빈 문자열을 내도 {@code null} 로 둔다 — 화면은 없으면 그 영역을 그리지 않는다.
+     */
+    @Column(name = "summary", length = MAX_SUMMARY_LENGTH)
+    private String summary;
 
     private RepairChecklist(Accident accident, Instant now) {
         this.accident = accident;
@@ -135,11 +150,17 @@ public class RepairChecklist {
         this.completedAt = null;
     }
 
-    /** 생성을 끝냈다. {@code PROCESSING → COMPLETED}. */
-    public void markCompleted(Instant now) {
+    /**
+     * 생성을 끝냈다. {@code PROCESSING → COMPLETED}.
+     *
+     * @param summary 한 줄 요약. <b>비어 있으면 {@code null} 로 둔다</b> — 화면이 "없음" 과
+     *                "빈 문장" 을 구분할 이유가 없다. 재생성이면 앞 세대의 요약을 덮는다
+     */
+    public void markCompleted(String summary, Instant now) {
         this.status = RepairChecklistStatus.COMPLETED;
         this.failureReason = null;
         this.completedAt = now;
+        this.summary = truncate(summary, MAX_SUMMARY_LENGTH);
     }
 
     /**
@@ -154,12 +175,17 @@ public class RepairChecklist {
     }
 
     private static String truncate(String value) {
+        return truncate(value, MAX_FAILURE_REASON_LENGTH);
+    }
+
+    private static String truncate(String value, int max) {
         if (value == null) {
             return null;
         }
         String stripped = value.strip();
-        return stripped.length() <= MAX_FAILURE_REASON_LENGTH
-                ? stripped
-                : stripped.substring(0, MAX_FAILURE_REASON_LENGTH);
+        if (stripped.isEmpty()) {
+            return null;
+        }
+        return stripped.length() <= max ? stripped : stripped.substring(0, max);
     }
 }

@@ -6,6 +6,7 @@ import com.ssafy.a307.common.llm.LlmChatPort;
 import com.ssafy.a307.repairchecklist.domain.RepairChecklistFailure;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistStatusResponse;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistStatus;
+import com.ssafy.a307.repairchecklist.service.RepairChecklistRegenerateService;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistRequestService;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistStatusService;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistWorker;
@@ -96,6 +97,7 @@ class RepairChecklistGenerationTest {
 
     @Autowired private RepairChecklistRequestService requestService;
     @Autowired private RepairChecklistStatusService statusService;
+    @Autowired private RepairChecklistRegenerateService regenerateService;
     @Autowired private RepairChecklistWorker worker;
     @Autowired private ScriptedLlmChatPort llm;
     @Autowired private JdbcTemplate jdbc;
@@ -471,6 +473,121 @@ class RepairChecklistGenerationTest {
         return (codePoint >= 0xAC00 && codePoint <= 0xD7A3) || (codePoint >= 0x3130 && codePoint <= 0x318F);
     }
 
+    // ─────────────────────────────────────────── 부위·분류·요약 (S15P21A307-544)
+
+    @Nested
+    @DisplayName("부위·분류·요약")
+    class CategoryAndSummary {
+
+        @Test
+        @DisplayName("분류·이유·요약이 그대로 저장된다")
+        void categoryReasonAndSummaryArePersisted() {
+            long checklistId = accept();
+            llm.nextJson = """
+                    {
+                      "summary": "전면 충돌 중심의 사고입니다.",
+                      "items": [
+                        {"content":"범퍼 판금 가능 여부 확인","category":"PART",
+                         "partCode":null,"reason":null},
+                        {"content":"냉각 부품 충격 여부 확인","category":"HIDDEN",
+                         "partCode":null,"reason":"전면 파손 시 뒤쪽까지 충격이 간다"}
+                      ]
+                    }
+                    """;
+
+            worker.pollOnce();
+
+            assertThat(summaryOf(checklistId)).isEqualTo("전면 충돌 중심의 사고입니다.");
+            List<Map<String, Object>> ai = aiItemsOf(checklistId);
+            assertThat(ai).extracting(row -> row.get("category"))
+                    .containsExactly("PART", "HIDDEN");
+            assertThat(ai).extracting(row -> row.get("reason"))
+                    .containsExactly(null, "전면 파손 시 뒤쪽까지 충격이 간다");
+        }
+
+        /**
+         * 이 사고에는 분석 결과가 없다 — 지시문의 손상 부위가 "없음" 이다. 그러면 모델이
+         * 무슨 코드를 적어 보내든 <b>고를 수 있는 값이 하나도 없으므로</b> 부위는 비어야 한다.
+         */
+        @Test
+        @DisplayName("부위를 적어 주지 않은 사고에서는 부위가 비어 있다")
+        void partCodeStaysEmptyWithoutAnalysis() {
+            long checklistId = accept();
+            llm.nextJson = """
+                    {"summary":"요약","items":[
+                      {"content":"범퍼 확인","category":"PART",
+                       "partCode":"FRONT_BUMPER","reason":null}]}
+                    """;
+
+            worker.pollOnce();
+
+            assertThat(aiItemsOf(checklistId)).extracting(row -> row.get("part_code"))
+                    .containsOnlyNulls();
+        }
+
+        @Test
+        @DisplayName("공통 6종은 COMMON 으로 들어간다 — 화면의 공통 탭이 그 값을 본다")
+        void commonItemsAreCategorizedAsCommon() {
+            long checklistId = accept();
+            llm.nextJson = itemsJson("항목 하나");
+
+            worker.pollOnce();
+
+            assertThat(itemsOf(checklistId).stream()
+                    .filter(row -> "COMMON".equals(row.get("source")))
+                    .map(row -> row.get("category")))
+                    .hasSize(COMMON_ITEM_COUNT)
+                    .containsOnly("COMMON");
+        }
+
+        /**
+         * 재생성으로 큐에 돌아간 건은 앞 세대의 요약을 보여 주지 않는다 — 항목을
+         * {@code COMPLETED} 일 때만 싣는 것과 같은 규칙이다. <b>행에서 지우지는 않는다.</b>
+         */
+        @Test
+        @DisplayName("생성이 끝나기 전에는 요약을 주지 않는다")
+        void summaryIsHiddenUntilCompleted() {
+            long checklistId = accept();
+            llm.nextJson = """
+                    {"summary":"전면 충돌 중심의 사고입니다.","items":[
+                      {"content":"범퍼 확인","category":"PART","partCode":null,"reason":null}]}
+                    """;
+            worker.pollOnce();
+            assertThat(statusService.status(MEMBER_ID, ACCIDENT_ID).summary()).isNotNull();
+
+            regenerateService.regenerate(MEMBER_ID, ACCIDENT_ID);
+
+            assertThat(statusService.status(MEMBER_ID, ACCIDENT_ID).summary()).isNull();
+            assertThat(summaryOf(checklistId)).isEqualTo("전면 충돌 중심의 사고입니다.");
+        }
+
+        /** 분류를 말하지 않는 옛 형식으로 와도 항목은 들어간다. 그때 분류는 {@code PART} 다. */
+        @Test
+        @DisplayName("요약이 없으면 null 이고 항목은 그대로 들어간다")
+        void missingSummaryIsStoredAsNull() {
+            long checklistId = accept();
+            llm.nextJson = itemsJson("항목 하나");
+
+            worker.pollOnce();
+
+            assertThat(summaryOf(checklistId)).isNull();
+            assertThat(aiItemsOf(checklistId)).extracting(row -> row.get("category"))
+                    .containsExactly("PART");
+        }
+    }
+
+    private String summaryOf(long checklistId) {
+        return jdbc.queryForObject("select summary from repair_checklist where checklist_id = ?",
+                String.class, checklistId);
+    }
+
+    private List<Map<String, Object>> aiItemsOf(long checklistId) {
+        return jdbc.queryForList(
+                "select category, part_code, reason, content from repair_checklist_item"
+                        + " where checklist_id = ? and source = 'AI'"
+                        + " order by display_order asc, item_id asc", checklistId);
+    }
+
     private long accept() {
         return requestService.request(MEMBER_ID, ACCIDENT_ID).checklistId();
     }
@@ -506,7 +623,7 @@ class RepairChecklistGenerationTest {
 
     private List<Map<String, Object>> itemsOf(long checklistId) {
         return jdbc.queryForList(
-                "select source, common_code, content, display_order, is_checked"
+                "select source, category, common_code, content, display_order, is_checked"
                         + " from repair_checklist_item where checklist_id = ?"
                         + " order by display_order asc, item_id asc", checklistId);
     }

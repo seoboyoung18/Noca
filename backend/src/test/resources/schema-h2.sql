@@ -550,6 +550,7 @@ CREATE TABLE repair_checklist (
     created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     completed_at   TIMESTAMP WITH TIME ZONE,
     regenerated_at TIMESTAMP WITH TIME ZONE,
+    summary        VARCHAR(300),
     CONSTRAINT uk_rcl_accident   UNIQUE (accident_id),
     CONSTRAINT ck_rcl_status     CHECK (status IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
     CONSTRAINT ck_rcl_done       CHECK (completed_at IS NULL OR status IN ('COMPLETED','FAILED')),
@@ -569,8 +570,12 @@ CREATE TABLE repair_checklist_item (
     checked_at    TIMESTAMP WITH TIME ZONE,
     created_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    category      VARCHAR(10)  NOT NULL DEFAULT 'PART',
+    part_code     VARCHAR(50)  REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    reason        VARCHAR(300),
     CONSTRAINT uk_rcli_common  UNIQUE (checklist_id, common_code),
     CONSTRAINT ck_rcli_source  CHECK (source IN ('AI','COMMON','USER')),
+    CONSTRAINT ck_rcli_category CHECK (category IN ('COMMON','PART','HIDDEN')),
     CONSTRAINT ck_rcli_link    CHECK ((source =  'COMMON' AND common_code IS NOT NULL)
                                    OR (source <> 'COMMON' AND common_code IS NULL)),
     CONSTRAINT ck_rcli_checked CHECK (checked_at IS NULL OR is_checked = TRUE)

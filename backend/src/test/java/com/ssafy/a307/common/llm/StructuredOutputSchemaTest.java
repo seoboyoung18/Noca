@@ -22,9 +22,20 @@ class StructuredOutputSchemaTest {
     @DisplayName("체크리스트 스키마는 모든 object 를 닫고 모든 필드를 required 로 둔다")
     void checklistSchemaIsStrict() throws Exception {
         JsonNode schema = schemaOf(RepairChecklistGenerator.class);
+        JsonNode item = schema.at("/properties/items/items");
 
-        assertClosedObject(schema, "items");
-        assertClosedObject(schema.at("/properties/items/items"), "content");
+        assertClosedObject(schema, "summary", "items");
+        assertClosedObject(item, "content", "category", "partCode", "reason");
+
+        // 없을 수 있는 값은 required 에서 빼는 것이 아니라 null 을 허용해서 표현한다.
+        assertThat(item.at("/properties/partCode/type").toString())
+                .isEqualTo("[\"string\",\"null\"]");
+        assertThat(item.at("/properties/reason/type").toString())
+                .isEqualTo("[\"string\",\"null\"]");
+
+        // COMMON 은 시드가 붙이는 값이라 모델이 고를 수 있는 값에 두지 않는다.
+        assertThat(item.at("/properties/category/enum").toString())
+                .isEqualTo("[\"PART\",\"HIDDEN\"]");
     }
 
     @Test
