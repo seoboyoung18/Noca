@@ -3,6 +3,7 @@ package com.ssafy.a307.estimate.pdf;
 import com.ssafy.a307.estimate.dto.EstimateBasisResponse;
 import com.ssafy.a307.estimate.dto.EstimateItemResponse;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse;
+import com.ssafy.a307.estimate.dto.EstimateReportResponse.Narrative;
 import com.ssafy.a307.estimate.dto.EstimateResponse;
 import com.ssafy.a307.estimate.dto.UnresolvedPartResponse;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -115,6 +116,32 @@ class EstimatePdfGeneratorTest {
                 .doesNotContain("총액에서 제외");
     }
 
+    @Test
+    @DisplayName("요약이 있으면 문단과 확인 권장이 PDF 에 들어간다 (S15P21A307-537)")
+    void rendersNarrative() throws Exception {
+        Narrative narrative = new Narrative("앞 범퍼 교환이 중심인 사고입니다.",
+                List.of("부품 등급을 확인하세요.", "작업 전후 사진을 요청하세요."));
+
+        String text = extract(generator.generate(document(report(true, List.of(), narrative))));
+
+        assertThat(text)
+                .contains("앞 범퍼 교환이 중심인 사고입니다.")
+                .contains("부품 등급을 확인하세요.")
+                .contains("작업 전후 사진을 요청하세요.");
+    }
+
+    /**
+     * 아직 만들지 않았거나 생성이 실패한 견적이다. <b>빈 제목만 남으면</b> "요약이 있어야
+     * 하는데 실패했다" 처럼 보이므로 절 자체를 그리지 않는다.
+     */
+    @Test
+    @DisplayName("요약이 없으면 요약 절 자체가 없다")
+    void omitsNarrativeSection() throws Exception {
+        String text = extract(generator.generate(document(report(true))));
+
+        assertThat(text).doesNotContain("요약");
+    }
+
     /**
      * 추출한 텍스트의 공백·하이픈 변형을 일반 문자로 맞춘다. 렌더러가 줄바꿈 제어를 위해 하이픈을
      * U+2011(줄바꿈 없는 하이픈)로, 공백을 다른 공백 문자로 그려 추출 결과가 달라진다 — 화면 표시는 같다.
@@ -140,6 +167,12 @@ class EstimatePdfGeneratorTest {
 
     private static EstimateReportResponse report(boolean estimable,
                                                  List<UnresolvedPartResponse> unresolvedParts) {
+        return report(estimable, unresolvedParts, null);
+    }
+
+    private static EstimateReportResponse report(boolean estimable,
+                                                 List<UnresolvedPartResponse> unresolvedParts,
+                                                 Narrative narrative) {
         Instant now = Instant.parse("2026-09-11T03:00:00Z");
         List<EstimateItemResponse> items = estimable
                 ? List.of(new EstimateItemResponse(1L, "FRONT_BUMPER", "앞 범퍼", "FRONT", "Crushed",
@@ -159,6 +192,7 @@ class EstimatePdfGeneratorTest {
                 estimate,
                 new EstimateBasisResponse(1L, (short) 1, List.of()),
                 null,
+                narrative,
                 "이 결과는 AI와 사례 통계를 이용한 참고용 추정치이며 실제 수리비와 다를 수 있고 특정 사업자를 평가하지 않습니다.",
                 now);
     }

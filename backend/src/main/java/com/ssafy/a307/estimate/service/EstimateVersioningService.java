@@ -4,12 +4,15 @@ import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.estimate.entity.ConfidenceGrade;
 import com.ssafy.a307.estimate.entity.Estimate;
+import com.ssafy.a307.estimate.narrative.EstimateNarrative;
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeRepository;
 import com.ssafy.a307.estimate.repository.EstimateRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -31,6 +34,11 @@ import java.util.Optional;
 public class EstimateVersioningService {
 
     private final EstimateRepository estimateRepository;
+
+    /**
+     * 리포트 요약 큐 (S15P21A307-537). <b>여기서 LLM 을 부르지 않는다</b> — 접수만 한다.
+     */
+    private final EstimateNarrativeRepository narrativeRepository;
 
     /**
      * 산정된 견적을 다음 버전으로 저장한다. 첫 산정이면 버전 1이다.
@@ -83,11 +91,33 @@ public class EstimateVersioningService {
      * {@code estimate_report} 가 {@code ux_er_inflight} 로 동시 생성을 1건만 허용하는 것과 같은 판단이다.
      */
     private Estimate save(Estimate estimate) {
+        Estimate saved;
         try {
-            return estimateRepository.saveAndFlush(estimate);
+            saved = estimateRepository.saveAndFlush(estimate);
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "이미 재산정이 진행 중입니다. 잠시 후 다시 시도해 주세요.");
         }
+        queueNarrative(saved);
+        return saved;
+    }
+
+    /**
+     * 리포트 요약 생성을 접수한다 (S15P21A307-537).
+     *
+     * <p><b>견적 저장과 같은 트랜잭션이다.</b> 견적이 롤백되면 접수도 함께 사라지고, 견적이
+     * 남으면 반드시 큐에 들어가 있다 — 나중에 이벤트로 접수하면 "견적은 있는데 요약은 영영
+     * 안 만들어진" 건이 생긴다.
+     *
+     * <p><b>산정 불가 견적도 접수한다.</b> 금액이 없을수록 "왜 못 냈고 다음에 무엇을 하면
+     * 되는지" 를 설명할 문장이 필요하다.
+     *
+     * <p>생성은 워커가 한다. 여기서 부르면 AI 결과 수신 스레드가 LLM 을 기다리게 되고,
+     * AI 서버는 타임아웃으로 같은 결과를 세 번 더 보낸다.
+     */
+    private void queueNarrative(Estimate estimate) {
+        // saveAndFlush 다. 이 행은 PK 를 직접 넣는(견적 id) 엔티티라 JPA 가 INSERT 를 커밋
+        // 시점까지 미룰 수 있는데, 그러면 같은 트랜잭션에서 SQL 로 큐를 보는 쪽이 빈 결과를 본다.
+        narrativeRepository.saveAndFlush(EstimateNarrative.queued(estimate.getEstimateId(), Instant.now()));
     }
 }

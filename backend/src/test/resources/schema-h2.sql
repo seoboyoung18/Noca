@@ -63,6 +63,7 @@ DROP TABLE IF EXISTS estimate_validation_item;
 DROP TABLE IF EXISTS estimate_validation;
 DROP TABLE IF EXISTS estimate_validation_rule;
 DROP TABLE IF EXISTS estimate_notice;
+DROP TABLE IF EXISTS estimate_narrative;
 DROP TABLE IF EXISTS estimate_item;
 DROP TABLE IF EXISTS estimate;
 DROP TABLE IF EXISTS damaged_part;
@@ -303,6 +304,22 @@ CREATE TABLE estimate_item (
     is_low_confidence BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT ck_ei_method CHECK (repair_method IN ('coating','sheet_metal','exchange','repair'))
 );
+
+-- 견적 리포트 LLM 요약 (S15P21A307-537).
+-- 정본과 다른 점: TIMESTAMPTZ → TIMESTAMP WITH TIME ZONE, JSONB → JSON,
+--                부분 인덱스 WHERE 절 → 전체 인덱스. 그 밖은 글자까지 같다.
+CREATE TABLE estimate_narrative (
+    estimate_id    BIGINT      PRIMARY KEY REFERENCES estimate(estimate_id) ON DELETE CASCADE,
+    status         VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
+    content        JSON,
+    failure_reason VARCHAR(200),
+    created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    CONSTRAINT ck_en_status CHECK (status IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
+    CONSTRAINT ck_en_done   CHECK (status <> 'COMPLETED' OR content IS NOT NULL)
+);
+
+CREATE INDEX ix_en_queue ON estimate_narrative (updated_at, estimate_id);
 
 -- 고지 문구 (S15P21A307-288). 정본과 달리 TIMESTAMPTZ → TIMESTAMP WITH TIME ZONE.
 CREATE TABLE estimate_notice (

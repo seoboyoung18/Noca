@@ -39,6 +39,24 @@ public record EstimateBasisItemResponse(
         Integer refYearTo,
         RefCondition.RepairMethodReason repairMethodReason) {
 
+    /**
+     * 다듬어진 근거 문장으로 바꾼 사본 (S15P21A307-537).
+     *
+     * <p>LLM 은 <b>규칙이 만든 문장을 다듬기만 한다.</b> 다듬은 결과에 원문에 없던 숫자가
+     * 섞이면 {@code EstimateNarrativeGenerator} 가 버리고, 그러면 여기로 {@code null} 이
+     * 와서 규칙 문장이 그대로 남는다 — 사용자가 보는 근거는 언제나 저장된 값과 맞는다.
+     *
+     * @param polished 다듬어진 문장. {@code null} 이면 지금 문장을 그대로 둔다
+     */
+    public EstimateBasisItemResponse withNarrative(String polished) {
+        if (polished == null || polished.isBlank()) {
+            return this;
+        }
+        return new EstimateBasisItemResponse(estimateItemId, partCode, partNameKo, repairMethod,
+                repairMethodDisplayName, refCaseCount, basisAvailable, polished, fallbackStage,
+                costDistribution, refYearFrom, refYearTo, repairMethodReason);
+    }
+
     public static EstimateBasisItemResponse of(EstimateBasisItemView view, RefCondition basis) {
         String displayName = RepairMethodDisplay.displayNameOf(view.getRepairMethod());
 

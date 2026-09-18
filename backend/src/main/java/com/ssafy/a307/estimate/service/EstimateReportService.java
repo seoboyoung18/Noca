@@ -9,7 +9,12 @@ import com.ssafy.a307.estimate.dto.EstimateReportResponse;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse.Accident;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse.Image;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse.Vehicle;
+import com.ssafy.a307.estimate.dto.EstimateReportResponse.Narrative;
 import com.ssafy.a307.estimate.dto.EstimateResponse;
+import com.ssafy.a307.estimate.narrative.EstimateNarrative;
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeContent;
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeReader;
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeRepository;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository.ReportContextView;
 import com.ssafy.a307.estimate.repository.NativeTimestamps;
@@ -38,6 +43,8 @@ public class EstimateReportService {
     private final EstimateValidationService validationService;
     private final AccidentImageDownloadUrls downloadUrls;
     private final EstimateNoticeProvider noticeProvider;
+    private final EstimateNarrativeRepository narrativeRepository;
+    private final EstimateNarrativeReader narrativeReader;
 
     @Transactional(readOnly = true)
     public EstimateReportResponse report(Long estimateId, Long memberId) {
@@ -69,6 +76,7 @@ public class EstimateReportService {
                 estimate,
                 basis,
                 validation,
+                narrative(estimateId),
                 // 문구 출처가 상수에서 estimate_notice 테이블로 옮겨졌다(S15P21A307-288).
                 // 값은 그대로다 — 이관이지 개정이 아니다. 비면 아래 requireSections 가 막는다.
                 noticeProvider.legalNotice(),
@@ -76,6 +84,29 @@ public class EstimateReportService {
 
         requireSections(report);
         return report;
+    }
+
+    /**
+     * 리포트에 실을 요약 (S15P21A307-537).
+     *
+     * <p><b>완료된 것만 싣고, 없으면 {@code null} 이다.</b> 생성은 견적 저장 뒤 워커가 하므로
+     * 리포트를 먼저 열면 아직 없을 수 있고, 실패했을 수도 있다. 어느 쪽이든 리포트는 그대로
+     * 나간다 — 아래 {@code requireSections} 가 요약을 필수로 보지 않는 이유다.
+     *
+     * <p>항목별 근거 문장은 여기 담기지 않는다. 그것은 {@code basis} 안에서 이미 바뀌어
+     * 있다({@code EstimateQueryService#basis}) — 같은 문장을 두 자리에 두지 않는다.
+     */
+    private Narrative narrative(Long estimateId) {
+        EstimateNarrativeContent content = narrativeRepository.findById(estimateId)
+                .filter(EstimateNarrative::completed)
+                .map(EstimateNarrative::getContent)
+                .map(narrativeReader::read)
+                .orElseGet(EstimateNarrativeContent::empty);
+
+        if (content.summary() == null && content.cautions().isEmpty()) {
+            return null;
+        }
+        return new Narrative(content.summary(), content.cautions());
     }
 
     /**
