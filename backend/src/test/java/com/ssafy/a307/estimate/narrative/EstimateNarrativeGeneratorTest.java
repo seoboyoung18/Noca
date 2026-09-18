@@ -51,6 +51,24 @@ class EstimateNarrativeGeneratorTest {
         }
     }
 
+    /**
+     * <b>저장되는 JSON 은 계약이다.</b> 이 record 는 {@code estimate_narrative.content} 에 그대로
+     * 들어가는데, Jackson 은 {@code isEmpty()} 같은 헬퍼를 빈 게터로 보고 함께 직렬화한다 —
+     * 실제로 운영에 {@code "empty": false} 가 11건 들어갔다. 다시 새어 나가면 여기서 깨진다.
+     */
+    @Test
+    @DisplayName("저장되는 JSON 에는 문장 필드 셋만 들어간다")
+    void serializesOnlyContentFields() {
+        String json = new ObjectMapper().writeValueAsString(
+                new EstimateNarrativeContent("요약", List.of("확인 권장"), List.of()));
+
+        assertThat(json)
+                .contains("\"summary\"")
+                .contains("\"cautions\"")
+                .contains("\"basisNotes\"")
+                .doesNotContain("\"empty\"");
+    }
+
     @Test
     @DisplayName("요약·확인 권장·근거 문장을 읽는다")
     void readsSummaryCautionsAndNotes() {

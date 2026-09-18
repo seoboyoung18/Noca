@@ -1,5 +1,7 @@
 package com.ssafy.a307.estimate.narrative;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.util.List;
 
 /**
@@ -44,6 +46,15 @@ public record EstimateNarrativeContent(String summary, List<String> cautions,
                 .orElse(null);
     }
 
+    /**
+     * 쓸 문장이 하나도 없는가. 생성기가 실패로 끊을지 판단하는 데만 쓴다.
+     *
+     * <p><b>{@code @JsonIgnore} 가 필요하다.</b> 이 record 는 {@code estimate_narrative.content}
+     * 에 그대로 저장되는데, Jackson 은 {@code isEmpty()} 를 빈 게터로 보고 {@code "empty"} 를
+     * 함께 직렬화한다. 저장된 JSON 은 계약이라 헬퍼가 새어 나가면 나중에 읽는 사람이 그 필드를
+     * 무엇으로 받아들일지 알 수 없다({@code Segmentation} 이 같은 이유로 붙여 두었다).
+     */
+    @JsonIgnore
     public boolean isEmpty() {
         return (summary == null || summary.isBlank()) && cautions.isEmpty() && basisNotes.isEmpty();
     }
