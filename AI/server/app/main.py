@@ -27,13 +27,24 @@ vector_repository = VectorRepository(
     settings.database_url,
     expected_model_name=settings.embedding_model_name,
     expected_model_version=settings.embedding_model_version,
+    yolo_corpus_part_boost=settings.yolo_corpus_part_boost,
 )
 cost_repository = PostgresCostCaseRepository(settings.database_url)
-estimate_service = EstimateService(cost_repository)
+estimate_service = EstimateService(
+    cost_repository,
+    enable_part_price_reference=settings.enable_part_price_reference,
+    enable_yolo_estimate_references=settings.enable_yolo_estimate_references,
+    yolo_estimate_max_cases=settings.yolo_estimate_max_cases,
+)
 search_service = SearchService(
     vector_repository, embedding_service,
     pipeline_version_id=settings.pipeline_version_id,
     top_k=settings.search_top_k,
+    enable_part_price_reference=settings.enable_part_price_reference,
+    estimate_service=estimate_service,
+    enable_yolo_estimate_references=settings.enable_yolo_estimate_references,
+    yolo_estimate_candidate_k=settings.yolo_estimate_candidate_k,
+    yolo_estimate_max_cases=settings.yolo_estimate_max_cases,
 )
 analysis_service = AnalysisService(
     settings, inference_service, search_service, estimate_service,
