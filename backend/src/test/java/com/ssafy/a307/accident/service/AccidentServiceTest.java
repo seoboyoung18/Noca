@@ -938,6 +938,47 @@ class AccidentServiceTest {
             assertThat(summary.estimatedCostMedian()).isNull();
         }
 
+        /**
+         * S15P21A307-552. 체크리스트는 <b>산정 불가 견적에도 만들어진다</b>. 화면이
+         * {@code estimateId} 로 체크리스트 유무를 가늠하다가 그 사고의 체크리스트를 통째로
+         * 숨겼다 — 운영에서 7건 중 5건이 보이지 않았다.
+         */
+        @Test
+        @DisplayName("산정 불가 사고여도 체크리스트 상태를 준다 — estimateId 로 가늠하지 않는다")
+        void checklistStatusSurvivesNonEstimable() {
+            long accidentId = openAccident();
+            insertEstimate(accidentId, 1, false, null, null, null);
+            insertChecklist(accidentId, "COMPLETED");
+            flushAndClear();
+
+            AccidentSummaryResponse summary = onlyAccident();
+
+            assertThat(summary.estimateId()).isNull();
+            assertThat(summary.checklistStatus()).isEqualTo("COMPLETED");
+        }
+
+        /** 만드는 중인 것도 화면이 "만들고 있어요" 로 보여 준다 — 없는 것과 구분해야 한다. */
+        @Test
+        @DisplayName("생성 중인 체크리스트도 상태 그대로 준다")
+        void checklistStatusCarriesInProgress() {
+            long accidentId = openAccident();
+            insertEstimate(accidentId, 1, true, 100, 200, 300);
+            insertChecklist(accidentId, "QUEUED");
+            flushAndClear();
+
+            assertThat(onlyAccident().checklistStatus()).isEqualTo("QUEUED");
+        }
+
+        @Test
+        @DisplayName("체크리스트를 만든 적이 없으면 null 이다")
+        void checklistStatusIsNullWithoutChecklist() {
+            long accidentId = openAccident();
+            insertEstimate(accidentId, 1, true, 100, 200, 300);
+            flushAndClear();
+
+            assertThat(onlyAccident().checklistStatus()).isNull();
+        }
+
         @Test
         @DisplayName("페이지 크기와 무관하게 추가 쿼리가 3개다 — 건마다 조회하지 않는다")
         void enrichmentDoesNotScaleWithPageSize() {
@@ -1091,6 +1132,13 @@ class AccidentServiceTest {
                         + " values (?, ?, ?, ?, ?, ?)",
                 jobId, version, estimable, min, median, max);
         return jobId;
+    }
+
+    /** 사고당 한 건이다 ({@code uk_rcl_accident}). 나머지 열은 기본값으로 둔다. */
+    private void insertChecklist(long accidentId, String status) {
+        jdbcTemplate.update(
+                "insert into repair_checklist (accident_id, status) values (?, ?)",
+                accidentId, status);
     }
 
     /** 최신 견적 판정이 created_at 을 먼저 보므로, 오래된 견적을 만들려면 시각을 뒤로 옮긴다. */

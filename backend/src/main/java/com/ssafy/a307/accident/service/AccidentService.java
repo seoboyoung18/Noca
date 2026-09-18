@@ -192,7 +192,8 @@ public class AccidentService {
                 analysis == null ? null : analysis.getEstimateId(),
                 analysis == null ? null : analysis.getTotalMin(),
                 analysis == null ? null : analysis.getTotalMedian(),
-                analysis == null ? null : analysis.getTotalMax());
+                analysis == null ? null : analysis.getTotalMax(),
+                analysis == null ? null : analysis.getChecklistStatus());
     }
 
     /**
