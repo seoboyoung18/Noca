@@ -415,10 +415,11 @@ def test_not_approved_rows_are_excluded(assessment_status):
 
     result = service.calculate(_request([part]))
 
-    # case 1이 불인정으로 빠지므로 최소 사례 수(3) 미달 → 미해결 처리.
-    assert result["estimable"] is False
-    assert result["unresolvedParts"][0]["reason"] == "INSUFFICIENT_CASES"
-
+    # case 1이 불인정으로 빠지고 2·3만 남는다. 최소 사례 수가 바뀌어도
+    # 이 테스트가 확인할 것은 "불인정 행이 빠졌는가" 하나다.
+    assert result["estimable"] is True
+    assert result["refCaseTotal"] == 2
+    assert result["items"][0]["referencedCaseIds"] == [2, 3]
 
 def test_reference_price_and_ancillary_rows_are_excluded():
     rows = [
