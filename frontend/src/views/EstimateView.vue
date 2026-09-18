@@ -19,8 +19,10 @@ import {
  *   GET /api/accidents/{id}/estimates → GET /api/estimates/{estimateId}   금액·항목·신뢰도
  * 검출 좌표는 AI 분석 축소본 픽셀이고 images[].width/height 도 같은 기준이라, 사진 픽셀을 viewBox 로 쓰는 SVG 한 장을 사진 위에 겹쳐 그린다
  * (preserveAspectRatio=slice 가 img 의 object-fit: cover 와 같은 잘림을 만들어 좌표 환산이 필요 없다).
- * 검출 하나는 폴리곤(geometry.polygons — 세그멘테이션 윤곽)을 반투명하게 칠하고 그 위에 바운딩박스 테두리를 그린다. 박스에는 그림자를 줘 사진 위에서 뜬다.
- * 박스 왼쪽 위에는 부위명 라벨을 붙인다. 라벨은 글자 크기가 고정돼야 해서 SVG 가 아니라 HTML 로 얹고, 위치만 pointToPercent 로 환산한다.
+ * 검출 하나는 폴리곤(geometry.polygons — 세그멘테이션 윤곽)을 반투명하게 칠하고, 바운딩박스는 네 모서리만 꺾쇠로 그린다(코너 하이라이트).
+ * 사각형을 다 그리면 선이 손상 부위를 가리고 사진이 답답해진다 — 모서리만 남겨도 범위는 읽힌다. 선은 네온 글로우(겹친 drop-shadow)로 사진 위에서 빛나게 한다.
+ * 부위명 라벨은 <b>부품을 고른 뒤에만</b> 나온다 — 처음부터 여러 라벨을 띄우면 서로 겹치고 사진을 가린다. 부품 카드를 누르면 그 부위만 남고 라벨이 함께 뜬다.
+ * 라벨은 글자 크기가 고정돼야 해서 SVG 가 아니라 HTML 로 얹고, 위치만 pointToPercent 로 환산한다.
  * 부품별 내역 카드를 누르면 그 부품(partCode)의 도형만 남기고 나머지는 숨긴다 — 다른 사진에만 있으면 그 사진으로 넘긴다. 다시 누르면 전체.
  * 견적은 AI 콜백이 만들므로 결과가 있어도 견적이 아직 없을 수 있다 — 그때는 부위 목록만 보이고 금액은 "산정 중".
  * 견적을 받으면 정비 체크리스트 생성을 서버 큐에 넣는다(서버는 자동 생성하지 않음) — 이미 있으면 409 라 조용히 넘어간다.
@@ -98,6 +100,20 @@ const photos = computed(() => (result.value?.images || []).map((im) => ({
     .filter((m) => m.rect || m.polygons.length),
 })))
 const current = computed(() => photos.value[photo.value] || null)
+/**
+ * 코너 하이라이트 — 박스의 네 모서리만 꺾쇠(ㄱ 모양)로 그리는 path.
+ * 꺾쇠 길이는 짧은 변의 18% — 모서리만 찍어 사진을 덜 가리되 범위는 읽히게.
+ */
+function cornerPath(r) {
+  const len = Math.max(3, Math.min(r.w, r.h) * 0.18)
+  const { x, y, w, h } = r
+  return [
+    `M${x} ${y + len}V${y}H${x + len}`,
+    `M${x + w - len} ${y}H${x + w}V${y + len}`,
+    `M${x + w} ${y + h - len}V${y + h}H${x + w - len}`,
+    `M${x + len} ${y + h}H${x}V${y + h - len}`,
+  ].join(' ')
+}
 
 /* ----- 부품 선택 → 그 부품의 도형만 ----- */
 const selected = ref(null) // partCode | null
@@ -253,11 +269,11 @@ function applyMock() {
           <svg v-if="current && current.w && marks.length" class="ovl" :viewBox="`0 0 ${current.w} ${current.h}`" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
             <g v-for="m in marks" :key="m.id">
               <polygon v-for="(pts, i) in m.polygons" :key="i" class="poly" :points="pts" />
-              <rect v-if="m.rect" class="bx" :x="m.rect.x" :y="m.rect.y" :width="m.rect.w" :height="m.rect.h" rx="2" />
+              <path v-if="m.rect" class="bx" :d="cornerPath(m.rect)" />
             </g>
           </svg>
-          <!-- 부위명 라벨 — 박스 왼쪽 위. 글자 크기를 고정하려고 SVG 밖 HTML 로 얹는다 -->
-          <span v-for="m in marks" v-show="markLabel(m)" :key="`l-${m.id}`" class="lbl" :class="{ inside: m.label?.inside }"
+          <!-- 부위명 라벨 — 부품을 고른 뒤에만. 박스 왼쪽 위에 붙이고, 글자 크기를 고정하려고 SVG 밖 HTML 로 얹는다 -->
+          <span v-for="m in selected ? marks : []" v-show="markLabel(m)" :key="`l-${m.id}`" class="lbl" :class="{ inside: m.label?.inside }"
             :style="m.label ? { left: m.label.l + '%', top: m.label.t + '%' } : null">{{ markLabel(m) }}</span>
           <span v-if="current?.excluded" class="excl">분석 제외 · {{ current.reason }}</span>
         </div>
@@ -317,20 +333,24 @@ function applyMock() {
 /* 바운딩박스 — 서버 좌표 그대로 푸른색으로. 사진 위에서 잘 보이도록 바깥에 흰 테두리를 한 겹 더 둔다 */
 /* 검출 오버레이 — 폴리곤(채움) + 바운딩박스(테두리). 선 굵기는 사진 크기와 무관하게 일정해야 해서 non-scaling-stroke */
 .ovl { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; animation: fadein .2s ease-out; }
-.poly { fill: rgba(30,136,229,.3); stroke: rgba(30,136,229,.9); stroke-width: 1.2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.bx { fill: none; stroke: #1E88E5; stroke-width: 1.2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
+/* 네온 글로우 — 밝은 하늘색 선에 같은 색 그림자를 겹쳐 빛 번짐을 만든다. 흰 차체 위에서도 읽히도록 가장 안쪽 그림자는 진하게 */
+.poly { fill: rgba(56,189,248,.16); stroke: #7DD3FC; stroke-width: 1.2; stroke-linejoin: round; vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 1px rgba(2,132,199,.9)) drop-shadow(0 0 5px rgba(56,189,248,.65)); }
+/* 코너 하이라이트 — 네 모서리 꺾쇠. 짧은 선이라 조금 두껍게 두고 끝을 둥글린다 */
+.bx { fill: none; stroke: #BAE6FD; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 1px rgba(2,132,199,1)) drop-shadow(0 0 4px rgba(56,189,248,.95)) drop-shadow(0 0 10px rgba(56,189,248,.65)); }
 /* 박스 왼쪽 위 부위명 라벨. 박스 선(1.2px)에 맞춰 왼쪽을 정렬하고 위로 올린다 */
-.lbl { position: absolute; transform: translate(-1px, -100%); max-width: 62%; padding: 3px 7px; border-radius: 5px 5px 5px 0; background: #1E88E5; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 1px 2px rgba(0,0,0,.35); pointer-events: none; animation: fadein .2s ease-out; }
+.lbl { position: absolute; transform: translate(-1px, -100%); max-width: 62%; padding: 3px 7px; border-radius: 5px 5px 5px 0; background: #0284C7; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 6px rgba(56,189,248,.85), 0 1px 3px rgba(0,0,0,.35); pointer-events: none; animation: fadein .2s ease-out; }
 .lbl.inside { transform: translate(-1px, 1px); border-radius: 0 5px 5px 5px; }
-.only { font-size: 12px; color: #1E88E5; font-weight: 500; text-decoration: underline; }
+.only { font-size: 12px; color: #0284C7; font-weight: 500; text-decoration: underline; }
 .excl { position: absolute; left: 10px; bottom: 10px; padding: 4px 8px; border-radius: 6px; background: rgba(25,31,40,.75); color: #fff; font-size: 11px; font-weight: 500; }
 .thumbs { margin-top: 8px; display: flex; gap: 6px; }
 .th { flex: 0 0 68px; width: 68px; height: 68px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: var(--bg-2); }
 .th.on { border: 2px solid var(--primary); }
 .th img { width: 100%; height: 100%; object-fit: cover; }
 .part { width: 100%; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; align-items: center; gap: 10px; transition: border-color .15s ease, background .15s ease; }
-.part.on { border-color: #1E88E5; background: rgba(30,136,229,.06); box-shadow: inset 0 0 0 1px #1E88E5; }
-.part.on .pn { background: #1E88E5; }
+.part.on { border-color: #38BDF8; background: rgba(56,189,248,.08); box-shadow: inset 0 0 0 1px #38BDF8; }
+.part.on .pn { background: #0284C7; }
 .part.static { cursor: default; }
 .pn { flex: 0 0 20px; width: 20px; height: 20px; border-radius: 10px; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .pn.na { background: var(--line-2); }
