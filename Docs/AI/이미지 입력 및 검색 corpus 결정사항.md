@@ -97,6 +97,21 @@ part_predictions 하나 이상
 
 이 필드는 기존 백엔드·FE 계약에 이미 포함되어 있으므로 외부 API 변경은 없다. 일부 이미지가 제외되어도 다른 이미지가 남으면 분석을 계속하고, 모든 이미지가 제외되면 기존 `ALL_IMAGES_EXCLUDED` 흐름으로 재업로드를 안내한다.
 
+## 손상 미검출
+
+part가 하나 이상 검출되어 차량 사진으로 판정됐지만 damage 검출이 0건이면 정상 결과로 처리한다.
+
+```text
+part_predictions 하나 이상 + damage_predictions 없음
+ → excluded: false
+ → exclusionReason: null
+ → detections: []
+ → nonEstimableReason: NO_DAMAGE_DETECTED
+```
+
+`NO_DAMAGE_DETECTED`는 HTTP 오류나 차량 제외가 아니다. 백엔드는 callback을 정상 수신·저장하고,
+프론트는 결과 화면에 “손상을 찾지 못했어요”를 표시한다.
+
 검색 서비스의 `searchability` 미정의 변수 오류는 수정했다.
 
 ## 수리 방식
