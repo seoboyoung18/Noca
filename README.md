@@ -144,9 +144,9 @@ OpenAI `gpt-5.4` 로 바꾼다.
 | AI 유사 사례 검색 (`POST /search`) | 구현 | ROI 임베딩 + pgvector. `FEATURE_PIPELINE_VERSION_ID` 없으면 503 |
 | AI 수리비 산정 (`POST /estimate`) | 구현 | 수리 사례 DB 조회. 데이터 없으면 503 |
 | AI 분석 오케스트레이션 (`POST /analyze`) | 구현 · **운영에서 실경로로 동작** | 추론 → 검색 → 견적을 이어 실행하고 실제 견적 값(`totals` · `confidenceGrade`)을 콜백한다. 운영 컨테이너가 `ANALYSIS_PROFILE=production` · `FEATURE_PIPELINE_VERSION_ID=1` 이고 `/health` 가 `modelsLoaded` · `embeddingModelLoaded` 를 `true` 로 보고한다. `ANALYSIS_PROFILE=mock` 은 BE 연동 테스트 전용이며 그 경우에만 `estimable: false` 다 |
-| 견적서 검증 (OCR → 판정 → 리포트) | **백엔드 구현 · 이번 범위 제외** | 판정 규칙·리포트·PDF 까지 백엔드 101개 파일로 완성. OCR 판독 벤더(`ESTIMATE_OCR_PROVIDER`)를 확정하지 않아 이번 범위에서 제외했다 — 사진 기반 견적을 먼저 완성하는 쪽을 택했다 |
+| 견적서 검증 (OCR → 판정 → 리포트) | 구현 · **워커 꺼짐** | 백엔드 101개 파일로 완성했다. OCR 판독도 GMS 경유로 배선돼 있고 판독 프롬프트(`EstimateOcrPrompt`)·어댑터·파서까지 있다. `ESTIMATE_OCR_PROVIDER` 가 비어 있어 빈이 만들어지지 않을 뿐이다(`@ConditionalOnExpression`). 이번 시연은 사진 기반 견적에 집중해 워커를 켜지 않았다 |
 | 견적 PDF | 구현 · **배포에서 켜짐** | `ESTIMATE_PDF_ENABLED=true` (운영 컨테이너 env) |
-| 검증 결과 PDF | 구현 · **꺼짐** | `VALIDATION_PDF_ENABLED`. 견적서 검증과 함께 이번 범위에서 제외 |
+| 검증 결과 PDF | 구현 · **워커 꺼짐** | 생성기·한글 폰트·조립기·워커까지 완성했고 테스트 3건이 덮는다(`ValidationPdfGenerationTest` 등). 견적서 검증과 같은 이유로 `VALIDATION_PDF_ENABLED` 를 켜지 않았다 |
 | LLM 리포트 요약 · 체크리스트 · 정비소 질문 | 구현 · **배포에서 켜짐** | 운영 컨테이너 env 가 `ESTIMATE_NARRATIVE_WORKER_ENABLED` · `REPAIR_CHECKLIST_WORKER_ENABLED` · `REPAIR_QUESTION_WORKER_ENABLED` 를 `true` 로 둔다. 저장소 기본값은 `false` 이고 `GMS_KEY` 없으면 503 |
 | 체크리스트 화면 | 구현 · 화면 연동 | `stores/checklist.js` 를 세 화면이 쓴다 |
 | 정비소 검색 | 구현 · **카카오 지도 SDK 직접 연동** | `ShopsView` 가 브라우저에서 카카오 지도 SDK 를 직접 부른다. 지도 렌더링과 검색 결과가 같은 SDK 에서 나와 좌표가 어긋나지 않고, 서버를 한 번 거치지 않아 응답이 빠르다. BE `GET /api/repair-shops` 는 서버 경유가 필요해질 때를 위해 남겨 두었다 |
