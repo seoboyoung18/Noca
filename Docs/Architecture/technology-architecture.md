@@ -10,11 +10,16 @@
 
 ![NOCA 기술 아키텍처](./technology-architecture.png)
 
-> [!WARNING]
-> 위 PNG 는 손으로 그린 원본이며, 아래 **코드 검증 결과**에 적힌 두 항목(Redis 의 역할,
-> 서버 종류)은 현재 코드와 다르다. 정확한 구성은 이 문서의 표와 아래 Mermaid 도면을 따른다.
+위 PNG 는 편집 원본 SVG 에서 그대로 내보낸 것이다. 둘은 같은 그림이다.
 
 편집 가능한 원본: [technology-architecture.svg](./technology-architecture.svg)
+
+```bash
+npx svgexport Docs/Architecture/technology-architecture.svg Docs/Architecture/technology-architecture.png 2000:1300
+```
+
+> [!NOTE]
+> 서버 종류(EC2 / Lightsail)는 아직 확정되지 않았다. **코드 검증 결과** 표를 함께 본다.
 
 아래는 같은 구성을 코드에 맞춰 다시 그린 것이다.
 
@@ -234,7 +239,7 @@ DB 값을 고치면 다음 검색부터 반영된다 — AI 서버 재배포가 
 
 | 이미지 표현 | 실제 구현 | 코드 근거 | 비고 |
 | --- | --- | --- | --- |
-| `React Web / App` | **Vue 3.5.13, 앱 없음** | `frontend/package.json`, 네이티브·PWA 파일 없음 | **SVG 를 고쳤다.** PNG 는 그대로 |
+| `React Web / App` | **Vue 3.5.13, 앱 없음** | `frontend/package.json`, 네이티브·PWA 파일 없음 | **SVG·PNG 둘 다 고쳤다** |
 | Redis `작업 큐 · 상태 캐시` | **세션 저장소 전용** | `spring.session.data.redis.*`. `RedisTemplate`·`@Cacheable` 0건 | 큐는 `analysis_job` 테이블 |
 | `EC2 1` · `EC2 2` | **확인 필요** | 저장소에 IaC 가 없다 | 문서끼리 어긋난다(아래) |
 | 워커 6개 | **7개** | `find -name "*Worker.java"` | `-537` 이 `EstimateNarrativeWorker` 추가 |
@@ -262,5 +267,5 @@ DB 값을 고치면 다음 검색부터 반영된다 — AI 서버 재배포가 
 - **S3 `staging` 7일 lifecycle.** `application.properties` 주석에만 있고 버킷 설정은
   저장소 밖이다.
 - **AI 서버 실제 기동.** 이 환경에 `fastapi` 가 설치돼 있지 않아 import 검사조차 하지 못했다.
-- **PNG 재내보내기.** Mermaid 렌더러가 없어 SVG 수정분(Vue 문구)이 PNG 에 반영되지 않았다.
-  그래서 이미지 위에 경고를 두었다.
+- ~~**PNG 재내보내기.**~~ 2026-09-18 해결했다. `npx svgexport` 로 SVG 에서 PNG 를 다시
+  내보냈고 두 파일이 같은 그림이다.
