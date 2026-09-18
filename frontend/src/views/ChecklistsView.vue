@@ -15,8 +15,8 @@ import { checklistStatusText } from '../data/checklists'
 /* ===== 나의 체크리스트 (S14c) =====
  * 체크리스트는 견적과 1:1 로 만들어지므로 목록은 사고 목록(사고 스토어) 중 견적이 있는 사고(estimateId) 로 만든다.
  * 체크리스트 목록 API 는 따로 없다. 카드마다 상태 조회(GET …/repair-checklist)로 "생성 중 · n/N 확인 · 실패" 배지를 단다. 상세에는 accidentId 쿼리.
- * 숨기기는 사고 이력과 같은 스토어 hidden 을 쓴다 — 체크리스트를 숨기면 연결된 사고 이력도 함께 숨겨진다(1:1).
- *   카드마다 더보기(⋮) → "체크리스트 숨기기" → 확인 시트. 화면 우측 상단 더보기에는 "숨긴 체크리스트 나타내기" 만 둔다.
+ * 화면 문구는 "제거하기" 지만 서버는 지우지 않고 감춘다(PATCH .../hidden, S15P21A307-554) — 체크리스트를 제거하면 연결된 사고 이력도 함께 빠진다(1:1).
+ *   카드마다 더보기(⋮) → "체크리스트 제거하기" → 확인 시트. 화면 우측 상단 더보기에서 "제거한 체크리스트 보기" 로 넘어가 건별로 되돌린다.
  */
 const router = useRouter()
 const store = useAccidentStore()
@@ -25,7 +25,8 @@ const { ensure: ensureDesc, text: descText } = useAccidentDesc()
 
 onMounted(() => store.load(true))
 const list = computed(() => store.items.filter((a) => a.estimateId))
-const hiddenCount = computed(() => store.all.filter((a) => a.estimateId && store.hidden.includes(a.accidentId)).length)
+/** 제거한 것 중 체크리스트가 있는 사고 — "제거한 체크리스트 보기" 에서 건별로 되돌린다 */
+const hiddenList = computed(() => store.hidden.filter((a) => a.estimateId))
 watch(list, (items) => { ensureDesc(items); for (const a of items) if (!checklists.get(a.accidentId)) checklists.load(a.accidentId) }, { immediate: true })
 /** 카드 배지 — 완료면 진행도, 만드는 중·실패면 상태 문구, 요청 전이면 표시 없음 */
 function badge(a) {
@@ -38,51 +39,99 @@ function badge(a) {
 
 function open(a) {
   if (cardMenu.value != null) { cardMenu.value = null; return }
+  if (showHidden.value) return
   router.push({ path: '/checklist', query: { accidentId: a.accidentId } })
 }
 
-/* ===== 더보기 · 숨기기 ===== */
+/* ===== 더보기 · 제거 ===== */
 const menu = ref(false) // 화면 우측 상단 더보기
 const cardMenu = ref(null) // 열려 있는 카드 메뉴의 accidentId
+const showHidden = ref(false) // 제거한 체크리스트 화면
 const target = ref(null) // 확인 시트가 가리키는 사고
 const lastHidden = ref(null) // 토스트 "되돌리기" 대상
+const busy = ref(false) // 제거·되돌리기 요청 중 — 연타 방지
 const toast = ref('')
 let tt
 function showToast(msg, ms = 1600) { toast.value = msg; clearTimeout(tt); tt = setTimeout(() => { toast.value = '' }, ms) }
 function toggleCardMenu(a) { cardMenu.value = cardMenu.value === a.accidentId ? null : a.accidentId }
 function askHide(a) { cardMenu.value = null; target.value = a }
-function confirmHide() {
+function openHidden() { menu.value = false; showHidden.value = true; store.loadHidden() }
+async function confirmHide() {
   const a = target.value
   target.value = null
-  if (!a) return
-  store.hide(a.accidentId)
-  lastHidden.value = a.accidentId
-  showToast('체크리스트를 숨겼어요', 4000)
+  if (!a || busy.value) return
+  busy.value = true
+  try {
+    await store.hide(a.accidentId)
+    lastHidden.value = a.accidentId
+    showToast('체크리스트를 제거했어요', 4000)
+  } catch (e) {
+    if (e?.status !== 401) showToast(e?.status === 404 ? '사고를 찾을 수 없어요.' : '제거하지 못했어요. 잠시 후 다시 시도해 주세요.', 2600)
+  } finally { busy.value = false }
 }
-function undoHide() { if (lastHidden.value != null) store.unhide(lastHidden.value); lastHidden.value = null; toast.value = '' }
-function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value = null; showToast('숨긴 체크리스트를 모두 나타냈어요') }
+/** 한 건 되돌리기 — 토스트와 "제거한 체크리스트 보기" 가 함께 쓴다 */
+async function restore(accidentId, { fromToast = false } = {}) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await store.unhide(accidentId)
+    if (fromToast) { lastHidden.value = null; toast.value = '' } else showToast('체크리스트를 되돌렸어요')
+  } catch (e) {
+    if (e?.status !== 401) showToast(e?.status === 404 ? '사고를 찾을 수 없어요.' : '되돌리지 못했어요. 잠시 후 다시 시도해 주세요.', 2600)
+  } finally { busy.value = false }
+}
+function undoHide() { if (lastHidden.value != null) restore(lastHidden.value, { fromToast: true }) }
 </script>
 
 <template>
   <Screen>
     <AppHeader title="나의 체크리스트" back="/home" back-history line>
       <template #right>
-        <!-- 화면 더보기 — 숨긴 체크리스트 나타내기만. 받은 체크리스트가 있을 때만 -->
-        <button v-if="list.length || hiddenCount" class="icn" aria-label="더보기" :aria-expanded="menu" @click="menu = !menu">
+        <!-- 화면 더보기 — 제거한 체크리스트 보기만. 받은 체크리스트가 있을 때만 -->
+        <button v-if="showHidden" class="act strong" @click="showHidden = false">완료</button>
+        <button v-else-if="list.length || store.hiddenCount" class="icn" aria-label="더보기" :aria-expanded="menu" @click="menu = !menu">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="4" r="1.8" fill="#191F28"/><circle cx="10" cy="10" r="1.8" fill="#191F28"/><circle cx="10" cy="16" r="1.8" fill="#191F28"/></svg>
         </button>
       </template>
     </AppHeader>
     <div v-if="menu" class="menu-dim" @click="menu = false"></div>
     <div v-if="menu" class="menu top" role="menu">
-      <button role="menuitem" :disabled="!hiddenCount" @click="restoreAll">
+      <button role="menuitem" @click="openHidden">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 8c1.2-3 3.7-4.8 6.5-4.8s5.3 1.8 6.5 4.8c-1.2 3-3.7 4.8-6.5 4.8S2.7 11 1.5 8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
-        숨긴 체크리스트 나타내기<span v-if="hiddenCount" class="cnt">{{ hiddenCount }}</span>
+        제거한 체크리스트 보기<span v-if="store.hiddenCount" class="cnt">{{ store.hiddenCount }}</span>
       </button>
     </div>
 
+    <!-- 제거한 체크리스트 — 건별 되돌리기 -->
+    <div v-if="showHidden" class="body scroll" style="padding-top:16px">
+      <p class="sub" style="margin:0 0 12px;font-size:12px;line-height:1.5">제거한 체크리스트는 목록에서 빠져요. 항목과 사고 기록은 보관돼 있어 되돌릴 수 있어요.</p>
+      <div v-if="store.hiddenLoading && !store.hiddenLoaded" class="sub center" style="padding:40px 0" role="status">제거한 체크리스트를 불러오고 있어요…</div>
+      <div v-else-if="store.hiddenError" class="empty" style="padding-top:40px">
+        <b>{{ store.hiddenError }}</b>
+        <button class="btn outline" style="margin-top:16px;width:auto;padding:0 20px;height:44px" @click="store.loadHidden()">다시 시도</button>
+      </div>
+      <div v-else-if="hiddenList.length" class="stack" style="gap:12px">
+        <div v-for="a in hiddenList" :key="a.accidentId" class="card cl" style="cursor:default">
+          <div class="row" style="align-items:center;gap:8px">
+            <span class="d">{{ accidentDateShort(a.createdAt) }}</span>
+            <span class="t nowrap flex1" style="overflow:hidden;text-overflow:ellipsis;text-align:left">{{ vehicleName(a) }}</span>
+            <button class="restore" :disabled="busy" @click="restore(a.accidentId)">되돌리기</button>
+          </div>
+          <div class="desc">
+            <span class="sub" style="font-size:14px;font-weight:500;text-align:left;min-width:0">{{ descText(a) }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="empty" style="padding-top:40px">
+        <img src="/assets/logo-small.png" alt="">
+        <b>제거한 체크리스트가 없어요</b>
+        <p>카드의 더보기에서 제거하면 여기에 모여요</p>
+      </div>
+      <div style="height:24px"></div>
+    </div>
+
     <!-- 첫 로딩 -->
-    <div v-if="!store.loaded && store.loading" class="body col" role="status">
+    <div v-else-if="!store.loaded && store.loading" class="body col" role="status">
       <p class="sub center" style="margin:auto 0">체크리스트를 불러오고 있어요…</p>
     </div>
 
@@ -102,7 +151,7 @@ function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value 
           <div class="row" style="align-items:center;gap:8px">
             <span class="d">{{ accidentDateShort(a.createdAt) }}</span>
             <span class="t nowrap flex1" style="overflow:hidden;text-overflow:ellipsis;text-align:left">{{ vehicleName(a) }}</span>
-            <!-- 카드 더보기 — 체크리스트 숨기기 -->
+            <!-- 카드 더보기 — 체크리스트 제거하기 -->
             <button class="more" :aria-label="`${vehicleName(a)} 체크리스트 더보기`" :aria-expanded="cardMenu === a.accidentId" @click.stop="toggleCardMenu(a)">
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="4" r="1.8" fill="currentColor"/><circle cx="10" cy="10" r="1.8" fill="currentColor"/><circle cx="10" cy="16" r="1.8" fill="currentColor"/></svg>
             </button>
@@ -110,7 +159,7 @@ function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value 
           <div v-if="cardMenu === a.accidentId" class="menu card-menu" role="menu" @click.stop>
             <button role="menuitem" class="danger" @click="askHide(a)">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 2l12 12M6.6 6.7A2 2 0 0 0 9.3 9.4M4.4 4.5C2.9 5.5 1.9 6.9 1.5 8c1.2 3 3.7 4.8 6.5 4.8 1.1 0 2.1-.3 3-.7M7 3.3c.3 0 .7-.1 1-.1 2.8 0 5.3 1.8 6.5 4.8-.3.8-.8 1.6-1.4 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              체크리스트 숨기기
+              체크리스트 제거하기
             </button>
           </div>
           <div class="desc">
@@ -122,13 +171,13 @@ function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value 
       <p class="sub center" style="margin-top:20px">예상 견적 분석이 끝나면 체크리스트가 자동으로 만들어져요</p>
     </div>
 
-    <!-- 만들어진 체크리스트는 있는데 모두 숨김 -->
-    <div v-else-if="hiddenCount" class="body col">
+    <!-- 보이는 체크리스트가 없고 제거한 것만 있음 -->
+    <div v-else-if="store.hiddenCount" class="body col">
       <div class="empty">
         <img src="/assets/logo-small.png" alt="">
-        <b>모든 체크리스트를 숨겼어요</b>
-        <p>숨긴 체크리스트는 이 기기에서만 보이지 않아요<br>더보기에서 언제든 다시 나타낼 수 있어요</p>
-        <button class="btn outline" style="margin-top:20px;width:auto;padding:0 24px;height:46px" @click="restoreAll">숨긴 체크리스트 나타내기</button>
+        <b>모든 체크리스트를 제거했어요</b>
+        <p>제거한 체크리스트는 목록에서 빠져 있어요<br>필요하면 하나씩 되돌릴 수 있어요</p>
+        <button class="btn outline" style="margin-top:20px;width:auto;padding:0 24px;height:46px" @click="openHidden">제거한 체크리스트 보기</button>
       </div>
     </div>
 
@@ -139,15 +188,15 @@ function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value 
       <p class="sub center" style="margin-top:6px">견적을 받고 나면 정비소에서<br>확인할 내용을 추천해 드려요</p>
     </div>
     <div class="spacer"></div>
-    <Toast :show="!!toast">{{ toast }}<button v-if="lastHidden != null && toast === '체크리스트를 숨겼어요'" class="undo" @click="undoHide">되돌리기</button></Toast>
+    <Toast :show="!!toast">{{ toast }}<button v-if="lastHidden != null && toast === '체크리스트를 제거했어요'" class="undo" @click="undoHide">되돌리기</button></Toast>
 
-    <!-- 숨기기 확인 -->
+    <!-- 제거 확인 -->
     <BottomSheet :model-value="!!target" @update:model-value="target = null">
-      <p class="st">이 체크리스트를 숨길까요?</p>
-      <p class="sd"><b>해당 체크리스트를 숨기면 연결된 사고 이력도 함께 숨겨집니다.</b><br>이 기기에서만 보이지 않게 되며 서버의 기록과 견적은 그대로 남아요. 더보기 메뉴에서 언제든 다시 나타낼 수 있어요.</p>
+      <p class="st">이 체크리스트를 제거할까요?</p>
+      <p class="sd"><b>해당 체크리스트를 제거하면 연결된 사고 이력도 함께 제거됩니다.</b><br>항목·사고 기록·견적은 보관되며, 더보기 &gt; 제거한 체크리스트 보기에서 하나씩 되돌릴 수 있어요.</p>
       <div v-if="target" class="acts">
         <button class="btn outline" @click="target = null">취소</button>
-        <button class="btn bold" @click="confirmHide">숨기기</button>
+        <button class="btn bold" :disabled="busy" @click="confirmHide">제거</button>
       </div>
     </BottomSheet>
   </Screen>
@@ -171,5 +220,8 @@ function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value 
 .menu button:disabled { color: var(--text-4); }
 .menu button.danger { color: var(--danger-2); }
 .menu .cnt { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--primary-100); color: var(--primary); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.restore { flex: 0 0 auto; height: 30px; padding: 0 12px; border: 1px solid var(--primary-200); border-radius: 8px; background: var(--primary-50); font-size: 12px; font-weight: 600; color: var(--primary); }
+.restore:hover { background: var(--primary-100); }
+.restore:disabled { border-color: var(--line); background: var(--bg-2); color: var(--text-4); }
 .undo { pointer-events: auto; margin-left: 12px; font-size: 13px; font-weight: 700; color: var(--primary-200); text-decoration: underline; }
 </style>
