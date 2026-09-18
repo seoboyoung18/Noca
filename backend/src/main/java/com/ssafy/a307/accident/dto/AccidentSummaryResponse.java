@@ -30,6 +30,10 @@ import java.time.Instant;
  *                            0 이나 -1 같은 마법값을 쓰지 않는다.
  *                            {@code estimatedCost*} 와 <b>같은 견적 행</b>에서 나온다 —
  *                            목록에 보이던 금액과 열리는 리포트의 금액이 어긋나지 않는다
+ * @param checklistStatus     정비 체크리스트 상태 {@code QUEUED · PROCESSING · COMPLETED ·
+ *                            FAILED} (S15P21A307-552). <b>만든 적이 없으면 {@code null}</b> 이다.
+ *                            <b>{@code estimateId} 로 대신 판단하면 안 된다</b> — 체크리스트는
+ *                            산정 불가 견적에도 만들어지지만 그때 {@code estimateId} 는 비어 있다
  * @param estimatedCostMedian 예상 수리비 중앙값. <b>견적이 없으면 {@code null} 이고, 지금은 항상
  *                            그렇다</b> — {@code estimate} 를 만드는 운영 코드가 아직 없다
  *                            ({@code S15P21A307-50} 비용 산정). 계약을 먼저 열어 두어
@@ -54,7 +58,8 @@ public record AccidentSummaryResponse(
         Long estimateId,
         Integer estimatedCostMin,
         Integer estimatedCostMedian,
-        Integer estimatedCostMax
+        Integer estimatedCostMax,
+        String checklistStatus
 ) {
 
     /**
@@ -77,7 +82,7 @@ public record AccidentSummaryResponse(
             Instant createdAt) {
         this(accidentId, vehicleId, vehicleInputType, modelId, manufacturer, modelName,
                 vehicleType, carClass, modelYear, createdAt,
-                AccidentHistoryStatus.RECEIVED, 0, null, null, null, null, null, null);
+                AccidentHistoryStatus.RECEIVED, 0, null, null, null, null, null, null, null);
     }
 
     public AccidentSummaryResponse withDetails(
@@ -88,11 +93,13 @@ public record AccidentSummaryResponse(
             Long estimateId,
             Integer estimatedCostMin,
             Integer estimatedCostMedian,
-            Integer estimatedCostMax) {
+            Integer estimatedCostMax,
+            String checklistStatus) {
         return new AccidentSummaryResponse(
                 accidentId, vehicleId, vehicleInputType, modelId, manufacturer, modelName,
                 vehicleType, carClass, modelYear, createdAt,
                 status, imageCount, thumbnailUrl, thumbnailExpiresAt,
-                estimateId, estimatedCostMin, estimatedCostMedian, estimatedCostMax);
+                estimateId, estimatedCostMin, estimatedCostMedian, estimatedCostMax,
+                checklistStatus);
     }
 }

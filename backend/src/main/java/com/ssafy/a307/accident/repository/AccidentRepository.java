@@ -201,6 +201,16 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
      *
      * <p><b>금액은 지금도 항상 비어 있다.</b> {@code estimate} 를 만드는 운영 코드가 없다
      * ({@code S15P21A307-50} 비용 산정). 계약을 먼저 열어 두어 그쪽이 끝나면 FE 수정 없이 채워진다.
+     *
+     * <h2>체크리스트 상태를 함께 준다 (S15P21A307-552)</h2>
+     *
+     * <p><b>{@code estimateId} 로 체크리스트 유무를 가늠할 수 없기 때문이다.</b> 그 값은 위에
+     * 적은 대로 산정된 견적에만 붙는데, 체크리스트는 <b>산정 불가 견적에도 만들어진다</b>. 화면이
+     * {@code estimateId} 로 체크리스트 목록을 거르다가 산정 불가 사고의 체크리스트를 통째로
+     * 숨겼다 — 금액을 내지 못한 견적일수록 정비소에서 물어볼 것이 남아 체크리스트가 더 필요하다.
+     *
+     * <p>{@code repair_checklist} 는 {@code uk_rcl_accident} 로 사고당 한 건이라 CTE 없이
+     * {@code LEFT JOIN} 이면 된다. <b>추가 쿼리가 늘지 않는다</b> — 목록 조회는 지금도 3개다.
      */
     @Query(value = """
             with latest_job as (
@@ -230,10 +240,13 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
                    e.estimate_id  as estimateId,
                    e.total_min    as totalMin,
                    e.total_median as totalMedian,
-                   e.total_max    as totalMax
+                   e.total_max    as totalMax,
+                   rc.status      as checklistStatus
               from latest_job j
               left join latest_estimate e
                 on e.accident_id = j.accident_id and e.rn = 1
+              left join repair_checklist rc
+                on rc.accident_id = j.accident_id
              where j.rn = 1
             """, nativeQuery = true)
     List<AccidentAnalysisView> findAnalysisByAccidentIds(
@@ -272,5 +285,11 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
         Integer getTotalMedian();
 
         Integer getTotalMax();
+
+        /**
+         * 체크리스트 상태 {@code QUEUED · PROCESSING · COMPLETED · FAILED} (S15P21A307-552).
+         * <b>만든 적이 없으면 {@code null}</b> 이다 — 화면은 그 사고를 체크리스트 목록에서 뺀다.
+         */
+        String getChecklistStatus();
     }
 }
