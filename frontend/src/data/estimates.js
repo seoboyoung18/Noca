@@ -56,28 +56,41 @@ export const fallbackLabel = (stage) => FALLBACK_LABEL[stage] || ''
 
 /* ----- 좌표 환산 ----- */
 /**
- * AI 검출 한 건의 bbox 를 사진 틀 대비 퍼센트 사각형으로.
- * 좌표는 AI 가 분석한 축소본(긴 변 1600px) 픽셀·좌상단 원점이고 width/height 도 같은 축소본 크기다(bc67210) — 화면의 RESIZED 와 기준이 같다.
- * bbox 는 XYWH(계약 ⑥). 치수가 없으면 환산할 수 없어 null — 그때는 박스를 그리지 않는다(서버 Javadoc 권고).
- *
- * 사진 틀은 고정 비율(frame, 기본 4:3)에 object-fit: cover 로 가운데를 잘라 띄우므로, 사진 비율이 틀과 다르면 잘려 나간 폭·높이만큼
- * 원점을 옮겨야 박스가 실제 손상 위에 놓인다. 틀 밖으로 나간 부분은 잘라 내고, 통째로 틀 밖이면 null.
+ * 검출 한 건의 도형을 사진 픽셀 좌표 그대로 돌려준다 — SVG viewBox(사진 width×height) 위에 그리므로 퍼센트 환산이 필요 없다.
+ *   rect     : bbox(XYWH · XYXY 방어) → { x, y, w, h } · 없으면 null
+ *   polygons : geometry.polygons(세그멘테이션 윤곽, 조각별 배열) → "x,y x,y …" 문자열 배열. 점은 {x,y} 또는 [x,y] 둘 다 받는다. 3점 미만은 버린다
  */
-export function detectionBox(det, width, height, frame = 4 / 3) {
-  const g = det?.geometry
-  const b = g?.bbox
-  if (!b || !width || !height) return null
-  let x = Number(b.x), y = Number(b.y), w = Number(b.width), h = Number(b.height)
-  if ((g.bboxFormat || 'XYWH').toUpperCase() === 'XYXY') { w = Number(b.x2 ?? b.width) - x; h = Number(b.y2 ?? b.height) - y }
-  if ([x, y, w, h].some((v) => Number.isNaN(v))) return null
-  // cover 로 보이는 영역(원점 ox,oy · 크기 vw,vh)
+export function detectionShapes(det) {
+  const g = det?.geometry || {}
+  let rect = null
+  const b = g.bbox
+  if (b) {
+    let x = Number(b.x), y = Number(b.y), w = Number(b.width), h = Number(b.height)
+    if ((g.bboxFormat || 'XYWH').toUpperCase() === 'XYXY') { w = Number(b.x2 ?? b.width) - x; h = Number(b.y2 ?? b.height) - y }
+    if (![x, y, w, h].some((v) => Number.isNaN(v)) && w > 0 && h > 0) rect = { x, y, w, h }
+  }
+  const polygons = []
+  for (const poly of Array.isArray(g.polygons) ? g.polygons : []) {
+    const pts = (Array.isArray(poly) ? poly : []).map((pt) => (Array.isArray(pt) ? [Number(pt[0]), Number(pt[1])] : [Number(pt?.x), Number(pt?.y)]))
+      .filter(([x, y]) => !Number.isNaN(x) && !Number.isNaN(y))
+    if (pts.length >= 3) polygons.push(pts.map(([x, y]) => `${x},${y}`).join(' '))
+  }
+  return { rect, polygons }
+}
+
+/**
+ * 사진 픽셀의 한 점을 화면에 보이는 사진 영역 대비 퍼센트로. 라벨처럼 <b>크기가 고정돼야 하는 HTML 요소</b>를 얹을 때 쓴다
+ * (도형은 SVG viewBox 가 알아서 맞추므로 환산이 필요 없다). 사진 틀은 고정 비율(frame, 기본 4:3) + cover 라 잘려 나간 가장자리를 빼고 센다.
+ * 보이는 영역 밖이면 null.
+ */
+export function pointToPercent(x, y, width, height, frame = 4 / 3) {
+  if (!width || !height || Number.isNaN(Number(x)) || Number.isNaN(Number(y))) return null
   let ox = 0, oy = 0, vw = width, vh = height
   if (width / height > frame) { vw = height * frame; ox = (width - vw) / 2 } else { vh = width / frame; oy = (height - vh) / 2 }
-  const clamp = (v) => Math.max(0, Math.min(100, v))
-  const l = clamp(((x - ox) / vw) * 100), t = clamp(((y - oy) / vh) * 100)
-  const r = clamp(((x + w - ox) / vw) * 100), btm = clamp(((y + h - oy) / vh) * 100)
-  if (r - l <= 0 || btm - t <= 0) return null
-  return { l, t, w: r - l, h: btm - t }
+  const l = ((Number(x) - ox) / vw) * 100
+  const t = ((Number(y) - oy) / vh) * 100
+  if (l < -20 || l > 120 || t < -20 || t > 120) return null
+  return { l: Math.max(0, Math.min(100, l)), t: Math.max(0, Math.min(100, t)) }
 }
 
 /* ----- 부위 번호 매기기 ----- */
