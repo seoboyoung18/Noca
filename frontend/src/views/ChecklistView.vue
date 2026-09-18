@@ -185,7 +185,7 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
       <div class="row" style="align-items:baseline;gap:8px">
         <span class="d">{{ accident ? accidentDateShort(accident.createdAt) : '' }}</span>
         <span class="tt nowrap" style="overflow:hidden;text-overflow:ellipsis">{{ accident ? vehicleName(accident) : '체크리스트' }}</span>
-        <span v-if="cl.status === 'COMPLETED' && progress.total" class="prog">{{ progress.completed }}/{{ progress.total }} 확인</span>
+        <span v-if="cl.status === 'COMPLETED' && progress.total" class="checkcnt">{{ progress.completed }}/{{ progress.total }} 확인</span>
       </div>
       <div v-if="accident" class="row" style="margin-top:10px;gap:10px;position:relative">
         <span class="flex1" style="display:flex;flex-direction:column;gap:4px;min-width:0">
@@ -346,7 +346,8 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
 <style scoped>
 .d { font-size: 18px; font-weight: 700; color: var(--primary); flex: 0 0 auto; }
 .tt { font-size: 18px; font-weight: 700; color: var(--text); }
-.prog { margin-left: auto; flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--primary); background: var(--primary-50); border-radius: 6px; padding: 4px 8px; }
+/* 확인 개수 배지. 클래스명을 .prog 로 두면 전역 진행바(.prog { height: 3px })와 겹쳐 배경이 글자 위 3px 띠로만 그려진다 */
+.checkcnt { margin-left: auto; flex: 0 0 auto; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--primary); background: var(--primary-50); border-radius: 6px; padding: 4px 8px; }
 .infob { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 16px; background: var(--primary-50); color: var(--primary); display: flex; align-items: center; justify-content: center; align-self: center; }
 .infob.on { background: var(--primary); color: #fff; }
 .aitag { border: 1px solid var(--primary-200); color: var(--primary); background: var(--white); font-size: 12px; font-weight: 600; padding: 5px 9px; border-radius: 6px; }

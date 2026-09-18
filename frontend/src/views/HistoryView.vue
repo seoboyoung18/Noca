@@ -106,7 +106,7 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
     <div v-if="menu" class="menu-dim" @click="menu = false"></div>
     <div v-if="menu" class="menu" role="menu">
       <button role="menuitem" :disabled="!store.items.length" @click="startHide">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 2l12 12M6.6 6.7A2 2 0 0 0 9.3 9.4M4.4 4.5C2.9 5.5 1.9 6.9 1.5 8c1.2 3 3.7 4.8 6.5 4.8 1.1 0 2.1-.3 3-.7M7 3.3c.3 0 .7-.1 1-.1 2.8 0 5.3 1.8 6.5 4.8-.3.8-.8 1.6-1.4 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4.2h11M6.2 4.2V2.9h3.6v1.3M3.9 4.2l.6 8.2a1 1 0 0 0 1 .9h5a1 1 0 0 0 1-.9l.6-8.2M6.6 6.8v4M9.4 6.8v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         이력 제거하기
       </button>
       <button role="menuitem" @click="openHidden">
@@ -171,7 +171,7 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
           <template #action>
             <!-- 제거 모드: PDF 자리에 제거 버튼 -->
             <button v-if="hideMode" class="pdf hide" :disabled="busy" :aria-label="`${vehicleName(a)} 이력 제거하기`" @click.stop="askHide(a)">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10 10.6A2.5 2.5 0 0 0 13.4 14M6.6 6.7C4.6 8 3.1 9.9 2.5 12c1.7 4.2 5.3 6.8 9.5 6.8 1.6 0 3.1-.4 4.4-1M10.5 5.3c.5-.1 1-.1 1.5-.1 4.2 0 7.8 2.6 9.5 6.8-.5 1.2-1.2 2.3-2 3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 6.3h17M9.3 6.3V4.3a1 1 0 0 1 1-1h3.4a1 1 0 0 1 1 1v2M5.8 6.3l.9 12.4a1.6 1.6 0 0 0 1.6 1.5h7.4a1.6 1.6 0 0 0 1.6-1.5l.9-12.4M10 10.2v6M14 10.2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span class="pl">제거</span>
             </button>
             <!-- PDF 받기 — 아이콘 버튼. 견적이 없는 행도 같은 자리에 비활성으로 둬 행마다 배치가 같게 -->
