@@ -72,7 +72,10 @@ export const useAccidentStore = defineStore('accidents', {
       this.error = ''
       try {
         if (AUTH_GUARD_OFF) {
-          this.all = MOCK_ACCIDENTS(); this.page = 0; this.hasNext = false; this.total = this.all.length
+          // 목업 덧씌우기(sessionStorage) — 홈의 "분석 완료" 흐름처럼 화면이 바꾼 상태를 다시 받아도 유지한다
+          let over = {}
+          try { over = JSON.parse(sessionStorage.getItem('noka.mockAccidentOverrides') || '{}') } catch { over = {} }
+          this.all = MOCK_ACCIDENTS().map((a) => (over[a.accidentId] ? { ...a, ...over[a.accidentId] } : a)); this.page = 0; this.hasNext = false; this.total = this.all.length
           return
         }
         const res = await fetchMyAccidents(this.page + 1, PAGE_SIZE)
