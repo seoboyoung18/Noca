@@ -158,7 +158,6 @@ OpenAI `gpt-5.4` 로 바꾼다.
 | --- | --- |
 | [Docs/README.md](Docs/README.md) | 전체 문서 인덱스 |
 | [기술 아키텍처](Docs/Architecture/technology-architecture.md) | 구성요소 · 통신 · 저장소 경계 |
-| [문서-코드 정합성 감사](Docs/audit/문서-코드-정합성.md) | 수치 근거 · 문서 분류 · 불일치 목록 |
 | [A307_ddl_final.sql](Docs/Erd/A307_ddl_final.sql) | 스키마 정본 (43 테이블) |
 | [AI 연동 계약](<Docs/Api/AI 연동 계약 (백엔드 ↔ AI 서버).md>) | BE ↔ AI 요청·콜백 계약 |
 | [담당 범위](Docs/담당%20범위.md) | 팀 분담 |
@@ -172,4 +171,4 @@ OpenAI `gpt-5.4` 로 바꾼다.
 - 기능 플래그 대부분이 배포에서 꺼져 있다. 위 표의 스위치를 참고한다.
 - 스키마 변경은 사람이 적용한다. 순서를 틀리면 앱 전체가 기동하지 않는다.
 - 배포 서버 종류(EC2/Lightsail)에 대해 문서끼리 서술이 다르다. 저장소에 IaC 가 없어
-  확인하지 못했다 — [감사 §3-3](Docs/audit/문서-코드-정합성.md) 참고.
+  확인하지 못했다.
