@@ -210,10 +210,12 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 </template>
 
 <style scoped>
+/* .body.col 은 flex 컬럼 + overflow 라 내용이 화면보다 길어지면 고정 높이 자식(CTA·타일·카드)이 줄어든다 — 줄지 않게 고정 */
+.body.col > * { flex-shrink: 0; }
 .brand { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
 .me { flex: 0 0 44px; width: 44px; height: 44px; margin: -6px -6px -6px 0; display: flex; align-items: center; justify-content: center; border-radius: 22px; }
 .hello { margin-top: 28px; font-size: 14px; color: var(--text-2); }
-.cta { margin-top: 20px; width: 100%; height: 92px; padding: 0 20px; border-radius: 16px; background: var(--primary); text-align: left; display: flex; align-items: center; gap: 12px; transition: background .15s; }
+.cta { flex: 0 0 92px; margin-top: 20px; width: 100%; height: 92px; padding: 0 20px; border-radius: 16px; background: var(--primary); text-align: left; display: flex; align-items: center; gap: 12px; transition: background .15s; }
 .cta:hover { background: var(--primary-dark); }
 .ct { font-size: 18px; font-weight: 700; color: #fff; }
 .cs { margin-top: 4px; font-size: 13px; color: rgba(255,255,255,.75); }
@@ -223,7 +225,7 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 .tile .wm { position: absolute; }
 .tile b { position: relative; font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .tile span { position: relative; margin-top: 4px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
-.busy { margin-top: 12px; width: 100%; height: 84px; padding: 0 14px; background: var(--primary-soft); border-radius: 12px; display: flex; align-items: center; gap: 14px; }
+.busy { flex: 0 0 84px; margin-top: 12px; width: 100%; height: 84px; padding: 0 14px; background: var(--primary-soft); border-radius: 12px; display: flex; align-items: center; gap: 14px; }
 .busy.done { background: var(--primary-50); border: 1px solid var(--primary-200); }
 .busy.done.fail { background: var(--danger-bg); border-color: transparent; }
 .ring { position: relative; flex: 0 0 48px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; }
