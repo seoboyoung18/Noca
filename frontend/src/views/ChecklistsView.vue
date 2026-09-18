@@ -158,7 +158,7 @@ function undoHide() { if (lastHidden.value != null) restore(lastHidden.value, { 
           </div>
           <div v-if="cardMenu === a.accidentId" class="menu card-menu" role="menu" @click.stop>
             <button role="menuitem" class="danger" @click="askHide(a)">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 2l12 12M6.6 6.7A2 2 0 0 0 9.3 9.4M4.4 4.5C2.9 5.5 1.9 6.9 1.5 8c1.2 3 3.7 4.8 6.5 4.8 1.1 0 2.1-.3 3-.7M7 3.3c.3 0 .7-.1 1-.1 2.8 0 5.3 1.8 6.5 4.8-.3.8-.8 1.6-1.4 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4.2h11M6.2 4.2V2.9h3.6v1.3M3.9 4.2l.6 8.2a1 1 0 0 0 1 .9h5a1 1 0 0 0 1-.9l.6-8.2M6.6 6.8v4M9.4 6.8v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
               체크리스트 제거하기
             </button>
           </div>
