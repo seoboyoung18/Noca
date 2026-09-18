@@ -150,6 +150,7 @@ CREATE TABLE accident (
     actual_repair_completed_date DATE,
     repair_shop_name        VARCHAR(100),
     actual_cost_recorded_at TIMESTAMP WITH TIME ZONE,
+    hidden_at               TIMESTAMP WITH TIME ZONE,
     created_at              TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     CONSTRAINT ck_ac_input_type CHECK (vehicle_input_type IN ('REGISTERED','DIRECT')),
     CONSTRAINT ck_ac_vehicle_type CHECK (snapshot_vehicle_type IN ('SEDAN','SUV','VAN','TRUCK')),

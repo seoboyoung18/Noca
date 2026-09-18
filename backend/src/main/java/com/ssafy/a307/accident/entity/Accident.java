@@ -86,6 +86,18 @@ public class Accident {
     @Column(name = "repair_shop_name", length = 100)
     private String repairShopName;
 
+    /**
+     * 목록에서 감춘 시각 (S15P21A307-554). <b>{@code null} 이면 보인다.</b>
+     *
+     * <p>{@code Vehicle.deletedAt} 과 같은 방식이다 — boolean 이 아니라 시각을 두면
+     * "언제부터 안 보였나" 에 답할 수 있다.
+     *
+     * <p><b>{@code @CreatedDate} 를 붙이지 않는다.</b> 감사 애너테이션이 여기 붙으면 접수하는
+     * 순간 값이 채워져 <b>모든 새 사고가 감춰진 채로 태어난다</b>.
+     */
+    @Column(name = "hidden_at")
+    private Instant hiddenAt;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -105,6 +117,26 @@ public class Accident {
 
     public static Accident open(Vehicle vehicle, VehicleInputType vehicleInputType) {
         return new Accident(vehicle, vehicleInputType);
+    }
+
+    /**
+     * 목록에서 감춘다 (S15P21A307-554). <b>이미 감춘 것을 또 감추면 처음 시각을 지킨다</b> —
+     * 화면이 토글을 두 번 눌러도 "언제부터 안 보였나" 가 흔들리지 않는다.
+     * {@code Vehicle.softDelete} 와 같은 판단이다.
+     */
+    public void hide(Instant hiddenAt) {
+        if (this.hiddenAt == null) {
+            this.hiddenAt = hiddenAt;
+        }
+    }
+
+    /** 다시 목록에 보이게 한다. 감춘 적이 없어도 탈이 없다. */
+    public void unhide() {
+        this.hiddenAt = null;
+    }
+
+    public boolean isHidden() {
+        return hiddenAt != null;
     }
 
     /** PUT semantics: all actual-repair fields are replaced together. */

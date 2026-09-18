@@ -115,7 +115,13 @@ WITH probe(seq, migration, object_kind, detail, applied) AS (
     (12, '2026-09-18-estimate-narrative.sql', '테이블 1',
         'estimate_narrative (견적 리포트 LLM 요약 큐)',
         EXISTS (SELECT 1 FROM information_schema.tables
-                 WHERE table_schema = 'public' AND table_name = 'estimate_narrative'))
+                 WHERE table_schema = 'public' AND table_name = 'estimate_narrative')),
+
+    (13, '2026-09-18-accident-hidden.sql', '컬럼 1',
+        'accident.hidden_at (사고 이력 숨기기)',
+        EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'accident' AND column_name = 'hidden_at'))
 )
 SELECT seq                                AS "#",
        CASE WHEN applied THEN 'O' ELSE 'X' END AS "적용",
