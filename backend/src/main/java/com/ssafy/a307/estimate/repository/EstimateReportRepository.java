@@ -40,12 +40,27 @@ public interface EstimateReportRepository extends JpaRepository<Estimate, Long> 
     /**
      * 분석에 쓰인 사진과 그 오버레이. <b>분석에서 제외된 사진은 뺀다</b> — 차량이 아니거나 파손
      * 비율이 기준에 못 미친 사진은 견적 근거가 아니다. 오버레이가 없는 사진은 남는다(key 가 null).
+     *
+     * <p><b>축소본 키도 함께 읽는다</b>(S15P21A307-547). 오버레이는 2026-09-11 에 폐기돼 키가 늘
+     * {@code null} 이고, 그 결과 리포트의 사진 칸이 통째로 비어 있었다. 오버레이가 없으면
+     * 사용자가 올린 사진을 대신 싣는다 — 파손 사진 없는 견적 리포트는 근거를 보여 주지 못한다.
+     *
+     * <p>{@code LEFT JOIN} 이다. 축소본이 없는 사진(업로드 완료 통보 전에 분석이 돈 경우)도
+     * 목록에서 사라지면 안 된다 — 그때는 두 키가 모두 비어 칸만 남는다.
+     *
+     * <p><b>검출 좌표와 축소본 치수도 함께 읽는다</b>(S15P21A307-547). 파손 위치를 PDF 에
+     * 그리기 위해서다. 좌표는 이 표에 이미 원문으로 남아 있다 — {@code damaged_part} 가
+     * 좌표를 버리는 것과 별개다({@code DamagedPart} Javadoc). 화면도 같은 값으로 그린다.
      */
     @Query(value = """
             SELECT ai.image_id AS imageId, ai.angle_code AS angleCode,
-                   air.s3_key_overlay AS overlayKey
+                   air.s3_key_overlay AS overlayKey, aia.s3_key AS resizedKey,
+                   CAST(air.detections AS VARCHAR) AS detections,
+                   aia.width AS resizedWidth, aia.height AS resizedHeight
               FROM analysis_image_result air
               JOIN accident_image ai ON ai.image_id = air.image_id
+              LEFT JOIN accident_image_asset aia ON aia.image_id = ai.image_id
+                                                AND aia.variant = 'RESIZED'
              WHERE air.job_id = :jobId AND NOT air.is_excluded
              ORDER BY ai.image_id
             """, nativeQuery = true)
@@ -102,5 +117,26 @@ public interface EstimateReportRepository extends JpaRepository<Estimate, Long> 
 
         /** 오버레이 S3 key. 응답으로 내보내지 않는다 — 조회 URL 로만 바꿔 준다. */
         String getOverlayKey();
+
+        /**
+         * 축소본 S3 key (S15P21A307-547). 오버레이가 없을 때 PDF 가 이것을 싣는다.
+         * 화면 응답에는 나가지 않는다 — 화면은 사고 이미지 API 로 사진을 이미 받고 있다.
+         */
+        String getResizedKey();
+
+        /**
+         * AI 가 보낸 {@code detections[]} 원문 (S15P21A307-547). 파손 위치 박스의 좌표가
+         * 여기 있다. <b>문자열로 꺼낸다</b> — JSONB 를 그대로 받으면 드라이버마다 타입이
+         * 달라진다({@code AnalysisResultQueryRepository} 와 같은 이유).
+         */
+        String getDetections();
+
+        /**
+         * 축소본 치수. <b>검출 좌표와 기준이 같다</b> — AI 가 이 크기의 사진을 보고 좌표를
+         * 냈다. 둘 중 하나라도 없으면 좌표를 비율로 바꿀 수 없어 박스를 그리지 않는다.
+         */
+        Short getResizedWidth();
+
+        Short getResizedHeight();
     }
 }

@@ -2,6 +2,7 @@ package com.ssafy.a307.estimate.dto;
 
 import com.ssafy.a307.estimate.domain.BasisNarrative;
 import com.ssafy.a307.estimate.domain.FallbackStage;
+import com.ssafy.a307.estimate.domain.FallbackStageDisplay;
 import com.ssafy.a307.estimate.domain.RefCondition;
 import com.ssafy.a307.estimate.domain.RepairMethodDisplay;
 import com.ssafy.a307.estimate.repository.EstimateQueryRepository.EstimateBasisItemView;
@@ -34,6 +35,16 @@ public record EstimateBasisItemResponse(
         boolean basisAvailable,
         String narrative,
         FallbackStage fallbackStage,
+
+        /**
+         * 완화 단계를 사람이 읽는 말로 (S15P21A307-547). "동일 차량명" · "비슷한 수리비대" ·
+         * "전체 사례". <b>모르는 값이면 {@code null}</b> 이고 화면은 그 자리를 비운다.
+         *
+         * <p>{@code repairMethodDisplayName} 과 같은 이유로 서버가 만든다 — PDF 는 서버가
+         * 그리는 문서라 그 안의 문구를 화면이 정할 수 없다.
+         */
+        String fallbackStageDisplayName,
+
         RefCondition.CostDistribution costDistribution,
         Integer refYearFrom,
         Integer refYearTo,
@@ -54,7 +65,7 @@ public record EstimateBasisItemResponse(
         }
         return new EstimateBasisItemResponse(estimateItemId, partCode, partNameKo, repairMethod,
                 repairMethodDisplayName, refCaseCount, basisAvailable, polished, fallbackStage,
-                costDistribution, refYearFrom, refYearTo, repairMethodReason);
+                fallbackStageDisplayName, costDistribution, refYearFrom, refYearTo, repairMethodReason);
     }
 
     public static EstimateBasisItemResponse of(EstimateBasisItemView view, RefCondition basis) {
@@ -70,6 +81,7 @@ public record EstimateBasisItemResponse(
                 !basis.isEmpty(),
                 BasisNarrative.of(basis, view.getPartNameKo(), displayName, view.getRefCaseCount()),
                 basis.fallbackStage(),
+                FallbackStageDisplay.displayNameOf(basis.fallbackStage()),
                 basis.costDistribution(),
                 basis.refYearFrom(),
                 basis.refYearTo(),
