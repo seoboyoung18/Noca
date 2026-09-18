@@ -9,7 +9,7 @@ import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetch
 import { imageThumb } from '../data/accidents'
 import { useChecklistStore } from '../stores/checklist'
 import {
-  LABOR_ONLY_NOTICE, confidenceLabel, detectionBox, exclusionText, numberParts, wonOne, wonRange, wonShort,
+  LABOR_ONLY_NOTICE, confidenceLabel, detectionShapes, exclusionText, numberParts, pointToPercent, wonOne, wonRange, wonShort,
 } from '../data/estimates'
 
 /* ===== 예상 견적 · 분석 결과 (S07b, 목업 A안 — 사진 위 번호 콜아웃) =====
@@ -17,9 +17,11 @@ import {
  *   GET /api/accidents/{id}/analysis/result  손상 부위·사진별 검출 좌표 (사진 URL 없음)
  *   GET /api/accidents/{id}/images           사진 RESIZED URL — imageId 로 결과와 맞춤
  *   GET /api/accidents/{id}/estimates → GET /api/estimates/{estimateId}   금액·항목·신뢰도
- * 검출 bbox 는 AI 분석 축소본 픽셀이고 width/height 도 같은 기준이라, 4:3 cover 틀에 맞춰 퍼센트로 환산해 RESIZED 위에 푸른 바운딩박스로 그린다(detectionBox).
- * 번호는 견적 항목 순서를 따르고, 부품이 매칭되지 않은 검출(partCode 없음)은 번호 없이 박스만 그린다.
- * 부품별 내역 카드를 누르면 그 부품(partCode)의 박스만 남기고 나머지는 숨긴다 — 다른 사진에만 있으면 그 사진으로 넘긴다. 다시 누르면 전체.
+ * 검출 좌표는 AI 분석 축소본 픽셀이고 images[].width/height 도 같은 기준이라, 사진 픽셀을 viewBox 로 쓰는 SVG 한 장을 사진 위에 겹쳐 그린다
+ * (preserveAspectRatio=slice 가 img 의 object-fit: cover 와 같은 잘림을 만들어 좌표 환산이 필요 없다).
+ * 검출 하나는 폴리곤(geometry.polygons — 세그멘테이션 윤곽)을 반투명하게 칠하고 그 위에 바운딩박스 테두리를 그린다. 박스에는 그림자를 줘 사진 위에서 뜬다.
+ * 박스 왼쪽 위에는 부위명 라벨을 붙인다. 라벨은 글자 크기가 고정돼야 해서 SVG 가 아니라 HTML 로 얹고, 위치만 pointToPercent 로 환산한다.
+ * 부품별 내역 카드를 누르면 그 부품(partCode)의 도형만 남기고 나머지는 숨긴다 — 다른 사진에만 있으면 그 사진으로 넘긴다. 다시 누르면 전체.
  * 견적은 AI 콜백이 만들므로 결과가 있어도 견적이 아직 없을 수 있다 — 그때는 부위 목록만 보이고 금액은 "산정 중".
  * 견적을 받으면 정비 체크리스트 생성을 서버 큐에 넣는다(서버는 자동 생성하지 않음) — 이미 있으면 409 라 조용히 넘어간다.
  */
@@ -71,36 +73,49 @@ const stage = computed(() => {
   return 'running'
 })
 
-/* ----- 부위 번호·항목 ----- */
+/* ----- 부위 항목 ----- */
 const parts = computed(() => numberParts(estimate.value?.items || [], result.value?.parts || []))
-const partNo = (code) => parts.value.find((p) => p.partCode === code)?.n ?? null
 const hasNa = computed(() => parts.value.some((p) => p.na))
 
-/* ----- 사진 + 콜아웃 ----- */
+/* ----- 사진 + 검출 도형(폴리곤 + 바운딩박스) ----- */
 const photos = computed(() => (result.value?.images || []).map((im) => ({
   imageId: im.imageId,
   url: imageUrls.value[im.imageId] || '',
   excluded: !!im.excluded,
   reason: exclusionText(im.exclusionReason),
-  boxes: im.excluded ? [] : (Array.isArray(im.detections) ? im.detections : [])
-    .map((d, i) => ({ id: d.detectionId || `${im.imageId}:${i}`, partCode: d.partCode || null, n: partNo(d.partCode), ...(detectionBox(d, im.width, im.height) || {}) }))
-    .filter((b) => b.w != null),
+  w: im.width || 0,
+  h: im.height || 0,
+  marks: im.excluded || !im.width || !im.height ? [] : (Array.isArray(im.detections) ? im.detections : [])
+    .map((d, i) => {
+      const shapes = detectionShapes(d)
+      const at = shapes.rect ? pointToPercent(shapes.rect.x, shapes.rect.y, im.width, im.height) : null
+      return {
+        id: d.detectionId || `${im.imageId}:${i}`, partCode: d.partCode || null, ...shapes,
+        // 라벨은 박스 위에 얹되, 사진 맨 위에 붙은 박스는 자리가 없어 박스 안쪽으로 내린다
+        label: at ? { ...at, inside: at.t < 7 } : null,
+      }
+    })
+    .filter((m) => m.rect || m.polygons.length),
 })))
 const current = computed(() => photos.value[photo.value] || null)
 
-/* ----- 부품 선택 → 그 부품의 박스만 ----- */
+/* ----- 부품 선택 → 그 부품의 도형만 ----- */
 const selected = ref(null) // partCode | null
-const hasBox = (code) => photos.value.some((p) => p.boxes.some((b) => b.partCode === code))
+/** 화면에 그릴 도형 — 부품을 고르면 그 부품 것만 남긴다 */
+const marks = computed(() => (current.value?.marks || []).filter((m) => !selected.value || m.partCode === selected.value))
+const hasMark = (code) => !!code && photos.value.some((p) => p.marks.some((m) => m.partCode === code))
 function selectPart(p) {
-  if (!hasBox(p.partCode)) return // 검출 좌표가 없는 항목은 강조할 박스가 없다
+  if (!hasMark(p.partCode)) return // 검출 좌표가 없는 항목은 강조할 도형이 없다
   if (selected.value === p.partCode) { selected.value = null; return }
   selected.value = p.partCode
-  if (!current.value?.boxes.some((b) => b.partCode === p.partCode)) {
-    const k = photos.value.findIndex((ph) => ph.boxes.some((b) => b.partCode === p.partCode))
+  if (!current.value?.marks.some((m) => m.partCode === p.partCode)) {
+    const k = photos.value.findIndex((ph) => ph.marks.some((m) => m.partCode === p.partCode))
     if (k > -1) photo.value = k
   }
 }
 const selectedName = computed(() => parts.value.find((p) => p.partCode === selected.value)?.name || '')
+/** 박스 라벨 문구 — 견적·분석의 한글 부위명. 부품이 매칭되지 않은 검출은 라벨 없이 도형만 */
+const markLabel = (m) => (m.partCode ? parts.value.find((p) => p.partCode === m.partCode)?.name || '' : '')
 
 /* ----- 금액·신뢰도·고지 ----- */
 const est = computed(() => estimate.value)
@@ -134,10 +149,14 @@ function applyMock() {
     ],
     images: [{
       imageId: 1, width: 1600, height: 1200, excluded: false, exclusionReason: null,
+      // 폴리곤은 AI 세그멘테이션 윤곽(조각별 배열). 서버는 {x,y} 점 배열로 준다
       detections: [
-        { detectionId: '1:a', partCode: 'FRONT_BUMPER', geometry: { bboxFormat: 'XYWH', bbox: { x: 610, y: 310, width: 640, height: 380 } } },
-        { detectionId: '1:b', partCode: 'FRONT_FENDER_L', geometry: { bboxFormat: 'XYWH', bbox: { x: 320, y: 710, width: 395, height: 210 } } },
-        { detectionId: '1:c', partCode: 'HEAD_LAMP_L', geometry: { bboxFormat: 'XYWH', bbox: { x: 120, y: 260, width: 300, height: 200 } } },
+        { detectionId: '1:a', partCode: 'FRONT_BUMPER', geometry: { bboxFormat: 'XYWH', bbox: { x: 610, y: 310, width: 640, height: 380 },
+          polygons: [[{ x: 640, y: 330 }, { x: 900, y: 320 }, { x: 1180, y: 360 }, { x: 1240, y: 470 }, { x: 1230, y: 620 }, { x: 1100, y: 680 }, { x: 860, y: 690 }, { x: 700, y: 650 }, { x: 620, y: 540 }, { x: 615, y: 420 }]] } },
+        { detectionId: '1:b', partCode: 'FRONT_FENDER_L', geometry: { bboxFormat: 'XYWH', bbox: { x: 320, y: 710, width: 395, height: 210 },
+          polygons: [[{ x: 340, y: 740 }, { x: 520, y: 720 }, { x: 700, y: 760 }, { x: 705, y: 860 }, { x: 600, y: 915 }, { x: 430, y: 905 }, { x: 325, y: 840 }]] } },
+        { detectionId: '1:c', partCode: 'HEAD_LAMP_L', geometry: { bboxFormat: 'XYWH', bbox: { x: 120, y: 260, width: 300, height: 200 },
+          polygons: [[{ x: 140, y: 280 }, { x: 330, y: 265 }, { x: 410, y: 330 }, { x: 400, y: 430 }, { x: 300, y: 455 }, { x: 170, y: 440 }, { x: 125, y: 360 }]] } },
       ],
     }],
   }
@@ -220,7 +239,7 @@ function applyMock() {
       </div>
       <p v-for="n in notices" :key="n.code" class="sub" style="margin-top:8px;font-size:11px;line-height:1.5">{{ n.message }}</p>
 
-      <!-- 인식된 손상 부위 — 사진 위 번호 콜아웃 (A안) -->
+      <!-- 인식된 손상 부위 — 사진 위 폴리곤 + 바운딩박스 -->
       <div v-if="photos.length" style="margin-top:24px">
         <div class="row between">
           <span class="sec">인식된 손상 부위</span>
@@ -230,10 +249,16 @@ function applyMock() {
         <div class="shot" :class="{ noimg: !current?.url }">
           <img v-if="current?.url" :src="current.url" alt="손상 부위 사진">
           <span v-else class="sub">사진을 불러올 수 없어요</span>
-          <div v-for="b in current?.boxes || []" :key="b.id" class="box" :class="{ off: selected && b.partCode !== selected }"
-            :style="{ left: b.l + '%', top: b.t + '%', width: b.w + '%', height: b.h + '%' }">
-            <span v-if="b.n" class="num">{{ b.n }}</span>
-          </div>
+          <!-- 사진 픽셀을 그대로 viewBox 로 쓰고 slice 로 잘라 img 의 cover 와 같은 화면을 만든다 — 좌표 환산 없음 -->
+          <svg v-if="current && current.w && marks.length" class="ovl" :viewBox="`0 0 ${current.w} ${current.h}`" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <g v-for="m in marks" :key="m.id">
+              <polygon v-for="(pts, i) in m.polygons" :key="i" class="poly" :points="pts" />
+              <rect v-if="m.rect" class="bx" :x="m.rect.x" :y="m.rect.y" :width="m.rect.w" :height="m.rect.h" rx="2" />
+            </g>
+          </svg>
+          <!-- 부위명 라벨 — 박스 왼쪽 위. 글자 크기를 고정하려고 SVG 밖 HTML 로 얹는다 -->
+          <span v-for="m in marks" v-show="markLabel(m)" :key="`l-${m.id}`" class="lbl" :class="{ inside: m.label?.inside }"
+            :style="m.label ? { left: m.label.l + '%', top: m.label.t + '%' } : null">{{ markLabel(m) }}</span>
           <span v-if="current?.excluded" class="excl">분석 제외 · {{ current.reason }}</span>
         </div>
         <div v-if="photos.length > 1" class="thumbs">
@@ -247,7 +272,7 @@ function applyMock() {
       <div style="margin-top:24px">
         <div class="sec">부품별 내역</div>
         <div v-if="parts.length" class="stack" style="margin-top:12px;gap:8px">
-          <button v-for="p in parts" :key="p.partCode" type="button" class="part" :class="{ on: selected === p.partCode, static: !hasBox(p.partCode) }"
+          <button v-for="p in parts" :key="p.partCode" type="button" class="part" :class="{ on: selected === p.partCode, static: !hasMark(p.partCode) }"
             :aria-pressed="selected === p.partCode" @click="selectPart(p)">
             <span class="pn" :class="{ na: p.na }">{{ p.n }}</span>
             <span class="flex1" style="display:flex;flex-direction:column;gap:3px;min-width:0">
@@ -290,10 +315,14 @@ function applyMock() {
 .shot { position: relative; margin-top: 12px; width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--bg-2); display: flex; align-items: center; justify-content: center; }
 .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* 바운딩박스 — 서버 좌표 그대로 푸른색으로. 사진 위에서 잘 보이도록 바깥에 흰 테두리를 한 겹 더 둔다 */
-.box { position: absolute; border: 2px solid var(--bbox); box-shadow: 0 0 0 1px rgba(255,255,255,.7), inset 0 0 0 1px rgba(255,255,255,.7); background: rgba(30,136,229,.12); border-radius: 3px; animation: fadein .2s ease-out; --bbox: #1E88E5; transition: opacity .18s ease; }
-.box.off { opacity: 0; }
+/* 검출 오버레이 — 폴리곤(채움) + 바운딩박스(테두리). 선 굵기는 사진 크기와 무관하게 일정해야 해서 non-scaling-stroke */
+.ovl { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; animation: fadein .2s ease-out; }
+.poly { fill: rgba(30,136,229,.3); stroke: rgba(30,136,229,.9); stroke-width: 1.2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.bx { fill: none; stroke: #1E88E5; stroke-width: 1.2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
+/* 박스 왼쪽 위 부위명 라벨. 박스 선(1.2px)에 맞춰 왼쪽을 정렬하고 위로 올린다 */
+.lbl { position: absolute; transform: translate(-1px, -100%); max-width: 62%; padding: 3px 7px; border-radius: 5px 5px 5px 0; background: #1E88E5; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 1px 2px rgba(0,0,0,.35); pointer-events: none; animation: fadein .2s ease-out; }
+.lbl.inside { transform: translate(-1px, 1px); border-radius: 0 5px 5px 5px; }
 .only { font-size: 12px; color: #1E88E5; font-weight: 500; text-decoration: underline; }
-.num { position: absolute; left: -2px; top: -2px; width: 20px; height: 20px; border-radius: 10px; background: var(--bbox); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1.5px #fff; }
 .excl { position: absolute; left: 10px; bottom: 10px; padding: 4px 8px; border-radius: 6px; background: rgba(25,31,40,.75); color: #fff; font-size: 11px; font-weight: 500; }
 .thumbs { margin-top: 8px; display: flex; gap: 6px; }
 .th { flex: 0 0 68px; width: 68px; height: 68px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: var(--bg-2); }
