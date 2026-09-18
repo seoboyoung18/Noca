@@ -2,9 +2,12 @@ package com.ssafy.a307.repairchecklist.service;
 
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
+import com.ssafy.a307.estimatevalidation.entity.PartCode;
+import com.ssafy.a307.estimatevalidation.repository.PartCodeRepository;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemResponse;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklist;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistItem;
+import com.ssafy.a307.repairchecklist.entity.RepairChecklistItemCategory;
 import com.ssafy.a307.repairchecklist.repository.RepairChecklistItemRepository;
 import com.ssafy.a307.repairchecklist.repository.RepairChecklistRepository;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +51,7 @@ public class RepairChecklistItemService {
 
     private final RepairChecklistItemRepository itemRepository;
     private final RepairChecklistRepository checklistRepository;
+    private final PartCodeRepository partCodeRepository;
 
     /**
      * 사용자가 항목을 직접 추가한다 (S15P21A307-485).
@@ -64,19 +68,39 @@ public class RepairChecklistItemService {
      * 완성된 뒤에야 보인다.
      */
     @Transactional
-    public RepairChecklistItemResponse add(Long memberId, Long accidentId, String content) {
+    public RepairChecklistItemResponse add(Long memberId, Long accidentId, String content,
+                                           RepairChecklistItemCategory category, String partCode) {
         RepairChecklist checklist = checklistRepository
                 .findByAccidentIdAndMemberId(accidentId, memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
                         "체크리스트를 찾을 수 없습니다."));
 
+        String known = requireKnownPart(partCode);
         int nextOrder = itemRepository.findMaxDisplayOrder(checklist.getChecklistId())
                 .map(max -> max + 1)
                 .orElse(1);
 
-        RepairChecklistItem saved = itemRepository.save(
-                RepairChecklistItem.user(checklist, content, nextOrder, Instant.now()));
-        return RepairChecklistItemResponse.from(saved);
+        RepairChecklistItem saved = itemRepository.save(RepairChecklistItem.user(
+                checklist, content, category, known, nextOrder, Instant.now()));
+        return response(saved);
+    }
+
+    /**
+     * 부위를 보냈으면 마스터에 있어야 한다 (S15P21A307-544).
+     *
+     * <p><b>조용히 비우지 않는다.</b> LLM 이 지어낸 코드는 버리고 항목만 남기지만
+     * ({@code RepairChecklistGenerator}), 이것은 사용자가 화면에서 고른 값이다 — 비우면
+     * 넣었다고 표시된 부위가 다음 조회에서 사라진다.
+     */
+    private String requireKnownPart(String partCode) {
+        if (partCode == null || partCode.isBlank()) {
+            return null;
+        }
+        String stripped = partCode.strip();
+        if (!partCodeRepository.existsById(stripped)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, "알 수 없는 부품 코드입니다.");
+        }
+        return stripped;
     }
 
     /**
@@ -91,7 +115,7 @@ public class RepairChecklistItemService {
                                                      String content) {
         RepairChecklistItem item = userOwned(memberId, accidentId, itemId, "수정");
         item.changeContent(content, Instant.now());
-        return RepairChecklistItemResponse.from(item);
+        return response(item);
     }
 
     /**
@@ -122,7 +146,7 @@ public class RepairChecklistItemService {
         } else {
             item.uncheck(now);
         }
-        return RepairChecklistItemResponse.from(item);
+        return response(item);
     }
 
     /**
@@ -135,7 +159,18 @@ public class RepairChecklistItemService {
                                                   String memo) {
         RepairChecklistItem item = owned(memberId, accidentId, itemId);
         item.changeMemo(memo, Instant.now());
-        return RepairChecklistItemResponse.from(item);
+        return response(item);
+    }
+
+    /**
+     * 한 줄 응답. 부위가 있으면 한글 이름을 마스터에서 붙인다 — 항목에 사본을 두지 않는
+     * 설계라 이름은 조회 때 붙는다({@code RepairChecklistStatusService} 와 같은 규칙).
+     */
+    private RepairChecklistItemResponse response(RepairChecklistItem item) {
+        String partCode = item.getPartCode();
+        String nameKo = partCode == null ? null
+                : partCodeRepository.findById(partCode).map(PartCode::getNameKo).orElse(null);
+        return RepairChecklistItemResponse.from(item, nameKo);
     }
 
     private RepairChecklistItem owned(Long memberId, Long accidentId, Long itemId) {

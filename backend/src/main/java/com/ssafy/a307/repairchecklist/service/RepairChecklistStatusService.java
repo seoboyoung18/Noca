@@ -4,9 +4,12 @@ import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.estimate.service.EstimateNoticeProvider;
+import com.ssafy.a307.estimatevalidation.entity.PartCode;
+import com.ssafy.a307.estimatevalidation.repository.PartCodeRepository;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemResponse;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistStatusResponse;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklist;
+import com.ssafy.a307.repairchecklist.entity.RepairChecklistItem;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistStatus;
 import com.ssafy.a307.repairchecklist.repository.RepairChecklistItemRepository;
 import com.ssafy.a307.repairchecklist.repository.RepairChecklistRepository;
@@ -15,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 체크리스트 생성 상태 · 항목 · 진행률 조회 (S15P21A307-461 · -483).
@@ -38,6 +44,7 @@ public class RepairChecklistStatusService {
     private final AccidentRepository accidentRepository;
     private final RepairChecklistRepository checklistRepository;
     private final RepairChecklistItemRepository itemRepository;
+    private final PartCodeRepository partCodeRepository;
     private final EstimateNoticeProvider noticeProvider;
 
     @Transactional(readOnly = true)
@@ -59,10 +66,33 @@ public class RepairChecklistStatusService {
         if (checklist.getStatus() != RepairChecklistStatus.COMPLETED) {
             return List.of();
         }
-        return itemRepository
-                .findByChecklist_ChecklistIdOrderByDisplayOrderAscItemIdAsc(checklist.getChecklistId())
-                .stream()
-                .map(RepairChecklistItemResponse::from)
+        List<RepairChecklistItem> items = itemRepository
+                .findByChecklist_ChecklistIdOrderByDisplayOrderAscItemIdAsc(checklist.getChecklistId());
+
+        Map<String, String> names = partNames(items);
+        return items.stream()
+                .map(item -> RepairChecklistItemResponse.from(item,
+                        item.getPartCode() == null ? null : names.get(item.getPartCode())))
                 .toList();
+    }
+
+    /**
+     * 부위의 한글 이름 (S15P21A307-544). <b>항목에 사본을 두지 않는다</b> — 마스터가 이름을
+     * 고치면 고친 이름으로 보이는 편이 맞다. 그래서 조회 때 붙인다.
+     *
+     * <p>한 번에 읽는다. 항목이 많아야 16개지만, 항목마다 마스터를 찾으면 그 패턴이 다음
+     * 화면으로 복사된다 — 견적 쪽도 {@code findAllById} 로 한 번에 읽는다.
+     */
+    private Map<String, String> partNames(List<RepairChecklistItem> items) {
+        List<String> codes = items.stream()
+                .map(RepairChecklistItem::getPartCode)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (codes.isEmpty()) {
+            return Map.of();
+        }
+        return partCodeRepository.findAllById(codes).stream()
+                .collect(Collectors.toMap(PartCode::getPartCode, PartCode::getNameKo));
     }
 }

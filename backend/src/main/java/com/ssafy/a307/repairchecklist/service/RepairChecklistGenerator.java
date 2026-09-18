@@ -1,19 +1,24 @@
 package com.ssafy.a307.repairchecklist.service;
 
 import com.ssafy.a307.common.llm.LlmChatPort;
+import com.ssafy.a307.repairchecklist.domain.RepairChecklistDraft;
 import com.ssafy.a307.repairchecklist.domain.RepairChecklistFailure;
 import com.ssafy.a307.repairchecklist.domain.RepairChecklistGenerationException;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistItem;
+import com.ssafy.a307.repairchecklist.entity.RepairChecklistItemCategory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -58,27 +63,47 @@ public class RepairChecklistGenerator {
     private static final int MAX_AI_ITEMS = 10;
 
     /**
-     * 응답 스키마. <b>문장 필드 하나뿐이다.</b> 금액·판정·우선순위 필드를 두지 않았고, 그래서
-     * LLM 이 그런 값을 지어내도 담을 자리가 없어 파싱 단계에서 사라진다
-     * ({@code ReportNarrativeGenerator.RESPONSE_SCHEMA} 와 같은 방어다).
+     * 그중 <b>함께 점검</b> 항목 수 상한 (S15P21A307-544).
+     *
+     * <p>{@code HIDDEN} 은 사진에 보이지 않는 손상을 <b>추정</b>해 권하는 항목이라, 많아지면
+     * 화면이 근거 없는 의심으로 채워진다. 확인된 부위 이야기가 먼저다.
+     */
+    private static final int MAX_HIDDEN_ITEMS = 4;
+
+    /**
+     * 응답 스키마. <b>금액·판정·우선순위 필드를 두지 않았다.</b> LLM 이 그런 값을 지어내도 담을
+     * 자리가 없어 파싱 단계에서 사라진다({@code ReportNarrativeGenerator.RESPONSE_SCHEMA} 와
+     * 같은 방어다).
+     *
+     * <p>{@code category} 는 {@code PART} · {@code HIDDEN} 둘뿐이다. {@code COMMON} 은 시드가
+     * 붙이는 값이라 <b>모델이 고를 수 있는 값에 두지 않는다</b> — 고를 수 있게 하면 공통 탭에
+     * 마스터에 없는 줄이 생긴다.
+     *
+     * <p>{@code partCode} · {@code reason} 은 {@code ["string","null"]} 이다. OpenAI
+     * {@code strict: true} 는 모든 필드를 {@code required} 로 요구하므로, "없을 수 있다" 를
+     * 빼는 것이 아니라 <b>null 을 허용해서</b> 표현한다({@code StructuredOutputSchemaTest}).
      */
     private static final String RESPONSE_SCHEMA = """
             {
               "type": "object",
               "properties": {
+                "summary": { "type": "string" },
                 "items": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "properties": {
-                      "content": { "type": "string" }
+                      "content": { "type": "string" },
+                      "category": { "type": "string", "enum": ["PART", "HIDDEN"] },
+                      "partCode": { "type": ["string", "null"] },
+                      "reason": { "type": ["string", "null"] }
                     },
-                    "required": ["content"],
+                    "required": ["content", "category", "partCode", "reason"],
                     "additionalProperties": false
                   }
                 }
               },
-              "required": ["items"],
+              "required": ["summary", "items"],
               "additionalProperties": false
             }
             """;
@@ -87,10 +112,11 @@ public class RepairChecklistGenerator {
     private final ObjectMapper objectMapper;
 
     /**
-     * @return 사고별 확인 항목 문안. <b>비어 있지 않다</b> — 비면 예외를 던진다
+     * @return 사고별 확인 항목과 한 줄 요약. <b>항목은 비어 있지 않다</b> — 비면 예외를 던진다.
+     *         요약은 비어 있을 수 있다 — 요약 하나 때문에 항목 전체를 버리지 않는다
      * @throws RepairChecklistGenerationException 호출 실패 또는 쓸 수 없는 응답
      */
-    public List<String> generate(RepairChecklistContext context) {
+    public RepairChecklistDraft generate(RepairChecklistContext context) {
         LlmChatPort port = llmChatPort.orElseThrow(() -> new RepairChecklistGenerationException(
                 RepairChecklistFailure.LLM_UNAVAILABLE, "LLM 어댑터가 없다."));
 
@@ -106,10 +132,18 @@ public class RepairChecklistGenerator {
                     "체크리스트 생성 호출이 실패했다: " + e.getClass().getSimpleName(), e);
         }
 
-        List<String> items = parse(chat.json());
-        log.info("체크리스트 항목 생성 완료: 항목={}건, {}ms", items.size(),
+        RepairChecklistDraft draft = parse(chat.json(), context);
+        log.info("체크리스트 항목 생성 완료: 항목={}건(함께 점검 {}건), 요약={}, {}ms",
+                draft.items().size(), hiddenCount(draft),
+                draft.summary() == null ? "없음" : "있음",
                 System.currentTimeMillis() - startedAt);
-        return items;
+        return draft;
+    }
+
+    private static long hiddenCount(RepairChecklistDraft draft) {
+        return draft.items().stream()
+                .filter(item -> item.category() == RepairChecklistItemCategory.HIDDEN)
+                .count();
     }
 
     /**
@@ -136,6 +170,16 @@ public class RepairChecklistGenerator {
                 - 항목은 최대 %d개입니다. 이 사고에만 해당하는 것부터 쓰세요.
                 - 각 항목은 차주가 정비소에서 직접 확인하거나 질문할 수 있는 한 문장입니다.
                   100자 이내로 씁니다.
+                - 항목마다 분류를 붙입니다.
+                  PART: 위에 적힌 손상 부위에 대한 항목입니다. partCode 에 그 부품코드를 그대로
+                  적고, 한 부위에 1~3개까지 씁니다.
+                  HIDDEN: 사진에는 보이지 않지만 함께 점검을 권하는 항목입니다. 최대 %d개까지
+                  쓰고, reason 에 권하는 이유를 한 문장으로 적습니다.
+                - partCode 는 위 목록에 있는 부품코드만 씁니다. 목록에 없는 코드를 지어내지 마세요.
+                  부위와 무관한 항목이면 partCode 를 null 로 둡니다.
+                - reason 은 HIDDEN 항목에만 씁니다. PART 항목은 null 로 둡니다.
+                - summary 에는 이 사고의 성격과 무엇을 중점적으로 볼지 한 문장으로 적습니다.
+                  200자 이내로 쓰고, 금액은 적지 않습니다.
                 - 금액, 수리비, 공임 단가를 적지 마세요. 이 도구는 금액을 판정하지 않습니다.
                 - 견적서 서면 수령, 부품 등급 확인, 작업 전후 사진, 교체 부품 실물 확인,
                   보증 기간, 예상 소요 기간처럼 모든 사고에 공통인 절차는 넣지 마세요.
@@ -149,7 +193,8 @@ public class RepairChecklistGenerator {
                 blankToUnknown(context.modelName()),
                 context.modelYear() == null ? "" : context.modelYear() + "년식",
                 partLines(context),
-                MAX_AI_ITEMS);
+                MAX_AI_ITEMS,
+                MAX_HIDDEN_ITEMS);
     }
 
     /** 분석 결과가 없으면 <b>없다고 적는다.</b> 부위를 지어내지 않는다. */
@@ -178,8 +223,11 @@ public class RepairChecklistGenerator {
      * <p>같은 문장이 두 번 오면 하나만 남긴다 — 중복은 {@code uk_rcli_common} 이 막아 주지 않는다
      * (그 제약은 공통 항목 전용이고 {@code common_code} 가 {@code NULL} 인 AI 항목끼리는 몇 개든
      * 들어간다). 화면에 같은 줄이 두 번 보이는 것을 막는 곳이 여기뿐이다.
+     *
+     * <p><b>요약이 없어도 실패가 아니다.</b> 항목이 결과물이고 요약은 머리글이다 — 한 문장
+     * 때문에 호출 비용 전체를 버리지 않는다.
      */
-    private List<String> parse(String json) {
+    private RepairChecklistDraft parse(String json, RepairChecklistContext context) {
         JsonNode root;
         try {
             root = objectMapper.readTree(json);
@@ -188,24 +236,82 @@ public class RepairChecklistGenerator {
                     "응답을 JSON 으로 읽지 못했다: " + e.getClass().getSimpleName(), e);
         }
 
-        List<String> contents = new ArrayList<>(new LinkedHashSet<>(collect(root)));
-        if (contents.isEmpty()) {
+        List<RepairChecklistDraft.DraftItem> items = collect(root, knownPartCodes(context));
+        if (items.isEmpty()) {
             throw new RepairChecklistGenerationException(RepairChecklistFailure.INVALID_RESPONSE,
                     "쓸 수 있는 항목이 하나도 없다.");
         }
-        return contents.size() <= MAX_AI_ITEMS ? contents : contents.subList(0, MAX_AI_ITEMS);
+        return new RepairChecklistDraft(text(root.path("summary")), items);
     }
 
-    private static List<String> collect(JsonNode root) {
-        List<String> contents = new ArrayList<>();
+    /**
+     * 지시문에 적어 준 부품 코드. <b>모델이 고를 수 있는 값의 전부다.</b>
+     *
+     * <p>{@code MAX_PARTS_IN_PROMPT} 로 잘린 뒤쪽 부위는 여기에도 없다 — 지시문에서 본 적 없는
+     * 코드를 답에 쓰는 것은 지어낸 것이다.
+     */
+    private static Set<String> knownPartCodes(RepairChecklistContext context) {
+        return context.parts().stream()
+                .limit(MAX_PARTS_IN_PROMPT)
+                .map(RepairChecklistContext.DamagedPartView::partCode)
+                .filter(code -> code != null && !code.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static List<RepairChecklistDraft.DraftItem> collect(JsonNode root, Set<String> knownParts) {
+        Map<String, RepairChecklistDraft.DraftItem> byContent = new LinkedHashMap<>();
+        int hidden = 0;
         for (JsonNode node : root.path("items")) {
             String content = text(node.path("content"));
             if (content == null) continue;
-            contents.add(content.length() <= RepairChecklistItem.MAX_CONTENT_LENGTH
+            content = content.length() <= RepairChecklistItem.MAX_CONTENT_LENGTH
                     ? content
-                    : content.substring(0, RepairChecklistItem.MAX_CONTENT_LENGTH));
+                    : content.substring(0, RepairChecklistItem.MAX_CONTENT_LENGTH);
+
+            RepairChecklistItemCategory category = category(node.path("category"));
+            boolean isHidden = category == RepairChecklistItemCategory.HIDDEN;
+            if (isHidden && hidden >= MAX_HIDDEN_ITEMS) {
+                // 상한을 넘은 추정 항목은 버린다. 남은 자리는 확인된 부위 이야기에 준다.
+                continue;
+            }
+
+            RepairChecklistDraft.DraftItem item = new RepairChecklistDraft.DraftItem(
+                    content, category, partCode(node.path("partCode"), knownParts),
+                    isHidden ? text(node.path("reason")) : null);
+            if (byContent.putIfAbsent(content, item) == null && isHidden) {
+                hidden++;
+            }
+            if (byContent.size() >= MAX_AI_ITEMS) break;
         }
-        return contents;
+        return List.copyOf(byContent.values());
+    }
+
+    /**
+     * 분류. <b>모르는 값이면 {@code PART} 다</b> — 분류 하나를 못 읽었다고 쓸 만한 문장을 버리지
+     * 않는다. {@code COMMON} 이 와도 {@code PART} 로 둔다: 공통 6종의 정본은 마스터이고,
+     * 모델이 자처한 공통 항목을 그 탭에 섞으면 근거 없는 줄이 생긴다.
+     */
+    private static RepairChecklistItemCategory category(JsonNode node) {
+        String value = text(node);
+        if (value == null) return RepairChecklistItemCategory.PART;
+        try {
+            RepairChecklistItemCategory parsed =
+                    RepairChecklistItemCategory.valueOf(value.toUpperCase(Locale.ROOT));
+            return parsed == RepairChecklistItemCategory.COMMON
+                    ? RepairChecklistItemCategory.PART
+                    : parsed;
+        } catch (IllegalArgumentException e) {
+            return RepairChecklistItemCategory.PART;
+        }
+    }
+
+    /**
+     * 부위. <b>지시문에 적어 준 목록 밖이면 비운다.</b> 문장 자체는 쓸 만한데 꼬리표가 틀렸을
+     * 뿐이라 항목을 버리지 않는다 — {@code RepairQuestionGenerator} 가 같은 판단을 한다.
+     */
+    private static String partCode(JsonNode node, Set<String> knownParts) {
+        String value = text(node);
+        return value != null && knownParts.contains(value) ? value : null;
     }
 
     private static String text(JsonNode node) {

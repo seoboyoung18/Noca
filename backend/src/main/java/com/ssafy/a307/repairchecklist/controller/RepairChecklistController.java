@@ -4,6 +4,7 @@ import com.ssafy.a307.common.response.ApiResponse;
 import com.ssafy.a307.common.security.CurrentMemberProvider;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemCheckRequest;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemContentRequest;
+import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemCreateRequest;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemMemoRequest;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemResponse;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistStatusResponse;
@@ -72,18 +73,20 @@ public class RepairChecklistController {
     }
 
     /**
-     * 사용자 항목 추가 (S15P21A307-485).
+     * 사용자 항목 추가 (S15P21A307-485 · 부위·분류 -544).
      *
      * <p>{@code source} 는 서버가 {@code USER} 로 고정하고 {@code displayOrder} 는 맨 뒤에
-     * 붙인다 — 본문은 {@code content} 하나뿐이다. 체크리스트가 없는 사고는 404 다.
+     * 붙인다. 본문은 {@code content} 와 선택값 {@code category} · {@code partCode} 다 —
+     * 분류를 안 보내면 {@code PART} 이고, 마스터에 없는 부품 코드는 400 이다.
+     * 체크리스트가 없는 사고는 404 다.
      */
     @PostMapping("/items")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<RepairChecklistItemResponse> addItem(
             @PathVariable Long accidentId,
-            @Valid @RequestBody RepairChecklistItemContentRequest request) {
-        return ApiResponse.of(itemService.add(
-                currentMemberProvider.currentMemberId(), accidentId, request.content()));
+            @Valid @RequestBody RepairChecklistItemCreateRequest request) {
+        return ApiResponse.of(itemService.add(currentMemberProvider.currentMemberId(),
+                accidentId, request.content(), request.category(), request.partCode()));
     }
 
     /**

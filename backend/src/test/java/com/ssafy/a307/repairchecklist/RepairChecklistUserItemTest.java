@@ -5,6 +5,7 @@ import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistItemResponse;
 import com.ssafy.a307.repairchecklist.dto.RepairChecklistStatusResponse;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistItem;
+import com.ssafy.a307.repairchecklist.entity.RepairChecklistItemCategory;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistItemSource;
 import com.ssafy.a307.repairchecklist.entity.RepairChecklistStatus;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistItemService;
@@ -94,6 +95,10 @@ class RepairChecklistUserItemTest {
         insertItem(ITEM_COMMON, CHECKLIST_ID, "COMMON", (String) master.get("code"),
                 (String) master.get("message"), 2);
         insertItem(ITEM_OTHER, OTHER_CHECKLIST_ID, "USER", null, "남의 사고 항목", 1);
+
+        // 부위를 붙인 항목을 만들려면 마스터에 그 코드가 있어야 한다(part_code FK).
+        jdbc.update("insert into part_code(part_code,name_ko,layout_zone,display_order,is_active)"
+                + " values('FRONT_BUMPER','앞 범퍼','FRONT',1,true)");
     }
 
     @AfterEach
@@ -110,6 +115,8 @@ class RepairChecklistUserItemTest {
         jdbc.update("delete from vehicle where vehicle_id = ?", VEHICLE_ID);
         jdbc.update("delete from vehicle_model where model_id = ?", MODEL_ID);
         jdbc.update("delete from member where member_id in (?,?)", MEMBER_ID, OTHER_MEMBER_ID);
+        // 항목을 먼저 지운 뒤라야 ON DELETE RESTRICT 에 걸리지 않는다.
+        jdbc.update("delete from part_code where part_code = 'FRONT_BUMPER'");
     }
 
     private void insertAccident(long accidentId) {
@@ -137,6 +144,53 @@ class RepairChecklistUserItemTest {
     // ─────────────────────────────────────────────────────────── 추가
 
     @Nested
+    @DisplayName("분류·부위 (S15P21A307-544)")
+    class CategoryAndPart {
+
+        @Test
+        @DisplayName("분류와 부위를 저장하고 조회에 한글 이름을 붙인다")
+        void categoryAndPartAreStored() {
+            RepairChecklistItemResponse added = itemService.add(MEMBER_ID, ACCIDENT_ID,
+                    "앞 범퍼 도장 범위 확인", RepairChecklistItemCategory.PART, "FRONT_BUMPER");
+
+            assertThat(added.category()).isEqualTo(RepairChecklistItemCategory.PART);
+            assertThat(added.partCode()).isEqualTo("FRONT_BUMPER");
+            assertThat(added.partNameKo()).isEqualTo("앞 범퍼");
+
+            assertThat(statusService.status(MEMBER_ID, ACCIDENT_ID).items())
+                    .filteredOn(item -> item.itemId().equals(added.itemId()))
+                    .singleElement()
+                    .satisfies(item -> assertThat(item.partNameKo()).isEqualTo("앞 범퍼"));
+        }
+
+        /** 이름은 마스터에서 붙인다. 부위가 없으면 붙일 이름도 없다. */
+        @Test
+        @DisplayName("분류를 보내지 않으면 PART 이고 부위는 비어 있다")
+        void categoryDefaultsToPart() {
+            RepairChecklistItemResponse added =
+                    itemService.add(MEMBER_ID, ACCIDENT_ID, "그냥 물어볼 것", null, null);
+
+            assertThat(added.category()).isEqualTo(RepairChecklistItemCategory.PART);
+            assertThat(added.partCode()).isNull();
+            assertThat(added.partNameKo()).isNull();
+        }
+
+        /**
+         * <b>조용히 비우지 않는다.</b> LLM 이 지어낸 코드는 버리지만 이것은 사용자가 화면에서
+         * 고른 값이라, 비우면 넣었다고 표시된 부위가 다음 조회에서 사라진다.
+         */
+        @Test
+        @DisplayName("마스터에 없는 부품 코드는 400 이다")
+        void unknownPartCodeIsRejected() {
+            assertThatThrownBy(() -> itemService.add(MEMBER_ID, ACCIDENT_ID, "이상한 부위",
+                    RepairChecklistItemCategory.PART, "NO_SUCH_PART"))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_REQUEST);
+        }
+    }
+
+    @Nested
     @DisplayName("항목 추가 (S15P21A307-485)")
     class Add {
 
@@ -144,7 +198,7 @@ class RepairChecklistUserItemTest {
         @DisplayName("source 가 USER 이고 common_code 가 비어 있다")
         void addedItemIsUserSourced() {
             RepairChecklistItemResponse added =
-                    itemService.add(MEMBER_ID, ACCIDENT_ID, "내가 직접 물어볼 것");
+                    itemService.add(MEMBER_ID, ACCIDENT_ID, "내가 직접 물어볼 것", null, null);
 
             assertThat(added.source()).isEqualTo(RepairChecklistItemSource.USER);
             assertThat(added.commonCode()).isNull();
@@ -156,8 +210,8 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("display_order 가 기존 최댓값 + 1 이다 — 맨 뒤에 붙는다")
         void addedItemGoesLast() {
-            RepairChecklistItemResponse first = itemService.add(MEMBER_ID, ACCIDENT_ID, "첫 추가");
-            RepairChecklistItemResponse second = itemService.add(MEMBER_ID, ACCIDENT_ID, "둘째 추가");
+            RepairChecklistItemResponse first = itemService.add(MEMBER_ID, ACCIDENT_ID, "첫 추가", null, null);
+            RepairChecklistItemResponse second = itemService.add(MEMBER_ID, ACCIDENT_ID, "둘째 추가", null, null);
 
             assertThat(first.displayOrder()).isEqualTo((short) 3);
             assertThat(second.displayOrder()).isEqualTo((short) 4);
@@ -168,7 +222,7 @@ class RepairChecklistUserItemTest {
         void firstItemStartsAtOne() {
             jdbc.update("delete from repair_checklist_item where checklist_id = ?", CHECKLIST_ID);
 
-            assertThat(itemService.add(MEMBER_ID, ACCIDENT_ID, "유일한 항목").displayOrder())
+            assertThat(itemService.add(MEMBER_ID, ACCIDENT_ID, "유일한 항목", null, null).displayOrder())
                     .isEqualTo((short) 1);
         }
 
@@ -178,7 +232,7 @@ class RepairChecklistUserItemTest {
         void longContentIsTruncated() {
             String tooLong = "가".repeat(RepairChecklistItem.MAX_CONTENT_LENGTH + 50);
 
-            RepairChecklistItemResponse added = itemService.add(MEMBER_ID, ACCIDENT_ID, tooLong);
+            RepairChecklistItemResponse added = itemService.add(MEMBER_ID, ACCIDENT_ID, tooLong, null, null);
 
             assertThat(added.content()).hasSize(RepairChecklistItem.MAX_CONTENT_LENGTH);
             assertThat(contentOf(added.itemId())).hasSize(RepairChecklistItem.MAX_CONTENT_LENGTH);
@@ -190,13 +244,13 @@ class RepairChecklistUserItemTest {
             jdbc.update("delete from repair_checklist_item where checklist_id = ?", CHECKLIST_ID);
             jdbc.update("delete from repair_checklist where checklist_id = ?", CHECKLIST_ID);
 
-            assertThat(notFound(() -> itemService.add(MEMBER_ID, ACCIDENT_ID, "넣을 수 없다"))).isTrue();
+            assertThat(notFound(() -> itemService.add(MEMBER_ID, ACCIDENT_ID, "넣을 수 없다", null, null))).isTrue();
         }
 
         @Test
         @DisplayName("남의 사고에는 넣을 수 없다 — 404")
         void othersAccidentIs404() {
-            assertThat(notFound(() -> itemService.add(OTHER_MEMBER_ID, ACCIDENT_ID, "남의 것"))).isTrue();
+            assertThat(notFound(() -> itemService.add(OTHER_MEMBER_ID, ACCIDENT_ID, "남의 것", null, null))).isTrue();
         }
     }
 
@@ -209,7 +263,7 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("USER 항목 문안을 고칠 수 있다")
         void userItemContentCanChange() {
-            Long itemId = itemService.add(MEMBER_ID, ACCIDENT_ID, "처음 문안").itemId();
+            Long itemId = itemService.add(MEMBER_ID, ACCIDENT_ID, "처음 문안", null, null).itemId();
 
             RepairChecklistItemResponse changed =
                     itemService.changeContent(MEMBER_ID, ACCIDENT_ID, itemId, "고친 문안");
@@ -236,7 +290,7 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("USER 항목은 지울 수 있다")
         void userItemCanBeDeleted() {
-            Long itemId = itemService.add(MEMBER_ID, ACCIDENT_ID, "지울 항목").itemId();
+            Long itemId = itemService.add(MEMBER_ID, ACCIDENT_ID, "지울 항목", null, null).itemId();
 
             itemService.delete(MEMBER_ID, ACCIDENT_ID, itemId);
 
@@ -269,7 +323,7 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("남의 항목은 404 다 — 존재 사실을 알려 주지 않는다")
         void othersItemIs404() {
-            Long itemId = itemService.add(MEMBER_ID, ACCIDENT_ID, "내 항목").itemId();
+            Long itemId = itemService.add(MEMBER_ID, ACCIDENT_ID, "내 항목", null, null).itemId();
 
             assertThat(notFound(() ->
                     itemService.changeContent(OTHER_MEMBER_ID, ACCIDENT_ID, itemId, "가로채기"))).isTrue();
@@ -286,7 +340,7 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("USER 항목만 남고 AI·COMMON 은 지워진다")
         void userItemsSurvive() {
-            Long mine = itemService.add(MEMBER_ID, ACCIDENT_ID, "내가 적은 것").itemId();
+            Long mine = itemService.add(MEMBER_ID, ACCIDENT_ID, "내가 적은 것", null, null).itemId();
 
             regenerateService.regenerate(MEMBER_ID, ACCIDENT_ID);
 
@@ -323,7 +377,7 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("USER 항목의 체크 상태와 메모가 유지된다")
         void checkedStateSurvives() {
-            Long mine = itemService.add(MEMBER_ID, ACCIDENT_ID, "체크해 둔 내 항목").itemId();
+            Long mine = itemService.add(MEMBER_ID, ACCIDENT_ID, "체크해 둔 내 항목", null, null).itemId();
             itemService.changeChecked(MEMBER_ID, ACCIDENT_ID, mine, true);
             itemService.changeMemo(MEMBER_ID, ACCIDENT_ID, mine, "정비사 답변");
 
@@ -345,7 +399,7 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("워커가 다시 돌아도 USER 항목이 살아남는다")
         void userItemsSurviveTheWorker() {
-            Long mine = itemService.add(MEMBER_ID, ACCIDENT_ID, "워커가 지우면 안 되는 것").itemId();
+            Long mine = itemService.add(MEMBER_ID, ACCIDENT_ID, "워커가 지우면 안 되는 것", null, null).itemId();
             itemService.changeChecked(MEMBER_ID, ACCIDENT_ID, mine, true);
             regenerateService.regenerate(MEMBER_ID, ACCIDENT_ID);
             llm.nextJson = "{\"items\": [{\"content\": \"새로 만든 AI 항목\"}]}";
@@ -386,7 +440,7 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("재생성 응답에는 항목을 싣지 않는다 — 남은 USER 가 결과처럼 보이면 안 된다")
         void responseCarriesNoItems() {
-            itemService.add(MEMBER_ID, ACCIDENT_ID, "남는 항목");
+            itemService.add(MEMBER_ID, ACCIDENT_ID, "남는 항목", null, null);
 
             assertThat(regenerateService.regenerate(MEMBER_ID, ACCIDENT_ID).items()).isEmpty();
             // 조회도 완성 전에는 주지 않는다(prompt70).
@@ -438,9 +492,9 @@ class RepairChecklistUserItemTest {
         @Test
         @DisplayName("사용자 항목은 몇 개든 들어간다 — NULL 은 uk_rcli_common 을 통과한다")
         void manyUserItemsAreAllowed() {
-            itemService.add(MEMBER_ID, ACCIDENT_ID, "하나");
-            itemService.add(MEMBER_ID, ACCIDENT_ID, "둘");
-            itemService.add(MEMBER_ID, ACCIDENT_ID, "셋");
+            itemService.add(MEMBER_ID, ACCIDENT_ID, "하나", null, null);
+            itemService.add(MEMBER_ID, ACCIDENT_ID, "둘", null, null);
+            itemService.add(MEMBER_ID, ACCIDENT_ID, "셋", null, null);
 
             assertThat(countItems(CHECKLIST_ID)).isEqualTo(5);
         }

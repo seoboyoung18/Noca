@@ -713,6 +713,10 @@ CREATE TABLE repair_checklist (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at   TIMESTAMPTZ,
     regenerated_at TIMESTAMPTZ,
+    -- AI 한 줄 요약 (S15P21A307-544). 사고 성격과 중점 확인 권장을 한 문장으로 적는다.
+    -- 생성은 200자 이내로 지시하고 열은 300 으로 둔다 — 모델이 조금 넘겨도 저장이 깨지지
+    -- 않는다(서버가 자른다). NULL 이면 화면이 요약 영역을 그리지 않는다.
+    summary        VARCHAR(300),
     CONSTRAINT uk_rcl_accident   UNIQUE (accident_id),
     CONSTRAINT ck_rcl_status     CHECK (status IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
     CONSTRAINT ck_rcl_done       CHECK (completed_at IS NULL OR status IN ('COMPLETED','FAILED')),
@@ -738,10 +742,29 @@ CREATE TABLE repair_checklist_item (
     checked_at    TIMESTAMPTZ,
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    -- ── 부위·분류 (S15P21A307-544) ──────────────────────────────────────
+    -- 화면이 공통 / 부품별 / 함께 점검 세 탭을 그린다. source 는 "누가 만들었나" 이고
+    -- 이 열은 "어느 탭인가" 다 — 사용자가 추가한 항목도 부품별·함께 점검에 들어간다.
+    -- HIDDEN 은 사진에 보이지 않지만 함께 점검을 권하는 항목이다.
+    category      VARCHAR(10)  NOT NULL DEFAULT 'PART',
+    -- 그 항목이 가리키는 부위. 마스터 FK 다 — 서버가 프롬프트에 넘긴 목록 밖 코드를
+    -- NULL 로 바꾸지만, 그 판단 한 곳에만 기대지 않는다. ON DELETE RESTRICT 인 이유는
+    -- repair_question_item.part_code 와 같다: 부품이 마스터에서 빠졌다고 사용자가
+    -- 받아 둔 체크리스트가 사라지면 안 된다.
+    --
+    -- 이름 사본(snapshot_part_name)을 두지 않는다. repair_question_item 은 문안에 부품
+    -- 이름이 박히지만, 여기서는 화면이 마스터의 현재 이름으로 그룹 제목을 그린다 —
+    -- 이름이 바뀌면 바뀐 이름으로 보이는 편이 맞다.
+    part_code     VARCHAR(50)  REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    -- HIDDEN 항목이 "왜 이것도 보라고 하는가" 한 문장. PART · COMMON 은 NULL 이다.
+    -- 조건 제약을 걸지 않는다 — 사용자가 직접 추가하는 항목은 category 만 보내고
+    -- 이유를 보내지 않는다. 제약을 걸면 그 정상적인 요청이 500 이 된다.
+    reason        VARCHAR(300),
     -- 같은 공통 항목이 한 체크리스트에 두 번 들어가지 않는다. NULL 은 서로 충돌하지 않으므로
     -- AI · 사용자 항목은 몇 개든 들어간다.
     CONSTRAINT uk_rcli_common  UNIQUE (checklist_id, common_code),
     CONSTRAINT ck_rcli_source  CHECK (source IN ('AI','COMMON','USER')),
+    CONSTRAINT ck_rcli_category CHECK (category IN ('COMMON','PART','HIDDEN')),
     CONSTRAINT ck_rcli_link    CHECK ((source =  'COMMON' AND common_code IS NOT NULL)
                                    OR (source <> 'COMMON' AND common_code IS NULL)),
     CONSTRAINT ck_rcli_checked CHECK (checked_at IS NULL OR is_checked = TRUE)
