@@ -14,8 +14,10 @@ import { accidentRoute, groupAccidents } from '../data/accidents'
 /* ===== 사고 이력 (S12d) — GET /api/accidents/me =====
  * 서버가 createdAt 내림차순 페이지로 주고, 그룹("이번 주"·"8월")·한글 배지·금액 포맷은 FE 가 만든다.
  * 썸네일은 10분짜리 서명 URL 이라 화면에 들어올 때마다 목록을 새로 받는다.
- * 삭제는 서버에 사고 삭제 API 가 없어 두지 않는다 — 대신 "숨기기"(이 기기 localStorage, 사고 스토어 hidden)로 목록에서만 뺀다.
- * 사고와 체크리스트는 1:1 이라 숨기면 체크리스트도 함께 숨겨진다고 안내한다. 더보기(세로 ⋮) → 이력 숨기기 → 카드마다 숨기기 버튼 → 확인 시트.
+ * 화면 문구는 "제거하기" 지만 서버는 지우지 않고 감춘다(PATCH .../hidden, S15P21A307-554) — 사고 삭제 API 가 없고, 지우면 견적·리포트의 근거가 사라진다.
+ * 지우는 것이 아니라 서버가 내 목록에서 자리만 감춘다 — 기기를 바꿔도 유지되고, 사진·분석·견적·체크리스트와 이미 받은 리포트 링크는 그대로다.
+ * 사고와 체크리스트는 1:1 이라 제거하면 체크리스트도 함께 빠진다고 안내한다. 더보기(세로 ⋮) → 이력 제거하기 → 카드마다 제거 버튼 → 확인 시트.
+ * 되돌리기는 "제거한 이력" 화면에서 건별로 한다 — 서버에 일괄 복구가 없고, 무엇을 되살리는지 보고 고르는 편이 안전하다.
  * 행 구성(S15P21A307-531): 사고마다 카드 하나(components/AccidentRow — 홈 미리보기와 공유) | 오른쪽 세로 중앙에 PDF 아이콘 버튼.
  * 예상 금액·사진 장수·접수일은 행에서 뺐다(금액은 견적 화면·홈 카드에서, 날짜는 그룹 라벨로).
  * 사고 설명은 목록 API 에 없어 견적이 있는 행만 견적 항목으로 조립한다(lib/accidentDesc — 나의 체크리스트와 공유).
@@ -28,24 +30,43 @@ onMounted(() => store.load(true))
 
 function open(a) { if (!hideMode.value) router.push(accidentRoute(a)) }
 
-/* ===== 더보기 메뉴 · 숨기기 모드 ===== */
+/* ===== 더보기 메뉴 · 제거 모드 · 제거한 이력 화면 ===== */
 const menu = ref(false)
-const hideMode = ref(false) // 켜지면 카드 이동이 멈추고 PDF 자리에 숨기기 버튼이 나온다
+const hideMode = ref(false) // 켜지면 카드 이동이 멈추고 PDF 자리에 제거 버튼이 나온다
+const showHidden = ref(false) // 제거한 이력 화면
 const target = ref(null) // 확인 시트가 가리키는 사고
 const lastHidden = ref(null) // 토스트의 "되돌리기" 대상
+const busy = ref(false) // 제거·되돌리기 요청 중 — 연타 방지
 function startHide() { menu.value = false; hideMode.value = true }
-function restoreAll() { menu.value = false; store.unhideAll(); lastHidden.value = null; showToast('숨긴 이력을 모두 되돌렸어요') }
+function openHidden() { menu.value = false; hideMode.value = false; showHidden.value = true; store.loadHidden() }
+function closeHidden() { showHidden.value = false }
 function askHide(a) { target.value = a }
-function confirmHide() {
+async function confirmHide() {
   const a = target.value
   target.value = null
-  if (!a) return
-  store.hide(a.accidentId)
-  lastHidden.value = a.accidentId
-  showToast('이력을 숨겼어요', 4000)
-  if (!store.items.length) hideMode.value = false // 다 숨겼으면 모드 종료 → "모두 숨김" 안내로
+  if (!a || busy.value) return
+  busy.value = true
+  try {
+    await store.hide(a.accidentId)
+    lastHidden.value = a.accidentId
+    showToast('이력을 제거했어요', 4000)
+    if (!store.items.length) hideMode.value = false // 다 제거했으면 모드 종료 → 빈 화면 안내로
+  } catch (e) {
+    if (e?.status !== 401) showToast(e?.status === 404 ? '사고를 찾을 수 없어요.' : '제거하지 못했어요. 잠시 후 다시 시도해 주세요.', 2600)
+  } finally { busy.value = false }
 }
-function undoHide() { if (lastHidden.value != null) store.unhide(lastHidden.value); lastHidden.value = null; toast.value = '' }
+/** 한 건 되돌리기 — 토스트의 "되돌리기" 와 제거한 이력 화면의 버튼이 함께 쓴다 */
+async function restore(accidentId, { fromToast = false } = {}) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await store.unhide(accidentId)
+    if (fromToast) { lastHidden.value = null; toast.value = '' } else showToast('이력을 되돌렸어요')
+  } catch (e) {
+    if (e?.status !== 401) showToast(e?.status === 404 ? '사고를 찾을 수 없어요.' : '되돌리지 못했어요. 잠시 후 다시 시도해 주세요.', 2600)
+  } finally { busy.value = false }
+}
+function undoHide() { if (lastHidden.value != null) restore(lastHidden.value, { fromToast: true }) }
 
 
 /* ===== PDF 파일 받기 — 견적 id 기준 (요청 → 생성 대기 → 302 다운로드) =====
@@ -73,9 +94,10 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
     <!-- 홈("전체 보기")과 마이페이지(통계 카드) 두 곳에서 들어오므로 뒤로가기는 거쳐 온 화면으로. 직접 진입이면 홈 -->
     <AppHeader title="사고 이력" back="/home" back-history>
       <template #right>
-        <!-- 숨기기 모드에서는 "완료", 평소에는 더보기(세로 점 3개). 받은 이력이 있을 때만 -->
+        <!-- 제거 모드에서는 "완료", 평소에는 더보기(세로 점 3개). 받은 이력이 있을 때만 -->
         <button v-if="hideMode" class="act strong" @click="hideMode = false">완료</button>
-        <button v-else-if="store.all.length" class="icn" aria-label="더보기" :aria-expanded="menu" @click="menu = !menu">
+        <button v-else-if="showHidden" class="act strong" @click="closeHidden">완료</button>
+        <button v-else-if="store.all.length || store.hiddenCount" class="icn" aria-label="더보기" :aria-expanded="menu" @click="menu = !menu">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="4" r="1.8" fill="#191F28"/><circle cx="10" cy="10" r="1.8" fill="#191F28"/><circle cx="10" cy="16" r="1.8" fill="#191F28"/></svg>
         </button>
       </template>
@@ -85,16 +107,46 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
     <div v-if="menu" class="menu" role="menu">
       <button role="menuitem" :disabled="!store.items.length" @click="startHide">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 2l12 12M6.6 6.7A2 2 0 0 0 9.3 9.4M4.4 4.5C2.9 5.5 1.9 6.9 1.5 8c1.2 3 3.7 4.8 6.5 4.8 1.1 0 2.1-.3 3-.7M7 3.3c.3 0 .7-.1 1-.1 2.8 0 5.3 1.8 6.5 4.8-.3.8-.8 1.6-1.4 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        이력 숨기기
+        이력 제거하기
       </button>
-      <button role="menuitem" :disabled="!store.hiddenCount" @click="restoreAll">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5v3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        숨긴 이력 되돌리기<span v-if="store.hiddenCount" class="cnt">{{ store.hiddenCount }}</span>
+      <button role="menuitem" @click="openHidden">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 8c1.2-3 3.7-4.8 6.5-4.8s5.3 1.8 6.5 4.8c-1.2 3-3.7 4.8-6.5 4.8S2.7 11 1.5 8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
+        제거한 이력 보기<span v-if="store.hiddenCount" class="cnt">{{ store.hiddenCount }}</span>
       </button>
     </div>
 
+    <!-- 제거한 이력 — 건별 되돌리기 -->
+    <div v-if="showHidden" class="body scroll" style="padding-top:20px">
+      <div class="row between">
+        <span class="lbl">제거한 이력 {{ store.hiddenCount }}건</span>
+      </div>
+      <p class="sub" style="margin-top:6px;font-size:12px;line-height:1.5">제거한 이력은 목록에서 빠져요. 사진·분석 결과·견적은 보관돼 있어 되돌릴 수 있어요.</p>
+
+      <div v-if="store.hiddenLoading && !store.hiddenLoaded" class="sub center" style="padding:40px 0" role="status">제거한 이력을 불러오고 있어요…</div>
+      <div v-else-if="store.hiddenError" class="empty" style="padding-top:40px">
+        <b>{{ store.hiddenError }}</b>
+        <button class="btn outline" style="margin-top:16px;width:auto;padding:0 20px;height:44px" @click="store.loadHidden()">다시 시도</button>
+      </div>
+      <template v-else-if="store.hidden.length">
+        <AccidentRow v-for="a in store.hidden" :key="a.accidentId" :a="a" :clickable="false">
+          <template #action>
+            <button class="pdf back" :disabled="busy" :aria-label="`${vehicleName(a)} 이력 되돌리기`" title="되돌리기" @click.stop="restore(a.accidentId)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v4h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="pl">되돌리기</span>
+            </button>
+          </template>
+        </AccidentRow>
+      </template>
+      <div v-else class="empty" style="padding-top:40px">
+        <img src="/assets/logo-small.png" alt="">
+        <b>제거한 이력이 없어요</b>
+        <p>더보기에서 이력을 제거하면 여기에 모여요</p>
+      </div>
+      <div style="height:24px"></div>
+    </div>
+
     <!-- 첫 로딩 -->
-    <div v-if="!store.loaded && store.loading" class="body col" role="status">
+    <div v-else-if="!store.loaded && store.loading" class="body col" role="status">
       <p class="sub center" style="margin:auto 0">사고 이력을 불러오고 있어요…</p>
     </div>
 
@@ -109,18 +161,18 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
     <!-- 목록 -->
     <div v-else-if="store.items.length" class="body scroll" style="padding-top:20px">
       <div class="row between">
-        <span class="lbl">총 {{ store.visibleTotal ?? store.items.length }}건</span>
-        <span v-if="hideMode" class="sub" style="font-size:12px;color:var(--primary)">숨길 이력을 선택하세요</span>
+        <span class="lbl">총 {{ store.total ?? store.items.length }}건</span>
+        <span v-if="hideMode" class="sub" style="font-size:12px;color:var(--primary)">제거할 이력을 선택하세요</span>
       </div>
       <template v-for="g in groups" :key="g.label">
         <div class="lbl" style="margin-top:16px">{{ g.label }}</div>
         <!-- 카드는 홈 "최근 사고" 미리보기와 공유(AccidentRow). 오른쫽 동작만 여기서 끼운다 -->
         <AccidentRow v-for="a in g.items" :key="a.accidentId" :a="a" :clickable="!hideMode" :class="{ picking: hideMode }" @open="open">
           <template #action>
-            <!-- 숨기기 모드: PDF 자리에 숨기기 버튼 -->
-            <button v-if="hideMode" class="pdf hide" :aria-label="`${vehicleName(a)} 이력 숨기기`" @click.stop="askHide(a)">
+            <!-- 제거 모드: PDF 자리에 제거 버튼 -->
+            <button v-if="hideMode" class="pdf hide" :disabled="busy" :aria-label="`${vehicleName(a)} 이력 제거하기`" @click.stop="askHide(a)">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10 10.6A2.5 2.5 0 0 0 13.4 14M6.6 6.7C4.6 8 3.1 9.9 2.5 12c1.7 4.2 5.3 6.8 9.5 6.8 1.6 0 3.1-.4 4.4-1M10.5 5.3c.5-.1 1-.1 1.5-.1 4.2 0 7.8 2.6 9.5 6.8-.5 1.2-1.2 2.3-2 3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <span class="pl">숨기기</span>
+              <span class="pl">제거</span>
             </button>
             <!-- PDF 받기 — 아이콘 버튼. 견적이 없는 행도 같은 자리에 비활성으로 둬 행마다 배치가 같게 -->
             <button v-else class="pdf" :class="{ busy: pdfBusyFor(a) }" :disabled="!a.estimateId || pdfBusyId !== null" :aria-busy="pdfBusyFor(a)"
@@ -145,13 +197,13 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
       <div style="height:24px"></div>
     </div>
 
-    <!-- 받은 이력은 있는데 모두 숨김 -->
-    <div v-else-if="store.all.length" class="body col">
+    <!-- 보이는 이력이 없고 제거한 것만 있음 -->
+    <div v-else-if="store.hiddenCount" class="body col">
       <div class="empty">
         <img src="/assets/logo-small.png" alt="">
-        <b>모든 이력을 숨겼어요</b>
-        <p>숨긴 이력은 이 기기에서만 보이지 않아요<br>더보기에서 언제든 되돌릴 수 있어요</p>
-        <button class="btn outline" style="margin-top:20px;width:auto;padding:0 24px;height:46px" @click="restoreAll">숨긴 이력 되돌리기</button>
+        <b>모든 이력을 제거했어요</b>
+        <p>제거한 이력은 목록에서 빠져 있어요<br>필요하면 하나씩 되돌릴 수 있어요</p>
+        <button class="btn outline" style="margin-top:20px;width:auto;padding:0 24px;height:46px" @click="openHidden">제거한 이력 보기</button>
       </div>
     </div>
 
@@ -165,15 +217,15 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
       </div>
     </div>
     <div class="spacer"></div>
-    <Toast :show="!!toast">{{ toast }}<button v-if="lastHidden != null && toast === '이력을 숨겼어요'" class="undo" @click="undoHide">되돌리기</button></Toast>
+    <Toast :show="!!toast">{{ toast }}<button v-if="lastHidden != null && toast === '이력을 제거했어요'" class="undo" @click="undoHide">되돌리기</button></Toast>
 
-    <!-- 숨기기 확인 -->
+    <!-- 제거 확인 -->
     <BottomSheet :model-value="!!target" @update:model-value="target = null">
-      <p class="st">이 사고 이력을 숨길까요?</p>
-      <p class="sd"><b>해당 이력을 숨기면 연결된 체크리스트도 함께 숨겨집니다.</b><br>이 기기에서만 보이지 않게 되며 서버의 기록과 견적은 그대로 남아요. 더보기 메뉴에서 언제든 되돌릴 수 있어요.</p>
+      <p class="st">이 사고 이력을 제거할까요?</p>
+      <p class="sd"><b>해당 이력을 제거하면 연결된 체크리스트도 함께 제거됩니다.</b><br>사진·분석 결과·견적은 보관되며, 더보기 &gt; 제거한 이력 보기에서 하나씩 되돌릴 수 있어요.</p>
       <div v-if="target" class="acts">
         <button class="btn outline" @click="target = null">취소</button>
-        <button class="btn bold" @click="confirmHide">숨기기</button>
+        <button class="btn bold" :disabled="busy" @click="confirmHide">제거</button>
       </div>
     </BottomSheet>
   </Screen>
@@ -194,5 +246,6 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
 .pl { font-size: 9px; font-weight: 700; letter-spacing: 0.02em; line-height: 1; }
 .pdf.hide { border-color: var(--danger-bg); background: var(--danger-bg); color: var(--danger-2); }
 .pdf.hide:hover { background: #FBDDDD; }
+.pdf.back .pl { font-size: 8px; }
 .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--primary-200); border-top-color: var(--primary); animation: dcspin .8s linear infinite; }
 </style>

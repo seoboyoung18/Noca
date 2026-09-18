@@ -195,9 +195,20 @@ export const estimatePdfDownloadUrl = (estimateId) => `${API_BASE}/api/estimates
 
 /* ===== 사고 · 정비 체크리스트 (AccidentController · RepairChecklistController) ===== */
 
-/** 내 사고 이력. createdAt 내림차순. { accidents[], page, size, totalElements, totalPages, hasNext }. size 상한 100 */
-export const fetchMyAccidents = (page = 0, size = 100) =>
-  http.get('/api/accidents/me', { params: { page, size } }).then(data)
+/**
+ * 내 사고 이력. createdAt 내림차순. { accidents[], page, size, totalElements, totalPages, hasNext }. size 상한 100.
+ * includeHidden 을 켜면 감춘 사고까지 준다(항목의 hiddenAt 으로 구분) — 기본 목록은 감춘 사고를 싣지도, 총 건수에 넣지도 않는다.
+ */
+export const fetchMyAccidents = (page = 0, size = 100, includeHidden = false) =>
+  http.get('/api/accidents/me', { params: { page, size, includeHidden } }).then(data)
+
+/**
+ * 사고 이력을 목록에서 감추거나 되돌린다 (S15P21A307-554). 204, 본문 없음.
+ * 지우는 것이 아니다 — 사진·분석·견적·체크리스트는 남고 이미 받은 리포트 링크도 그대로 열린다. 같은 값을 두 번 보내도 탈이 없다.
+ * 없는 사고·남의 사고는 404.
+ */
+export const setAccidentHidden = (accidentId, hidden) =>
+  http.patch(`/api/accidents/${accidentId}/hidden`, { hidden })
 
 /**
  * 사고 상세. 목록 항목의 공통 10필드와 같은 모양이고 목록 전용 8필드(status·썸네일·견적)는 없다.
