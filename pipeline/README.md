@@ -384,9 +384,79 @@ python pipeline/jobs/ingestion/load_search_data.py \
 숫자 접두를 문자열 그대로 보존한다. 예를 들어
 `repair-cases/AIHUB_AS/as-0000160/0406472/original.jpg`와 같다.
 `--dataset-root`는 원본 상대 경로의 기준만 결정하며 S3 key 자체에는 포함되지 않는다.
+
+### DAMAGE corpus feature 실험
+
+현재 공식 feature pipeline v1은 DAMAGE_PART의 same-image geometry pairing을 사용한다.
+DAMAGE 이미지를 별도 비교군으로 만들 때는 007/008의 사전 조건과 상태를 먼저 확인한 뒤
+`pipeline/sql/010_damage_repair_hint.sql`과 `pipeline/sql/011_damage_pipeline_v2.sql`을 적용하고,
+`load_search_data.py`에
+`--include-damage-reference`를 지정해 DAMAGE 이미지를 적재한다. 그 다음 아래 job으로
+DAMAGE bbox/polygon feature를 v2에 만든다.
+
+```bash
+python pipeline/jobs/ingestion/load_damage_features.py \
+  --subset-root "<견적서 보유 subset>" \
+  --dataset-root "<전체 데이터셋>/01.데이터" \
+  --readiness-csv "<readiness output>/case_search_readiness.csv" \
+  --case-manifest "<manifest output>/search_dev_cases.csv" \
+  --pipeline-version-id 2 \
+  --dry-run
+```
+
+이 job은 DAMAGE feature를 `part_code=NULL`, `pair_status=UNPAIRED`로 저장한다.
+annotation의 `repair` 부품 후보는 `repair_case_damage_feature_part_hint`에만 저장하며,
+검색 STRICT 필터나 견적 산출에는 사용하지 않는다. v2는 자동 활성화하지 않고, 동일한
+embedding model로 v1/v2를 각각 색인한 뒤 validation query의 Recall@K·MRR·VECTOR_ONLY
+비율·비용 연결 성공률을 비교한다. 두 pipeline version의 embedding을 한 활성 검색 결과에
+섞지 않는다.
 검색 이미지 원천은 `TL_damage_part`/`VL_damage_part`의 `damage_part` 디렉터리로
 고정한다. `TL_damage`/`VL_damage`의 `damage` 이미지는 동일 사진 짝이 아니므로
 라벨을 전파하지 않으며, 필요할 때만 참고 이미지로 함께 적재한다.
+
+### DAMAGE_PART/DAMAGE corpus 임베딩
+
+feature 적재 후에는 한 번에 하나의 `pipeline-version-id`만 지정해 임베딩한다.
+v1과 v2는 같은 `EmbeddingSpec`의 DINOv2 모델을 사용하지만 서로 다른 pipeline으로
+조회하며, 하나의 활성 검색 corpus에 섞지 않는다. `--dry-run`은 DB를 읽기만 하고
+이미지·ROI 재현 가능 여부와 예상 대상 수만 확인하며 모델 추론과 upsert를 하지 않는다.
+DB 접속 문자열은 `DATABASE_URL`만 사용한다.
+
+```bash
+# v1 DAMAGE_PART 대상 확인 (모델 추론/DB 쓰기 없음)
+python pipeline/jobs/ingestion/embed_search_corpus.py \
+  --pipeline-version-id 1 \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --limit 100 \
+  --dry-run
+
+# v2 DAMAGE 대상 확인
+python pipeline/jobs/ingestion/embed_search_corpus.py \
+  --pipeline-version-id 2 \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --limit 100 \
+  --dry-run
+
+# 검증된 소량 샘플 임베딩
+python pipeline/jobs/ingestion/embed_search_corpus.py \
+  --pipeline-version-id 1 \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --limit 100 --batch-size 16 --resume
+
+# 전수 실행: v1/v2를 별도 실행
+python pipeline/jobs/ingestion/embed_search_corpus.py \
+  --pipeline-version-id 1 \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --batch-size 32 --resume
+python pipeline/jobs/ingestion/embed_search_corpus.py \
+  --pipeline-version-id 2 \
+  --dataset-root "<AI-Hub 차량파손 데이터셋 경로>" \
+  --batch-size 32 --resume
+```
+
+실행 결과는 DSN을 포함하지 않는 JSON으로 출력되며 pipeline/model version, 대상·성공·실패·
+skip·기존 upsert 수를 포함한다. 이미지 누락·ROI 오류·개별 추론 오류는 feature 단위로
+격리하지만, DB 계약 오류나 `EmbeddingSpec`과 DB 모델 버전 불일치는 즉시 실패한다.
 
 개발·시연·평가용 subset을 적재할 때는 전체 readiness와 사례 manifest를 함께 넘긴다.
 manifest도 `case_id` 단위라 한 사례의 이미지는 모두 같은 subset에 남는다.
@@ -506,11 +576,75 @@ python -m unittest discover -s pipeline/jobs/corpus/tests -t . -p "test_*.py"
 3) pipeline/sql/003_aihub_staging.sql                원천 스테이징 계층
 4) pipeline/sql/004_repair_case_item_line_type.sql   기존 DB만. 신규는 1)에 이미 반영됨
 5) pipeline/sql/006_damage_search_corpus.sql         기존 DB만. 신규는 1)에 이미 반영됨
-6) Docs/Erd/A307_part_code_seed.sql                  part_code 56종
-7) Docs/Erd/A307_part_name_mapping_seed.sql          part_name_mapping 15,308행
+6) pipeline/sql/007_damage_feature_layer.sql          feature layer 전환 (사전 점검 필수)
+7) pipeline/sql/008_damage_type_standard_code.sql    damage code 표준화 (사전 점검 필수)
+8) pipeline/sql/010_damage_repair_hint.sql            DAMAGE repair hint 테이블
+9) pipeline/sql/011_damage_pipeline_v2.sql            비활성 DAMAGE pipeline v2
+10) Docs/Erd/A307_part_code_seed.sql                  part_code 56종
+11) Docs/Erd/A307_part_name_mapping_seed.sql          part_name_mapping 15,308행
 ```
 
-**6)이 7)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
+`007`과 `008`은 기존 feature/embedding 메타데이터를 재구성하는 migration이다.
+따라서 기존 `repair_case_damage_feature` 또는 `repair_case_roi_embedding`에 데이터가
+있으면 임의로 삭제하지 말고 먼저 중단한다. 아래 조회는 읽기 전용이며 DSN은
+`DATABASE_URL` 환경변수에서만 읽는다.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+SELECT table_name
+  FROM information_schema.tables
+ WHERE table_schema = 'public'
+   AND table_name IN (
+     'feature_pipeline_version', 'repair_case_damage_feature',
+     'repair_case_roi_embedding', 'repair_case_damage_feature_part_hint'
+   )
+ ORDER BY table_name;
+
+SELECT 'feature_pipeline_version' AS table_name, COUNT(*) AS row_count
+  FROM feature_pipeline_version
+UNION ALL
+SELECT 'repair_case_damage_feature', COUNT(*)
+  FROM repair_case_damage_feature
+UNION ALL
+SELECT 'repair_case_roi_embedding', COUNT(*)
+  FROM repair_case_roi_embedding;
+
+SELECT indexname, indexdef
+  FROM pg_indexes
+ WHERE schemaname = 'public'
+   AND tablename IN (
+     'feature_pipeline_version', 'repair_case_damage_feature',
+     'repair_case_roi_embedding'
+   )
+ ORDER BY tablename, indexname;
+SQL
+```
+
+전제조건을 확인해 007/008의 초기화 조건을 만족할 때만 아래 순서로 적용한다.
+활성 pipeline은 별도 SQL로 변경하지 않으며, 011의 v2도 `is_active=false`로 남는다.
+
+```bash
+for migration in \
+  pipeline/sql/007_damage_feature_layer.sql \
+  pipeline/sql/008_damage_type_standard_code.sql \
+  pipeline/sql/010_damage_repair_hint.sql \
+  pipeline/sql/011_damage_pipeline_v2.sql; do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+done
+```
+
+적용 후에는 v1/v2의 pipeline id와 v2 계약을 읽기 전용으로 확인한다.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+SELECT pipeline_version_id, pipeline_name, version, is_active, params
+  FROM feature_pipeline_version
+ WHERE pipeline_name = 'a307-damage-search'
+ ORDER BY version;
+"
+```
+
+**8)이 9)보다 반드시 먼저다.** `part_name_mapping.part_code`가 `part_code`를 `ON DELETE RESTRICT`로 참조한다. 순서를 뒤집으면 첫 FK 위반에서 seed 트랜잭션이 중단돼 15,308행이 한 건도 적재되지 않는다.
 
 이미 검색 사례를 적재한 DB에서 기존 PK 기반 `storage_key`를 새 원천 식별자 기반
 규칙으로 변경할 때는 `pipeline/sql/009_repair_case_image_stable_storage_key.sql`을
