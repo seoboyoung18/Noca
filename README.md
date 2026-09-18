@@ -49,7 +49,7 @@
 
 | 폴더 | 내용 |
 | --- | --- |
-| `backend/` | Spring Boot 서버. `src/main/java` 519파일 · 컨트롤러 33개 · API 매핑 97개 |
+| `backend/` | Spring Boot 서버. `src/main/java` 516파일 · 컨트롤러 33개 · API 매핑 97개 |
 | `frontend/` | Vue SPA. 화면 25개 · 라우트 31개 · 스토어 5개 |
 | `AI/` | FastAPI 추론 서버(`server/`) · 학습 스크립트(`training/`) · 모델 가중치(`models/`) |
 | `pipeline/` | 오프라인 데이터 파이프라인 (정규화 · 검증 · 적재) |
@@ -112,7 +112,7 @@ uvicorn app.main:app --app-dir AI/server --port 8000
 ## 테스트
 
 ```bash
-cd backend && ./gradlew build     # 1657건 · 실패 0 (2026-09-18 측정)
+cd backend && ./gradlew build     # 1658건 · 실패 0 (2026-09-18 측정)
 cd frontend && npm run build      # 통과
 ```
 
