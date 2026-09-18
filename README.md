@@ -1,42 +1,43 @@
-# 노카 (NOCA) — AI 차량 파손 견적
+# 노카 (NOCA) - 차량 사고 빅데이터 기반 예상 수리 견적 조회 서비스
 
-**정비소에 가기 전에 수리비를 먼저 알려 주는 서비스.** 사고 차량 사진을 올리면 손상 부위와
-손상 유형을 인식해 유사 수리 사례로 예상 수리비를 추정하고, 정비소에서 받은 견적서를
-그 기준과 대조해 확인할 항목을 짚어 준다.
+## 서비스 개요
+**차량 외관 상의 손상에 대해 정비소 방문 전 예상 수리비를 확인할 수 있도록 지원하는 서비스**
+* 차량 사고 부위 사진을 올리면 손상 부위와
+손상 유형을 인식한 후 유사 수리 사례 검색을 통해 예상 수리비를 도출한다.
+* 분석한 사고 내용을 기반으로 정비소 방문 시 중점적으로 확인해야 할 사항을 체크리스트 형태로 제공한다.
+* 사용자의 현재 위치 또는 검색한 위치와 가까운 정비소 정보를 제공한다.
 
-SSAFY 15기 · 팀 A307 · 2026-08-25 ~ 2026-09-17 (git 첫 커밋 ~ 현재)
-
-![시스템 구성](Docs/Architecture/system-architecture.svg)
+**서비스 배포 URL: [노카(NOCA)](https://j15a307.p.ssafy.io)**
 
 ---
 
 ## 기술 스택
+
+![시스템 구성](Docs/Architecture/system-architecture_fixed.png)
 
 | 영역 | 스택 |
 | --- | --- |
 | **Frontend** | Vue 3.5 · Vite 6 · Pinia · Vue Router · axios (SPA, 모바일 웹 우선) |
 | **Backend** | Java 21 · Spring Boot 4.1.1 · Spring Security (OAuth2 소셜 로그인) · Spring Data JPA · Redis 세션 · PostgreSQL 16 |
 | **AI** | Python 3.12 · FastAPI · YOLO26-seg (Ultralytics, 손상·부품 2모델) · DINOv2 768d 임베딩 · pgvector 유사 검색 |
-| **Data** | Python 데이터 파이프라인 — AI-Hub 차량파손 데이터셋·견적 원천을 표준 코드로 정규화해 수리 사례 DB 적재 |
+| **Data** | Python 데이터 파이프라인 — AI-Hub 차량파손 데이터셋·견적 원천을 표준 코드로 정규화하여 수리 사례 DB 적재 |
 | **Infra** | Docker · GitLab CI/CD (`.gitlab-ci.yml`) · EC2 · S3 (presigned URL 업로드) · LLM 은 SSAFY GMS 프록시 경유 |
 
 ## 저장소 구조
 
-| 디렉터리 | 무엇이 있나 |
+| 폴더 명 | 세부 항목 |
 | --- | --- |
 | `backend/` | Spring Boot 서버. `src/main/java` 498파일 · 컨트롤러 33개 · API 매핑 97개 |
 | `frontend/` | Vue SPA. 화면 25개 · 공용 컴포넌트 10개 · 스토어 5개 |
 | `AI/` | FastAPI 추론 서버(`server/`) · 학습 스크립트(`training/`) · 모델 가중치(`models/`) |
 | `pipeline/` | 오프라인 데이터 파이프라인 (정규화 · 검증 · 적재) |
 | `shared/` | 파이프라인과 AI 서버가 **같은 결과를 내야 하는** 공용 파이썬 모듈 (ROI · 임베딩 · 정규화) |
-| `Docs/` | 설계·명세·데이터 노트 102개 → **[Docs/README.md](Docs/README.md) 가 안내판이다** |
-| `docker-compose.yml` | 로컬 개발용 PostgreSQL(pgvector) + Redis. **애플리케이션은 여기 없다** |
+| `Docs/` | 설계·명세·데이터 노트 102개 → **안내 문서 [Docs/README.md](Docs/README.md) 확인** |
+| `docker-compose.yml` | 로컬 개발용 PostgreSQL(pgvector) + Redis. **애플리케이션 존재 X** |
 
 ---
 
-## 어떻게 돌리나
-
-아래 순서를 이 문서를 쓰면서 실제로 밟았다(2026-09-17, Windows 11).
+## 실행 방법
 
 ### 1. 데이터베이스 · Redis
 
@@ -45,13 +46,13 @@ docker compose up -d          # a307-db(127.0.0.1:5432) · a307-redis(127.0.0.1:
 ```
 
 `Docs/Erd/A307_ddl_final.sql` 과 시드가 `docker-entrypoint-initdb.d` 로 마운트돼 있어
-**볼륨이 비어 있는 첫 기동에만** 자동 적용된다(42 테이블).
+**볼륨이 비어 있는 첫 기동에만** 자동 적용(42 테이블).
 
-> 🔴 **이미 볼륨이 있고 스키마가 낡았으면 백엔드가 기동하지 않는다.** `ddl-auto=validate` 라
-> `Schema validation: missing column …` 로 멈춘다. 그때는
-> [`Docs/Erd/migrations/`](Docs/Erd/migrations) 의 빠진 SQL 을 적용한다. 무엇이 빠졌는지는
-> [`Docs/Erd/migrations/check-applied.sql`](Docs/Erd/migrations/check-applied.sql) 이 알려 준다.
-> `docker compose down -v` 는 볼륨을 지워 처음부터 다시 만들지만 **로컬 데이터가 사라진다.**
+> 🔴 **이미 볼륨이 있고 스키마가 낡았으면 백엔드가 기동하지 않음.** `ddl-auto=validate`라
+> `Schema validation: missing column …` 로 멈춤. 이때
+> [`Docs/Erd/migrations/`](Docs/Erd/migrations)의 빠진 SQL 을 적용. 무엇이 빠졌는지는
+> [`Docs/Erd/migrations/check-applied.sql`](Docs/Erd/migrations/check-applied.sql)이 알려줌.
+> `docker compose down -v`는 볼륨을 지워 처음부터 다시 만들지만 **로컬 데이터가 사라짐.**
 
 ### 2. 백엔드
 
@@ -60,16 +61,16 @@ cd backend
 DB_USERNAME=a307 DB_PASSWORD=ssafy ./gradlew bootRun     # http://localhost:8080
 ```
 
-`DB_USERNAME` · `DB_PASSWORD` 만 필수다(기본값을 두지 않았다). 값은 `docker-compose.yml` 의
-기본 계정이다. 나머지 연동 키는 없어도 기동한다 — 해당 기능만 503 이 된다.
-채울 목록은 [`backend/.env.example`](backend/.env.example) 에 있다. **키를 저장소에 커밋하지 않는다.**
+`DB_USERNAME` · `DB_PASSWORD` 만 필수(기본값을 두지 않았다). 값은 `docker-compose.yml` 의
+기본 계정. 나머지 연동 키는 없어도 기동 — 해당 기능만 503 이 됨.
+채울 목록은 [`backend/.env.example`](backend/.env.example) 에 존재. **키를 저장소에 커밋하지 않음.**
 
 ```bash
 curl http://localhost:8080/actuator/health     # {"status":"UP"}
 ./gradlew test                                 # 1614건 (아래 주의)
 ```
 
-### 3. 프런트엔드
+### 3. 프론트엔드
 
 ```bash
 cd frontend
@@ -78,22 +79,22 @@ npm ci
 npm run dev                   # http://localhost:5173
 ```
 
-백엔드 없이 화면만 둘러보려면 `.env.local` 에 `VITE_AUTH_GUARD=off` 를 넣는다.
+백엔드 없이 화면만 둘러보려면 `.env.local` 에 `VITE_AUTH_GUARD=off` 를 입력.
 
-### 4. AI 서버 (선택)
+### 4. AI 서버
 
 ```bash
 pip install -r AI/requirements.txt -r AI/server/requirements.txt
 uvicorn app.main:app --app-dir AI/server --port 8000
 ```
 
-`torch==2.6.0+cu124` 를 포함한 무거운 의존성이라 **이 절차는 검증하지 못했다.**
+`torch==2.6.0+cu124` 를 포함한 무거운 의존성이라 **이 절차는 검증하지 못함.**
 컨테이너 정의는 [`AI/server/Dockerfile`](AI/server/Dockerfile), 환경변수는
-[`AI/server/README.md`](AI/server/README.md) 에 있다. 모델 가중치는 저장소에 들어 있다.
+[`AI/server/README.md`](AI/server/README.md) 에 있다. 모델 가중치는 저장소에 저장.
 
 ---
 
-## 지금 어디까지 됐나
+## 현재 구현 범위
 
 **"구현했다" 와 "돌고 있다" 를 구분해 적는다.** 아래 기능 플래그 8개는 전부 기본 `false` 다
 (`grep -E '^app\..*enabled=' backend/src/main/resources/application.properties`).
@@ -131,7 +132,8 @@ uvicorn app.main:app --app-dir AI/server --port 8000
 
 ---
 
-## 더 읽을 곳
+## 추가 정보 확인
 
-**[Docs/README.md](Docs/README.md)** — 문서 102개의 안내판. 스키마·API·AI 계약·데이터 노트로 가는 입구다.
-담당 범위는 [Docs/담당 범위.md](<Docs/담당 범위.md>) 에 있다.
+**[Docs/README.md](Docs/README.md)**
+* 문서 102개의 안내판. 스키마·API·AI 계약·데이터 노트로 가는 입구.
+* 담당 범위는 [Docs/담당 범위.md](<Docs/담당 범위.md>) 에서 확인.
