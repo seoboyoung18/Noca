@@ -312,6 +312,7 @@ class EstimatePdfProcessorTest {
                 estimate,
                 new EstimateBasisResponse(ESTIMATE_ID, (short) 1, List.of()),
                 null,
+                null,
                 "고지 문구",
                 now);
     }

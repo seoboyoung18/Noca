@@ -1,5 +1,6 @@
 package com.ssafy.a307.common.llm;
 
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeGenerator;
 import com.ssafy.a307.estimatevalidation.file.pdf.ReportNarrativeGenerator;
 import com.ssafy.a307.repairchecklist.service.RepairChecklistGenerator;
 import com.ssafy.a307.repairquestion.service.RepairQuestionGenerator;
@@ -48,6 +49,15 @@ class StructuredOutputSchemaTest {
         assertClosedObject(item, "content", "partCode");
         assertThat(item.at("/properties/partCode/type").toString())
                 .isEqualTo("[\"string\",\"null\"]");
+    }
+
+    @Test
+    @DisplayName("견적 요약 스키마는 모든 object 를 닫고 모든 필드를 required 로 둔다")
+    void estimateNarrativeSchemaIsStrict() throws Exception {
+        JsonNode schema = schemaOf(EstimateNarrativeGenerator.class);
+
+        assertClosedObject(schema, "summary", "cautions", "basisNotes");
+        assertClosedObject(schema.at("/properties/basisNotes/items"), "partCode", "text");
     }
 
     @Test

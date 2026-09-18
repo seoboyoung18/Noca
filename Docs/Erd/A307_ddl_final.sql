@@ -500,6 +500,36 @@ CREATE TABLE estimate_notice (
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
+-- ─── 견적 리포트 LLM 요약 (S15P21A307-537) ──────────────────────────
+-- 리포트는 숫자와 표만 있고 "이 견적을 어떻게 읽어야 하는가" 를 말해 주는 문장이 없다.
+--
+-- 왜 estimate 에 열을 붙이지 않았나 — 이것은 큐다. status·실패 사유·선점 시각이 따라붙고
+-- 대기 건만 훑는 인덱스가 필요하다. 견적 본문에 큐 열을 섞으면 견적을 읽는 모든 쿼리가
+-- 그 열을 함께 진다. 생성이 견적 저장보다 나중에 다른 트랜잭션에서 끝난다는 것도 이유다.
+--
+-- PK 가 estimate_id 다. 견적 한 건에 요약 한 행이라 별도 시퀀스와 UNIQUE 대신 PK 를 FK 로
+-- 삼았다. 견적은 재산정마다 새 행이므로(uk_est) 요약도 버전마다 따로 생긴다.
+CREATE TABLE estimate_narrative (
+    estimate_id    BIGINT      PRIMARY KEY REFERENCES estimate(estimate_id) ON DELETE CASCADE,
+    status         VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
+    -- 문장만 담는다. 금액·등급·판정은 여기 없다 — 그 값들은 estimate·estimate_item 이 이미
+    -- 가지고 있고, LLM 이 만든 숫자가 협상 근거가 되면 안 된다. 원문에 없던 숫자가 섞인
+    -- 문장은 저장 전에 버리고 규칙이 만든 문장을 그대로 쓴다.
+    -- {"summary":"…","cautions":["…"],"basisNotes":[{"partCode":"…","text":"…"}]}
+    content        JSONB,
+    failure_reason VARCHAR(200),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 선점·완료 시각. 워커가 멈춘 PROCESSING 건을 되찾는 기준이다.
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_en_status CHECK (status IN ('QUEUED','PROCESSING','COMPLETED','FAILED')),
+    -- 완료인데 문장이 없으면 화면이 빈 요약을 그린다. 그 상태를 스키마가 막는다.
+    CONSTRAINT ck_en_done   CHECK (status <> 'COMPLETED' OR content IS NOT NULL)
+);
+
+-- 대기·처리 중인 건만 담는다. 완료가 쌓여도 인덱스는 대기 건수만큼만 커진다.
+CREATE INDEX ix_en_queue ON estimate_narrative (updated_at, estimate_id)
+    WHERE status IN ('QUEUED','PROCESSING');
+
 -- 견적과 생명주기가 다름 (재생성·삭제·실패)
 CREATE TABLE estimate_report (
     report_id      BIGSERIAL    PRIMARY KEY,

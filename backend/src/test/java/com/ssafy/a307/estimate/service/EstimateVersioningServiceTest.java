@@ -49,6 +49,34 @@ class EstimateVersioningServiceTest {
         jobId = insertAnalysisJob();
     }
 
+    /**
+     * 리포트 요약 접수 (S15P21A307-537). <b>견적 저장과 같은 트랜잭션</b>이라 견적이 남으면
+     * 반드시 큐에 들어가 있다 — 이벤트로 접수하면 "견적은 있는데 요약은 영영 안 만들어진"
+     * 건이 생긴다. 생성은 워커가 하므로 여기서 LLM 은 불리지 않는다.
+     */
+    @Test
+    @DisplayName("견적을 저장하면 요약이 QUEUED 로 접수된다")
+    void savingQueuesNarrative() {
+        Estimate estimate = versioningService.append(jobId, amounts(800_000), ConfidenceGrade.HIGH, null);
+
+        assertThat(narrativeStatusOf(estimate.getEstimateId())).isEqualTo("QUEUED");
+    }
+
+    /** 금액이 없을수록 "왜 못 냈고 다음에 무엇을 하면 되는지" 를 설명할 문장이 필요하다. */
+    @Test
+    @DisplayName("산정 불가 견적도 요약을 접수한다")
+    void nonEstimableQueuesNarrativeToo() {
+        Estimate estimate = versioningService.appendNonEstimable(jobId, "INSUFFICIENT_CASES", null);
+
+        assertThat(narrativeStatusOf(estimate.getEstimateId())).isEqualTo("QUEUED");
+    }
+
+    private String narrativeStatusOf(long estimateId) {
+        return jdbcTemplate.queryForObject(
+                "select status from estimate_narrative where estimate_id = ?",
+                String.class, estimateId);
+    }
+
     @Test
     @DisplayName("첫 산정은 버전 1 이다")
     void firstEstimateIsVersionOne() {

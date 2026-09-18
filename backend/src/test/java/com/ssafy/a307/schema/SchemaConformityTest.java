@@ -185,7 +185,7 @@ class SchemaConformityTest {
     class Coverage {
 
         @Test
-        @DisplayName("정본 42테이블 중 33개가 H2 에 있고 누락 9개의 목록이 고정되어 있다")
+        @DisplayName("정본 43테이블 중 34개가 H2 에 있고 누락 9개의 목록이 고정되어 있다")
         void missingTablesAreKnown() {
             Set<String> missing = new TreeSet<>(canonical().keySet());
             missing.removeAll(h2().keySet());
@@ -215,9 +215,12 @@ class SchemaConformityTest {
             // S15P21A307-513 이 사고 데이터 검수(accident_review)를 양쪽에 더했다(41/30 → 42/31).
             // 누락은 11 그대로다. 역시 엔티티보다 스키마가 먼저다 — -350 이 곧 붙인다.
             //
+            // S15P21A307-537 이 견적 리포트 요약(estimate_narrative)을 양쪽에 더했다(42/33 → 43/34).
+            // 누락은 그대로다. 엔티티가 같은 커밋에 들어왔으므로 H2 에 없으면 컨텍스트부터 뜨지 않는다.
+            //
             // 새 테이블이 한쪽에만 들어가면 여기서 깨진다. 그것이 이 테스트의 목적이다.
-            assertThat(canonical()).hasSize(42);
-            assertThat(h2()).hasSize(33);
+            assertThat(canonical()).hasSize(43);
+            assertThat(h2()).hasSize(34);
             assertThat(missing)
                     .as("정본에 테이블이 늘었거나 H2 로 옮겼다면 KNOWN_MISSING_TABLES 와 머리말을 함께 고칠 것")
                     .isEqualTo(KNOWN_MISSING_TABLES);

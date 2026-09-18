@@ -23,6 +23,8 @@ import java.util.List;
  * @param validation  이 견적에 연결된 견적서 검증 결과. <b>없으면 null</b> — 화면·PDF 는 검증 섹션을
  *                    그리지 않는다(S15P21A307-338)
  * @param legalNotice 고지 문구. 견적서 검증 화면·PDF 와 같은 문장이다(S15P21A307-289)
+ * @param narrative   LLM 이 쓴 안내 문장 (S15P21A307-537). <b>없으면 null</b> — 아직 만들지
+ *                    않았거나 생성이 실패한 견적이다. 화면·PDF 는 그 영역을 그리지 않는다
  */
 public record EstimateReportResponse(
         Vehicle vehicle,
@@ -31,8 +33,25 @@ public record EstimateReportResponse(
         EstimateResponse estimate,
         EstimateBasisResponse basis,
         ValidationResultResponse validation,
+        Narrative narrative,
         String legalNotice,
         Instant generatedAt) {
+
+    /**
+     * 리포트를 읽는 법을 말해 주는 문장 (S15P21A307-537).
+     *
+     * <p><b>숫자가 없다.</b> 금액·등급은 {@code estimate} 가 이미 들고 있고, 이 자리는 그것을
+     * 사람이 읽을 문장으로 옮긴 것뿐이다 — 두 곳에 숫자가 있으면 어느 쪽이 맞는지 다투게 된다.
+     *
+     * @param summary  견적 전체를 어떻게 읽을지 한 문단
+     * @param cautions 지금 확인해 두면 좋은 것. 없으면 빈 목록
+     */
+    public record Narrative(String summary, List<String> cautions) {
+
+        public Narrative {
+            cautions = cautions == null ? List.of() : List.copyOf(cautions);
+        }
+    }
 
     /** 사고 접수 당시 차량. 이후 차량을 고치거나 지워도 바뀌지 않는다. */
     public record Vehicle(

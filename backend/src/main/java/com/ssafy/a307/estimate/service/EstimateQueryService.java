@@ -13,6 +13,10 @@ import com.ssafy.a307.estimate.dto.EstimateNotice;
 import com.ssafy.a307.estimate.dto.EstimateResponse;
 import com.ssafy.a307.estimate.dto.EstimateSummaryResponse;
 import com.ssafy.a307.estimate.dto.UnresolvedPartResponse;
+import com.ssafy.a307.estimate.narrative.EstimateNarrative;
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeContent;
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeReader;
+import com.ssafy.a307.estimate.narrative.EstimateNarrativeRepository;
 import com.ssafy.a307.estimate.repository.EstimateQueryRepository;
 import com.ssafy.a307.estimatevalidation.entity.PartCode;
 import com.ssafy.a307.estimatevalidation.repository.PartCodeRepository;
@@ -42,6 +46,10 @@ public class EstimateQueryService {
     private final UnresolvedPartsReader unresolvedPartsReader;
     private final PartCodeRepository partCodeRepository;
     private final EstimateNoticeProvider noticeProvider;
+
+    /** 다듬어진 근거 문장 (S15P21A307-537). 없으면 규칙이 만든 문장이 그대로 나간다. */
+    private final EstimateNarrativeRepository narrativeRepository;
+    private final EstimateNarrativeReader narrativeReader;
 
     @Transactional(readOnly = true)
     public EstimateResponse detail(Long estimateId, Long memberId) {
@@ -104,13 +112,29 @@ public class EstimateQueryService {
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.NOT_FOUND, "존재하지 않는 견적입니다."));
 
+        // 다듬어진 문장이 있으면 그것으로 바꾼다. 없으면(생성 전·실패·이 기능 이전 견적)
+        // 규칙이 만든 문장이 그대로 나간다 — 근거 섹션은 요약보다 먼저 있던 것이다.
+        EstimateNarrativeContent narrative = narrativeOf(estimateId);
         List<EstimateBasisItemResponse> items =
                 estimateQueryRepository.findBasisItems(estimateId).stream()
                         .map(item -> EstimateBasisItemResponse.of(
                                 item, refConditionReader.read(item.getRefCondition())))
+                        .map(item -> item.withNarrative(narrative.noteFor(item.partCode())))
                         .toList();
 
         return new EstimateBasisResponse(view.getEstimateId(), view.getVersion(), items);
+    }
+
+    /**
+     * 저장된 요약. <b>완료된 것만 읽는다</b> — 생성 중이거나 실패한 건의 문장을 보여 주면
+     * 만들다 만 값이 최신처럼 보인다.
+     */
+    private EstimateNarrativeContent narrativeOf(Long estimateId) {
+        return narrativeRepository.findById(estimateId)
+                .filter(EstimateNarrative::completed)
+                .map(EstimateNarrative::getContent)
+                .map(narrativeReader::read)
+                .orElseGet(EstimateNarrativeContent::empty);
     }
 
     /**

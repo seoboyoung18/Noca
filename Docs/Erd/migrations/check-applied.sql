@@ -1,7 +1,7 @@
 -- S15P21A307-503 · 마이그레이션 적용 여부 확인
 --
 -- 무엇을 하나
---   Docs/Erd/migrations/ 의 2026-*.sql 11개가 이 DB 에 반영됐는지 파일별로 판정한다.
+--   Docs/Erd/migrations/ 의 2026-*.sql 12개가 이 DB 에 반영됐는지 파일별로 판정한다.
 --   (check-applied.sql 자신은 마이그레이션이 아니라 이 확인 스크립트다)
 --   각 파일이 만드는 대표 객체(테이블·컬럼·시드 행)의 존재로 판정한다.
 --
@@ -110,7 +110,12 @@ WITH probe(seq, migration, object_kind, detail, applied) AS (
                    AND table_name = 'repair_checklist_item' AND column_name = 'category')
         AND EXISTS (SELECT 1 FROM information_schema.columns
                  WHERE table_schema = 'public'
-                   AND table_name = 'repair_checklist' AND column_name = 'summary'))
+                   AND table_name = 'repair_checklist' AND column_name = 'summary')),
+
+    (12, '2026-09-18-estimate-narrative.sql', '테이블 1',
+        'estimate_narrative (견적 리포트 LLM 요약 큐)',
+        EXISTS (SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = 'public' AND table_name = 'estimate_narrative'))
 )
 SELECT seq                                AS "#",
        CASE WHEN applied THEN 'O' ELSE 'X' END AS "적용",
