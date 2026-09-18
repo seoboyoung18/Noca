@@ -1,6 +1,6 @@
 # 검색 corpus · YOLO · 견적 연결 검증 정리
 
-작성일: 2026-09-18  
+작성일: 2026-09-18
 범위: AI-Hub 사례 검색 corpus, DINOv2 embedding, YOLO 부품 후보, 유사 사례 기반 견적 연결
 
 ## 1. 결론 요약
