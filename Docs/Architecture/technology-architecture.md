@@ -14,7 +14,7 @@
 > 위 PNG 는 손으로 그린 원본이며, 아래 **코드 검증 결과**에 적힌 두 항목(Redis 의 역할,
 > 서버 종류)은 현재 코드와 다르다. 정확한 구성은 이 문서의 표와 아래 Mermaid 도면을 따른다.
 
-편집 가능한 원본: [기술 아키텍처.svg](./기술%20아키텍처.svg)
+편집 가능한 원본: [technology-architecture.svg](./technology-architecture.svg)
 
 아래는 같은 구성을 코드에 맞춰 다시 그린 것이다.
 

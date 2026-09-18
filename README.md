@@ -29,10 +29,10 @@
 
 ## 기술 아키텍처
 
-[![NOCA 기술 아키텍처](Docs/Architecture/technology-architecture.png)](Docs/Architecture/기술%20아키텍처.md)
+[![NOCA 기술 아키텍처](Docs/Architecture/technology-architecture.png)](Docs/Architecture/technology-architecture.md)
 
 구성요소·통신 방식·저장소 경계와 코드 검증 결과는
-[기술 아키텍처](Docs/Architecture/기술%20아키텍처.md) 에 있다.
+[기술 아키텍처](Docs/Architecture/technology-architecture.md) 에 있다.
 
 ## 기술 스택
 
@@ -157,7 +157,7 @@ OpenAI `gpt-5.4` 로 바꾼다.
 | 문서 | 내용 |
 | --- | --- |
 | [Docs/README.md](Docs/README.md) | 전체 문서 인덱스 |
-| [기술 아키텍처](Docs/Architecture/기술%20아키텍처.md) | 구성요소 · 통신 · 저장소 경계 |
+| [기술 아키텍처](Docs/Architecture/technology-architecture.md) | 구성요소 · 통신 · 저장소 경계 |
 | [문서-코드 정합성 감사](Docs/audit/문서-코드-정합성.md) | 수치 근거 · 문서 분류 · 불일치 목록 |
 | [A307_ddl_final.sql](Docs/Erd/A307_ddl_final.sql) | 스키마 정본 (43 테이블) |
 | [AI 연동 계약](<Docs/Api/AI 연동 계약 (백엔드 ↔ AI 서버).md>) | BE ↔ AI 요청·콜백 계약 |
