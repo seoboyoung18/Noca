@@ -190,12 +190,12 @@ def main() -> None:
                   JOIN repair_case AS repair ON repair.case_id = image.case_id
                  WHERE image.storage_key !~
                        '^repair-cases/(AIHUB_AS|AIHUB_SC)/(as|sc)-[0-9]+/[0-9]+/original[.]jpg$'
-                    OR image.storage_key <> format(
+                   OR image.storage_key <> format(
                        'repair-cases/%s/%s/%s/original.jpg',
                        repair.source,
                        repair.external_ref,
                        substring(image.source_image_ref FROM '([0-9]+)_[^/]+$')
-                    )
+                   )
                 """,
             )
             checks["raw_without_repair_case"] = scalar(
