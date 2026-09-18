@@ -41,8 +41,10 @@
 }
 ```
 
-`NO_VALID_DETECTION`은 HTTP 오류가 아닙니다. 손상이 없는 정상 사진은 `200`과
-빈 검출 결과로 처리합니다.
+검출 없음은 HTTP 오류가 아닙니다. 차량 유효하지만 손상이 없으면
+`NO_DAMAGE_DETECTED` 사유와 `detections: []`를 담은 정상 callback으로 처리합니다.
+차량 자체가 검출되지 않은 이미지는 이미지 단위로 `excluded: true`,
+`exclusionReason: NOT_VEHICLE`을 담습니다.
 
 ## 실패 callback
 

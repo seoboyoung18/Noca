@@ -83,16 +83,38 @@ def rows(root: Path, workers: int,
             }
 
 
-UPDATE = """
-    UPDATE repair_case
+# 파일 하나당 UPDATE 한 번을 보내면 12.5만 번의 DB 왕복이 된다. SSH 터널 너머라면
+# 왕복 지연만으로 시간이 결정된다(50ms x 125,006 = 1.7시간). TEMP 테이블에 COPY 로
+# 한 번에 싣고 UPDATE ... FROM 을 한 번만 돌린다.
+TEMP_TABLE = """
+    CREATE TEMP TABLE _backfill_vehicle (
+        source        VARCHAR(20),
+        external_ref  VARCHAR(255),
+        model_name    VARCHAR(100),
+        manufacturer  VARCHAR(50),
+        price_tier    VARCHAR(2)
+    )
+"""
+
+TEMP_INDEX = "CREATE INDEX ON _backfill_vehicle (source, external_ref)"
+
+COPY_IN = """
+    COPY _backfill_vehicle (source, external_ref, model_name, manufacturer, price_tier)
+    FROM STDIN
+"""
+
+# model_id 는 매칭 실패 시 NULL 로 덮는다 — 마스터에 없는 차량에 옛 값이 남아 있으면
+# 검색이 남의 차 사례를 끌어온다. 이름 계열은 COALESCE 로 원문을 지킨다.
+BULK_UPDATE = """
+    UPDATE repair_case c
        SET model_id     = vm.model_id,
-           model_name   = COALESCE(%(model_name)s, repair_case.model_name),
-           manufacturer = COALESCE(%(manufacturer)s, repair_case.manufacturer),
-           price_tier   = COALESCE(%(price_tier)s, vm.price_tier)
-      FROM (SELECT %(model_name)s::varchar AS name) AS want
-      LEFT JOIN vehicle_model vm ON vm.model_name = want.name
-     WHERE repair_case.source = %(source)s
-       AND repair_case.external_ref = %(external_ref)s
+           model_name   = COALESCE(b.model_name, c.model_name),
+           manufacturer = COALESCE(b.manufacturer, c.manufacturer),
+           price_tier   = COALESCE(b.price_tier, vm.price_tier)
+      FROM _backfill_vehicle b
+      LEFT JOIN vehicle_model vm ON vm.model_name = b.model_name
+     WHERE c.source = b.source
+       AND c.external_ref = b.external_ref
 """
 
 
@@ -101,7 +123,8 @@ def main() -> None:
     parser.add_argument("--estimate-root", type=Path, required=True,
                         help="TS_99. 붙임_견적서 디렉터리")
     parser.add_argument("--dsn", help="PostgreSQL DSN 또는 DATABASE_URL")
-    parser.add_argument("--commit-every", type=int, default=1000)
+    parser.add_argument("--commit-every", type=int, default=1000,
+                        help="사용하지 않는다 — COPY 후 한 번에 커밋한다")
     parser.add_argument("--workers", type=int, default=24)
     parser.add_argument("--limit", type=int, help="최대 파일 수(표본 검증용)")
     parser.add_argument("--dry-run", action="store_true",
@@ -127,18 +150,19 @@ def main() -> None:
     import psycopg
     with psycopg.connect(args.dsn) as conn:
         with conn.cursor() as cur:
-            for i, (source, external_ref, fields) in enumerate(stream, 1):
-                if args.limit and i > args.limit:
-                    break
-                cur.execute(UPDATE, {"source": source, "external_ref": external_ref,
-                                     **{k: fields[k] for k in
-                                        ("model_name", "manufacturer", "price_tier")}})
-                stats["파일"] += 1
-                stats["갱신된 행"] += cur.rowcount
-                stats["모델명 해석"] += fields["resolved"]
-                stats["가격대 부여"] += fields["has_tier"]
-                if i % args.commit_every == 0:
-                    conn.commit()
+            cur.execute(TEMP_TABLE)
+            with cur.copy(COPY_IN) as copy:
+                for source, external_ref, fields in stream:
+                    copy.write_row((source, external_ref, fields["model_name"],
+                                    fields["manufacturer"], fields["price_tier"]))
+                    stats["파일"] += 1
+                    stats["모델명 해석"] += fields["resolved"]
+                    stats["가격대 부여"] += fields["has_tier"]
+            cur.execute(TEMP_INDEX)
+            cur.execute("ANALYZE _backfill_vehicle")
+            print(f"COPY 완료 {stats['파일']}건 — UPDATE 실행 중", flush=True)
+            cur.execute(BULK_UPDATE)
+            stats["갱신된 행"] = cur.rowcount
         conn.commit()
     report(stats)
 
