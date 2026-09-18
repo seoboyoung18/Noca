@@ -130,6 +130,9 @@ CREATE TABLE accident (
     actual_repair_completed_date DATE,
     repair_shop_name        VARCHAR(100),
     actual_cost_recorded_at TIMESTAMPTZ,
+    -- 목록에서 감춘 시각 (S15P21A307-554). NULL 이면 보인다. 삭제가 아니라 숨김이라
+    -- 딸린 사진·분석·견적·체크리스트는 그대로 남고 링크로 열던 리포트도 살아 있다.
+    hidden_at               TIMESTAMPTZ,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_ac_input_type CHECK (vehicle_input_type IN ('REGISTERED','DIRECT')),
     CONSTRAINT ck_ac_vehicle_type CHECK (snapshot_vehicle_type IN ('SEDAN','SUV','VAN','TRUCK')),

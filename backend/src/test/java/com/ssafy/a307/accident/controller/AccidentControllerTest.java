@@ -28,6 +28,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -67,7 +68,7 @@ class AccidentControllerTest {
     private final AccidentSummaryResponse accidentSummary = new AccidentSummaryResponse(
             1L, 7L, VehicleInputType.REGISTERED, 14L, "현대", "아반떼",
             VehicleType.SEDAN, CarClass.MID_SIZE, 2020,
-            Instant.parse("2026-09-04T12:00:00Z"));
+            Instant.parse("2026-09-04T12:00:00Z"), null);
 
     @BeforeEach
     void setUp() {
@@ -306,7 +307,7 @@ class AccidentControllerTest {
     @Test
     @DisplayName("GET /api/accidents/me — 200 과 accidents 배열을 준다")
     void findMine() throws Exception {
-        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accidentSummary), 0, 20, 1));
+        given(accidentService.findMinePaged(ME, null, null, false)).willReturn(page(List.of(accidentSummary), 0, 20, 1));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk())
@@ -314,25 +315,25 @@ class AccidentControllerTest {
                 .andExpect(jsonPath("$.data.accidents[0].accidentId").value(1))
                 .andExpect(jsonPath("$.data.accidents[0].manufacturer").value("현대"));
 
-        then(accidentService).should().findMinePaged(eq(ME), eq(null), eq(null));
+        then(accidentService).should().findMinePaged(eq(ME), eq(null), eq(null), eq(false));
     }
 
     @Test
     @DisplayName("GET /api/accidents/me — /{accidentId} 매핑에 잡히지 않는다")
     void meIsNotCapturedByAccidentIdMapping() throws Exception {
-        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(accidentSummary), 0, 20, 1));
+        given(accidentService.findMinePaged(ME, null, null, false)).willReturn(page(List.of(accidentSummary), 0, 20, 1));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk());
 
-        then(accidentService).should().findMinePaged(eq(ME), eq(null), eq(null));
+        then(accidentService).should().findMinePaged(eq(ME), eq(null), eq(null), eq(false));
         then(accidentService).should(never()).findOne(any(), any());
     }
 
     @Test
     @DisplayName("GET /api/accidents/me — 사고가 없으면 404 가 아니라 빈 배열이다")
     void findMineWithoutAccidents() throws Exception {
-        given(accidentService.findMinePaged(ME, null, null)).willReturn(page(List.of(), 0, 20, 0));
+        given(accidentService.findMinePaged(ME, null, null, false)).willReturn(page(List.of(), 0, 20, 0));
 
         mockMvc.perform(get("/api/accidents/me"))
                 .andExpect(status().isOk())
@@ -343,7 +344,7 @@ class AccidentControllerTest {
     @Test
     @DisplayName("GET /api/accidents/me — 페이지 메타를 함께 준다")
     void findMineReturnsPageMeta() throws Exception {
-        given(accidentService.findMinePaged(ME, 1, 20)).willReturn(page(List.of(accidentSummary), 1, 20, 21));
+        given(accidentService.findMinePaged(ME, 1, 20, false)).willReturn(page(List.of(accidentSummary), 1, 20, 21));
 
         mockMvc.perform(get("/api/accidents/me").param("page", "1").param("size", "20"))
                 .andExpect(status().isOk())
@@ -353,18 +354,18 @@ class AccidentControllerTest {
                 .andExpect(jsonPath("$.data.totalPages").value(2))
                 .andExpect(jsonPath("$.data.hasNext").value(false));
 
-        then(accidentService).should().findMinePaged(eq(ME), eq(1), eq(20));
+        then(accidentService).should().findMinePaged(eq(ME), eq(1), eq(20), eq(false));
     }
 
     @Test
     @DisplayName("GET /api/accidents/me — page·size 를 서비스에 그대로 전달한다")
     void findMinePassesPageParams() throws Exception {
-        given(accidentService.findMinePaged(ME, 3, 5)).willReturn(page(List.of(), 3, 5, 0));
+        given(accidentService.findMinePaged(ME, 3, 5, false)).willReturn(page(List.of(), 3, 5, 0));
 
         mockMvc.perform(get("/api/accidents/me").param("page", "3").param("size", "5"))
                 .andExpect(status().isOk());
 
-        then(accidentService).should().findMinePaged(eq(ME), eq(3), eq(5));
+        then(accidentService).should().findMinePaged(eq(ME), eq(3), eq(5), eq(false));
     }
 
     @Test
@@ -373,7 +374,7 @@ class AccidentControllerTest {
         mockMvc.perform(get("/api/accidents/me").param("page", "abc"))
                 .andExpect(status().isBadRequest());
 
-        then(accidentService).should(never()).findMinePaged(any(), any(), any());
+        then(accidentService).should(never()).findMinePaged(any(), any(), any(), anyBoolean());
     }
 
     private static AccidentPageResponse page(

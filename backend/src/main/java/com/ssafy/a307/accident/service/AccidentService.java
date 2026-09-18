@@ -123,14 +123,44 @@ public class AccidentService {
      * <p>음수 {@code page} 와 1 미만 {@code size} 는 400 이 아니라 각각 0·기본값으로 보정한다.
      * 잘못된 페이지 파라미터로 화면이 깨지는 것보다 첫 페이지를 보여주는 편이 낫고,
      * 명세서가 이 경우의 오류 코드를 정하지 않았다.
+     *
+     * @param includeHidden 감춘 사고까지 달라는 뜻 (S15P21A307-554). 화면의 "숨긴 이력
+     *                      나타내기" 가 쓴다. <b>기본은 {@code false}</b> 이고, 그때는
+     *                      감춘 사고가 목록에도 전체 건수에도 들어가지 않는다
      */
     @Transactional(readOnly = true)
-    public AccidentPageResponse findMinePaged(Long memberId, Integer page, Integer size) {
+    public AccidentPageResponse findMinePaged(Long memberId, Integer page, Integer size,
+                                              boolean includeHidden) {
         int safePage = page == null || page < 0 ? 0 : page;
         int safeSize = size == null || size < 1 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
-        Page<AccidentSummaryResponse> found =
-                accidentRepository.findPageByMemberId(memberId, PageRequest.of(safePage, safeSize));
+        Page<AccidentSummaryResponse> found = accidentRepository.findPageByMemberId(
+                memberId, includeHidden, PageRequest.of(safePage, safeSize));
         return AccidentPageResponse.of(enrich(found.getContent()), found);
+    }
+
+    /**
+     * 사고 이력을 목록에서 감추거나 되돌린다 (S15P21A307-554).
+     *
+     * <p><b>지우는 것이 아니다.</b> 사진·분석·견적·체크리스트는 그대로 남고, 리포트 링크를
+     * 이미 받은 사람은 그대로 연다. 사라지는 것은 <b>내 목록에서의 자리</b>뿐이다.
+     *
+     * <p>화면이 localStorage 로 하던 일을 서버로 옮긴 것이다 — 그쪽은 기기를 바꾸거나
+     * 캐시를 지우면 감춘 것이 다시 나타났다.
+     *
+     * <p><b>같은 값을 두 번 보내도 탈이 없다.</b> 이미 감춘 것을 또 감추면 처음 감춘 시각이
+     * 유지된다 — 화면이 토글을 두 번 눌러도 "언제부터 안 보였나" 가 흔들리지 않는다.
+     *
+     * @throws BusinessException 없는 사고·남의 사고 → 404. 둘을 구분하지 않는다
+     */
+    @Transactional
+    public void setHidden(Long memberId, Long accidentId, boolean hidden) {
+        Accident accident = accidentRepository.findByAccidentIdAndMemberId(accidentId, memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "사고를 찾을 수 없습니다."));
+        if (hidden) {
+            accident.hide(Instant.now());
+        } else {
+            accident.unhide();
+        }
     }
 
     /**

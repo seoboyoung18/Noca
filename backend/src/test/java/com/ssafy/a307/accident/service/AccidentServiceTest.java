@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -601,7 +602,7 @@ class AccidentServiceTest {
             }
             flushAndClear();
 
-            AccidentPageResponse first = accidentService.findMinePaged(ME, 0, 2);
+            AccidentPageResponse first = accidentService.findMinePaged(ME, 0, 2, false);
 
             assertThat(first.accidents()).hasSize(2);
             assertThat(first.page()).isZero();
@@ -620,7 +621,7 @@ class AccidentServiceTest {
             }
             flushAndClear();
 
-            AccidentPageResponse last = accidentService.findMinePaged(ME, 1, 2);
+            AccidentPageResponse last = accidentService.findMinePaged(ME, 1, 2, false);
 
             assertThat(last.accidents()).hasSize(1);
             assertThat(last.hasNext()).isFalse();
@@ -633,7 +634,7 @@ class AccidentServiceTest {
             accidentService.create(ME, new AccidentCreateRequest(vehicle.vehicleId()));
             flushAndClear();
 
-            AccidentPageResponse beyond = accidentService.findMinePaged(ME, 99, 20);
+            AccidentPageResponse beyond = accidentService.findMinePaged(ME, 99, 20, false);
 
             assertThat(beyond.accidents()).isEmpty();
             assertThat(beyond.totalElements()).isEqualTo(1);
@@ -642,7 +643,7 @@ class AccidentServiceTest {
         @Test
         @DisplayName("페이지네이션 — 파라미터가 없으면 첫 페이지 20건이다")
         void pagedListAppliesDefaults() {
-            AccidentPageResponse defaults = accidentService.findMinePaged(ME, null, null);
+            AccidentPageResponse defaults = accidentService.findMinePaged(ME, null, null, false);
 
             assertThat(defaults.page()).isZero();
             assertThat(defaults.size()).isEqualTo(AccidentService.DEFAULT_PAGE_SIZE);
@@ -651,7 +652,7 @@ class AccidentServiceTest {
         @Test
         @DisplayName("페이지네이션 — size 상한을 넘기면 100 으로 줄이고, 음수 page 는 0 으로 보정한다")
         void pagedListClampsOutOfRangeParams() {
-            AccidentPageResponse clamped = accidentService.findMinePaged(ME, -5, 500);
+            AccidentPageResponse clamped = accidentService.findMinePaged(ME, -5, 500, false);
 
             assertThat(clamped.page()).isZero();
             assertThat(clamped.size()).isEqualTo(AccidentService.MAX_PAGE_SIZE);
@@ -666,7 +667,7 @@ class AccidentServiceTest {
             accidentService.create(OTHER, new AccidentCreateRequest(theirs.vehicleId()));
             flushAndClear();
 
-            assertThat(accidentService.findMinePaged(ME, 0, 20).totalElements()).isEqualTo(1);
+            assertThat(accidentService.findMinePaged(ME, 0, 20, false).totalElements()).isEqualTo(1);
         }
 
         @Test
@@ -677,7 +678,7 @@ class AccidentServiceTest {
             vehicleService.delete(ME, vehicle.vehicleId());
             flushAndClear();
 
-            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20, false);
 
             assertThat(paged.accidents()).hasSize(1);
             assertThat(paged.accidents().getFirst().manufacturer()).isEqualTo("현대");
@@ -798,7 +799,7 @@ class AccidentServiceTest {
             insertEstimate(theirs, 1, true, 9_000_000, 9_000_000, 9_000_000);
             flushAndClear();
 
-            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20, false);
 
             assertThat(paged.totalElements()).isEqualTo(1);
             assertThat(paged.accidents()).singleElement()
@@ -817,7 +818,7 @@ class AccidentServiceTest {
             insertJob(processing, "PROCESSING");
             flushAndClear();
 
-            assertThat(accidentService.findMinePaged(ME, 0, 20).accidents())
+            assertThat(accidentService.findMinePaged(ME, 0, 20, false).accidents())
                     .extracting(AccidentSummaryResponse::status)
                     .containsOnly(AccidentHistoryStatus.ANALYZING);
         }
@@ -996,13 +997,94 @@ class AccidentServiceTest {
             statistics.setStatisticsEnabled(true);
             statistics.clear();
 
-            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20, false);
 
             assertThat(paged.accidents()).hasSize(5);
             // 목록 1 + 장수·썸네일·견적 3 = 4. 사고 건수(5)에 비례하지 않는 것이 요점이다.
             // count 쿼리는 나가지 않는다 — 첫 페이지에 전체가 들어가면 Spring Data 가
             // 생략한다(PageableExecutionUtils). 그래서 5가 아니라 4다.
             assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
+        }
+
+        /**
+         * S15P21A307-554. 화면이 localStorage 로 하던 숨기기를 서버로 옮긴 것이다 —
+         * 그쪽은 기기를 바꾸거나 캐시를 지우면 감춘 것이 다시 나타났다.
+         */
+        @Test
+        @DisplayName("감춘 사고는 목록에서 빠진다")
+        void hiddenAccidentLeavesTheList() {
+            long accidentId = openAccident();
+
+            accidentService.setHidden(ME, accidentId, true);
+            flushAndClear();
+
+            assertThat(accidentService.findMinePaged(ME, 0, 20, false).accidents()).isEmpty();
+        }
+
+        /** 화면의 "숨긴 이력 나타내기" 가 이 경로로 받는다. */
+        @Test
+        @DisplayName("숨긴 것까지 달라고 하면 감춘 시각과 함께 나온다")
+        void includeHiddenBringsItBack() {
+            long accidentId = openAccident();
+            accidentService.setHidden(ME, accidentId, true);
+            flushAndClear();
+
+            List<AccidentSummaryResponse> accidents =
+                    accidentService.findMinePaged(ME, 0, 20, true).accidents();
+
+            assertThat(accidents).hasSize(1);
+            assertThat(accidents.getFirst().hiddenAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("되돌리면 다시 보이고 감춘 시각이 비워진다")
+        void unhideRestoresTheAccident() {
+            long accidentId = openAccident();
+            accidentService.setHidden(ME, accidentId, true);
+            flushAndClear();
+
+            accidentService.setHidden(ME, accidentId, false);
+            flushAndClear();
+
+            assertThat(onlyAccident().hiddenAt()).isNull();
+        }
+
+        /** 화면이 토글을 두 번 눌러도 "언제부터 안 보였나" 가 흔들리면 안 된다. */
+        @Test
+        @DisplayName("두 번 감춰도 처음 감춘 시각을 지킨다")
+        void hidingTwiceKeepsTheFirstMoment() {
+            long accidentId = openAccident();
+            accidentService.setHidden(ME, accidentId, true);
+            flushAndClear();
+            Instant first = accidentService.findMinePaged(ME, 0, 20, true)
+                    .accidents().getFirst().hiddenAt();
+
+            accidentService.setHidden(ME, accidentId, true);
+            flushAndClear();
+
+            assertThat(accidentService.findMinePaged(ME, 0, 20, true)
+                    .accidents().getFirst().hiddenAt()).isEqualTo(first);
+        }
+
+        /**
+         * {@code @CreatedDate} 가 {@code hiddenAt} 에 붙으면 접수하는 순간 값이 채워져
+         * <b>모든 새 사고가 감춰진 채로 태어난다.</b> 한 번 그렇게 끼워 넣은 적이 있다.
+         */
+        @Test
+        @DisplayName("새로 접수한 사고는 감춰져 있지 않다")
+        void newAccidentIsVisible() {
+            openAccident();
+
+            assertThat(onlyAccident().hiddenAt()).isNull();
+        }
+
+        /** 없는 사고와 남의 사고를 구분하지 않는다 — 403 은 그 사고가 있다는 사실을 알려 준다. */
+        @Test
+        @DisplayName("없는 사고를 감추려 하면 404 다")
+        void hidingUnknownAccidentIsNotFound() {
+            assertThatThrownBy(() -> accidentService.setHidden(ME, 999_999L, true))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.NOT_FOUND);
         }
 
         private long openAccident() {
@@ -1014,7 +1096,7 @@ class AccidentServiceTest {
         }
 
         private AccidentSummaryResponse onlyAccident() {
-            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+            AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20, false);
             assertThat(paged.accidents()).hasSize(1);
             return paged.accidents().getFirst();
         }

@@ -63,11 +63,14 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
      *
      * <p>{@code join fetch} 가 없으면 {@link com.ssafy.a307.accident.dto.AccidentResponse#from}
      * 이 LAZY 인 vehicle 을 건드릴 때 건수만큼 추가 쿼리가 나간다.
+     *
+     * <p><b>감춘 사고는 뺀다</b>(S15P21A307-554). 차량의 soft delete 와 다르다 — 그쪽은
+     * 차를 처분한 것이지 사고를 감춘 것이 아니라서 이력에 남긴다.
      */
     @Query("""
             select a from Accident a
             join fetch a.vehicle v
-            where v.memberId = :memberId
+            where v.memberId = :memberId and a.hiddenAt is null
             order by a.createdAt desc, a.accidentId desc
             """)
     List<Accident> findAllByMemberId(@Param("memberId") Long memberId);
@@ -94,11 +97,13 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
                 a.snapshotVehicleType,
                 a.snapshotCarClass,
                 cast(a.snapshotModelYear as integer),
-                a.createdAt
+                a.createdAt,
+                a.hiddenAt
             )
             from Accident a
             join a.vehicle v
             where v.memberId = :memberId
+              and (:includeHidden = true or a.hiddenAt is null)
             order by a.createdAt desc, a.accidentId desc
             """,
             countQuery = """
@@ -106,19 +111,25 @@ public interface AccidentRepository extends JpaRepository<Accident, Long> {
             from Accident a
             join a.vehicle v
             where v.memberId = :memberId
+              and (:includeHidden = true or a.hiddenAt is null)
             """)
-    Page<AccidentSummaryResponse> findPageByMemberId(@Param("memberId") Long memberId, Pageable pageable);
+    Page<AccidentSummaryResponse> findPageByMemberId(@Param("memberId") Long memberId,
+                                                     @Param("includeHidden") boolean includeHidden,
+                                                     Pageable pageable);
 
     /**
      * 프로필의 사고 접수 건수. {@link #findAllByMemberId} 와 같은 기준이라
      * <b>폐차·매각된 차량의 사고도 센다</b> — 목록에는 보이는데 숫자에서 빠지면 안 된다.
+     * <p>
+     * <b>같은 이유로 감춘 사고는 빼고 센다</b>(S15P21A307-554). 목록에서 사라진 것이
+     * 숫자에는 남아 있으면 사용자가 그 차이를 설명할 방법이 없다.
      * <p>
      * {@code accident} 에는 {@code member_id} 가 없어 {@code vehicle} 을 거쳐 소유자를 찾는다.
      */
     @Query("""
             select count(a) from Accident a
             join a.vehicle v
-            where v.memberId = :memberId
+            where v.memberId = :memberId and a.hiddenAt is null
             """)
     long countByMemberId(@Param("memberId") Long memberId);
 

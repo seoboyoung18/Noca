@@ -30,6 +30,9 @@ import java.time.Instant;
  *                            0 이나 -1 같은 마법값을 쓰지 않는다.
  *                            {@code estimatedCost*} 와 <b>같은 견적 행</b>에서 나온다 —
  *                            목록에 보이던 금액과 열리는 리포트의 금액이 어긋나지 않는다
+ * @param hiddenAt            목록에서 감춘 시각 (S15P21A307-554). <b>{@code null} 이면 보인다.</b>
+ *                            숨긴 것까지 달라고 한 조회에만 값이 들어 있다 — 기본 목록은
+ *                            애초에 감춘 사고를 싣지 않는다
  * @param checklistStatus     정비 체크리스트 상태 {@code QUEUED · PROCESSING · COMPLETED ·
  *                            FAILED} (S15P21A307-552). <b>만든 적이 없으면 {@code null}</b> 이다.
  *                            <b>{@code estimateId} 로 대신 판단하면 안 된다</b> — 체크리스트는
@@ -50,6 +53,7 @@ public record AccidentSummaryResponse(
         CarClass carClass,
         Integer modelYear,
         Instant createdAt,
+        Instant hiddenAt,
 
         AccidentHistoryStatus status,
         int imageCount,
@@ -79,9 +83,10 @@ public record AccidentSummaryResponse(
             VehicleType vehicleType,
             CarClass carClass,
             Integer modelYear,
-            Instant createdAt) {
+            Instant createdAt,
+            Instant hiddenAt) {
         this(accidentId, vehicleId, vehicleInputType, modelId, manufacturer, modelName,
-                vehicleType, carClass, modelYear, createdAt,
+                vehicleType, carClass, modelYear, createdAt, hiddenAt,
                 AccidentHistoryStatus.RECEIVED, 0, null, null, null, null, null, null, null);
     }
 
@@ -97,7 +102,7 @@ public record AccidentSummaryResponse(
             String checklistStatus) {
         return new AccidentSummaryResponse(
                 accidentId, vehicleId, vehicleInputType, modelId, manufacturer, modelName,
-                vehicleType, carClass, modelYear, createdAt,
+                vehicleType, carClass, modelYear, createdAt, hiddenAt,
                 status, imageCount, thumbnailUrl, thumbnailExpiresAt,
                 estimateId, estimatedCostMin, estimatedCostMedian, estimatedCostMax,
                 checklistStatus);

@@ -158,7 +158,7 @@ class AccidentHistoryThumbnailTest {
         flushAndClear();
         givenPresign("https://service.example.com/thumb.jpg");
 
-        AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20);
+        AccidentPageResponse paged = accidentService.findMinePaged(ME, 0, 20, false);
 
         assertThat(paged.accidents()).hasSize(3);
         assertThat(paged.accidents()).allSatisfy(summary -> {
@@ -184,7 +184,7 @@ class AccidentHistoryThumbnailTest {
     }
 
     private AccidentSummaryResponse onlyAccident() {
-        List<AccidentSummaryResponse> accidents = accidentService.findMinePaged(ME, 0, 20).accidents();
+        List<AccidentSummaryResponse> accidents = accidentService.findMinePaged(ME, 0, 20, false).accidents();
         assertThat(accidents).hasSize(1);
         return accidents.getFirst();
     }
