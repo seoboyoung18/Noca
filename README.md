@@ -6,7 +6,7 @@
 
 SSAFY 15기 · 팀 A307 · 2026-08-25 ~ 2026-09-17 (git 첫 커밋 ~ 현재)
 
-![시스템 구성](Docs/Architecture/system-architecture_fixed.png)
+![시스템 구성](Docs/Architecture/system-architecture.svg)
 
 ---
 

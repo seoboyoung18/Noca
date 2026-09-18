@@ -30,7 +30,7 @@
 | 순서 | 무엇을 | 어디를 |
 | --- | --- | --- |
 | 1 | 서비스가 무엇이고 어디까지 됐나 | 루트 [README.md](../README.md) |
-| 2 | 시스템 구성 | [Architecture/system-architecture_fixed.png](<Architecture/system-architecture_fixed.png>) |
+| 2 | 시스템 구성 | [Architecture/system-architecture.svg](<Architecture/system-architecture.svg>) |
 | 3 | 데이터 모델 (42 테이블) | [Erd/A307_ddl_final.sql](<Erd/A307_ddl_final.sql>) · 그림 [Erd/바른견적_ERD.png](<Erd/바른견적_ERD.png>) |
 | 4 | 백엔드 API 전수 (93건) | [Api/API 명세서 (바른견적 2026-09-16 전수조사).md](<Api/API 명세서 (바른견적 2026-09-16 전수조사).md>) |
 | 5 | 백엔드 ↔ AI 경계 | [Api/AI 연동 계약 (백엔드 ↔ AI 서버).md](<Api/AI 연동 계약 (백엔드 ↔ AI 서버).md>) |
@@ -44,7 +44,7 @@
 
 | 보려는 것 | 문서 |
 | --- | --- |
-| 시스템 구성도 | [Architecture/system-architecture_fixed.png](<Architecture/system-architecture_fixed.png>) |
+| 시스템 구성도 | [Architecture/system-architecture.svg](<Architecture/system-architecture.svg>) |
 | 서버·컨테이너를 실제로 띄우는 절차 | [Architecture/인프라 실행 교본.md](<Architecture/인프라 실행 교본.md>) |
 | 배포 전 점검 항목 | [Architecture/배포 준비 체크리스트.md](<Architecture/배포 준비 체크리스트.md>) |
 | 운영 DB 에 마이그레이션 적용하는 순서 | [Architecture/운영 DB 마이그레이션 적용 절차.md](<Architecture/운영 DB 마이그레이션 적용 절차.md>) |
