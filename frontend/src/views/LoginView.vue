@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import LogoMark from '../components/LogoMark.vue'
+import GoogleMark from '../components/GoogleMark.vue'
 import { loginUrl } from '../lib/api'
 
 const route = useRoute()
@@ -34,7 +35,7 @@ function login(provider) { window.location.assign(loginUrl(provider)) }
             카카오로 시작하기
           </button>
           <button class="btn outline" @click="login('google')">
-            <span class="g">G</span>
+            <GoogleMark :size="18" />
             구글로 시작하기
           </button>
         </div>
@@ -48,5 +49,4 @@ function login(provider) { window.location.assign(loginUrl(provider)) }
 <style scoped>
 .wrap { display: flex; flex-direction: column; align-items: center; }
 .err { margin-top: 20px; text-align: center; color: var(--danger-2); }
-.g { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-family: Arial, sans-serif; font-size: 17px; font-weight: 700; color: #4285F4; }
 </style>
