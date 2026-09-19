@@ -27,8 +27,9 @@ class Settings:
     yolo_corpus_part_boost: float
     enable_part_price_reference: bool = False
     enable_yolo_estimate_references: bool = False
-    yolo_estimate_candidate_k: int = 100
-    yolo_estimate_max_cases: int = 10
+    yolo_estimate_candidate_k: int = 200
+    yolo_estimate_min_cases: int = 5
+    yolo_estimate_max_cases: int = 30
 
     @property
     def has_required_runtime_config(self) -> bool:
@@ -60,6 +61,7 @@ def load_settings() -> Settings:
         in {"1", "true", "yes", "on"},
         enable_yolo_estimate_references=os.getenv("ENABLE_YOLO_ESTIMATE_REFERENCES", "false").strip().lower()
         in {"1", "true", "yes", "on"},
-        yolo_estimate_candidate_k=int(os.getenv("YOLO_ESTIMATE_CANDIDATE_K", "100")),
-        yolo_estimate_max_cases=int(os.getenv("YOLO_ESTIMATE_MAX_CASES", "10")),
+        yolo_estimate_candidate_k=int(os.getenv("YOLO_ESTIMATE_CANDIDATE_K", "200")),
+        yolo_estimate_min_cases=int(os.getenv("YOLO_ESTIMATE_MIN_CASES", "5")),
+        yolo_estimate_max_cases=int(os.getenv("YOLO_ESTIMATE_MAX_CASES", "30")),
     )

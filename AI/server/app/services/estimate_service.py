@@ -79,7 +79,7 @@ class EstimateService:
     def __init__(self, repository: CostCaseRepository, *,
                  enable_part_price_reference: bool = False,
                  enable_yolo_estimate_references: bool = False,
-                 yolo_estimate_max_cases: int = 10) -> None:
+                 yolo_estimate_max_cases: int = 30) -> None:
         self._repository = repository
         self._enable_part_price_reference = enable_part_price_reference
         self._enable_yolo_estimate_references = enable_yolo_estimate_references

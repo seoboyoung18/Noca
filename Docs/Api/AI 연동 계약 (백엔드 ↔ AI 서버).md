@@ -199,8 +199,8 @@ Header: X-Internal-Token, X-Request-Id
 
 처음 초안은 견적 레벨에 둔 것을 **`items[]` 안으로** 옮겼습니다. 화면의 "이 사례들 보기"가 **항목별 근거 안에** 있어, 앞범퍼 사례와 헤드램프 사례를 구분해야 하기 때문입니다.
 
-- **항목당 최대 10건**만 보내주세요. 화면에 보여줄 대표 사례입니다.
-- `refCaseCount` 는 그대로 둡니다 — **통계 산정에 쓴 전체 건수**라 둘은 다릅니다(예: 18건으로 산정했고 그중 10건을 보여줌).
+- 비용 산정에 실제 쓴 `referencedCaseIds`는 항목당 최대 **30건**까지 보낼 수 있습니다. 화면은 이 중 대표 Top-10만 표시할 수 있습니다.
+- `refCaseCount` 는 실제 통계 산정에 쓴 전체 건수입니다. 화면 표시 건수와 다를 수 있습니다.
 - 저장은 `estimate_item.ref_condition` JSONB 에 합니다(S15P21A307-285). 상한이 없으면 JSONB 가 커집니다.
 
 **조회 API** — `GET /api/estimates/{estimateId}/similar-cases?estimateItemId={id}` (S15P21A307-236). 백엔드가 사례를 다시 검색하지 않고 **AI 가 준 ID 로 조회만** 합니다. 재검색하면 AI 가 본 사례와 달라져 근거가 어긋나기 때문입니다.

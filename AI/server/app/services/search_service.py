@@ -23,8 +23,13 @@ class SearchService:
                  enable_part_price_reference: bool = False,
                  estimate_service: EstimateService | None = None,
                  enable_yolo_estimate_references: bool = False,
-                 yolo_estimate_candidate_k: int = 100,
-                 yolo_estimate_max_cases: int = 10) -> None:
+                 yolo_estimate_candidate_k: int = 200,
+                 yolo_estimate_min_cases: int = 5,
+                 yolo_estimate_max_cases: int = 30) -> None:
+        if yolo_estimate_min_cases < 1:
+            raise ValueError("yolo_estimate_min_cases must be positive")
+        if yolo_estimate_max_cases < yolo_estimate_min_cases:
+            raise ValueError("yolo_estimate_max_cases must be at least yolo_estimate_min_cases")
         self._repository = repository
         self._embedding_service = embedding_service
         self._pipeline_version_id = pipeline_version_id
@@ -33,6 +38,7 @@ class SearchService:
         self._estimate_service = estimate_service
         self._enable_yolo_estimate_references = enable_yolo_estimate_references
         self._yolo_estimate_candidate_k = yolo_estimate_candidate_k
+        self._yolo_estimate_min_cases = yolo_estimate_min_cases
         self._yolo_estimate_max_cases = yolo_estimate_max_cases
 
     @property
@@ -128,9 +134,11 @@ class SearchService:
         valid = self._estimate_service.select_full_repair_reference_candidates(
             candidates, str(part_code), max_cases=self._yolo_estimate_max_cases,
         )
-        if len(valid) < 3:
+        if len(valid) < self._yolo_estimate_min_cases:
             result = _empty_estimate_reference("INSUFFICIENT_FULL_REPAIR_CASES")
             result["estimateReferenceCandidateCount"] = len(valid)
+            result["estimateReferenceMinimumCaseCount"] = self._yolo_estimate_min_cases
+            result["estimateReferenceMaximumCaseCount"] = self._yolo_estimate_max_cases
             return result
         ids = [int(candidate["caseId"]) for candidate in valid]
         visible_ids = {int(hit.case_id) for hit in hits[:self._top_k]}
@@ -138,6 +146,8 @@ class SearchService:
             "estimateReferencedCaseIds": ids,
             "estimateReferenceReason": "YOLO_PART_MATCHED_FULL_REPAIR_POOL",
             "estimateReferenceCandidateCount": len(valid),
+            "estimateReferenceMinimumCaseCount": self._yolo_estimate_min_cases,
+            "estimateReferenceMaximumCaseCount": self._yolo_estimate_max_cases,
             "estimateReferenceVisibleCaseCount": len(set(ids) & visible_ids),
         }
 
@@ -194,6 +204,8 @@ def _empty_estimate_reference(reason: str) -> dict[str, Any]:
         "estimateReferencedCaseIds": [],
         "estimateReferenceReason": reason,
         "estimateReferenceCandidateCount": 0,
+        "estimateReferenceMinimumCaseCount": 0,
+        "estimateReferenceMaximumCaseCount": 0,
         "estimateReferenceVisibleCaseCount": 0,
     }
 
@@ -255,12 +267,24 @@ def _merge_strict(groups: dict[tuple[str, str], dict[str, Any]], result: dict[st
         )[:100]
         current["partPriceCandidatePoolSize"] = len(current["partPriceCandidateCases"])
     if "estimateReferencedCaseIds" in result:
+        maximum = max(
+            int(current.get("estimateReferenceMaximumCaseCount") or 0),
+            int(result.get("estimateReferenceMaximumCaseCount") or 0),
+        )
+        # Legacy or test payloads without explicit metadata keep the old
+        # visible-result cap. Runtime v2 results always provide their max.
+        maximum = maximum or 10
         estimate_ids = list(dict.fromkeys(
             [int(case_id) for case_id in current.get("estimateReferencedCaseIds", [])]
             + [int(case_id) for case_id in result.get("estimateReferencedCaseIds", [])]
-        ))[:10]
+        ))[:maximum]
         current["estimateReferencedCaseIds"] = estimate_ids
         current["estimateReferenceCandidateCount"] = len(estimate_ids)
+        current["estimateReferenceMinimumCaseCount"] = max(
+            int(current.get("estimateReferenceMinimumCaseCount") or 0),
+            int(result.get("estimateReferenceMinimumCaseCount") or 0),
+        )
+        current["estimateReferenceMaximumCaseCount"] = maximum
         visible_ids = {int(case["caseId"]) for case in current.get("cases", [])}
         current["estimateReferenceVisibleCaseCount"] = len(set(estimate_ids) & visible_ids)
         if estimate_ids:

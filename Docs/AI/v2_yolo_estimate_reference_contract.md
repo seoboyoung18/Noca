@@ -4,9 +4,9 @@
 견적 계산용 사례를 별도로 선정한다.
 
 - `referencedCaseIds`: 화면에 표시하는 기존 YOLO rerank Top-10 유사 사례
-- `estimateReferencedCaseIds`: 동일 vector pool Top-100에서 query partCode와 corpus
+- `estimateReferencedCaseIds`: 동일 vector pool Top-200에서 query partCode와 corpus
   primary PAIRED YOLO partCode가 일치하고, 기존 `EstimateService` FULL_REPAIR 정책을
-  통과한 사례(최대 10개, 최소 3개 미만이면 빈 배열)
+  통과한 사례(최대 30개, 최소 5개 미만이면 빈 배열)
 - 두 목록은 다를 수 있다. `estimateReferenceVisibleCaseCount`는 두 목록의 교집합이다.
 - `estimateReferenceReason`는 `FEATURE_DISABLED`, `PIPELINE_NOT_V2`,
   `QUERY_PART_UNRESOLVED`, `INSUFFICIENT_FULL_REPAIR_CASES`,

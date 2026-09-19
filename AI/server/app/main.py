@@ -44,6 +44,7 @@ search_service = SearchService(
     estimate_service=estimate_service,
     enable_yolo_estimate_references=settings.enable_yolo_estimate_references,
     yolo_estimate_candidate_k=settings.yolo_estimate_candidate_k,
+    yolo_estimate_min_cases=settings.yolo_estimate_min_cases,
     yolo_estimate_max_cases=settings.yolo_estimate_max_cases,
 )
 analysis_service = AnalysisService(
