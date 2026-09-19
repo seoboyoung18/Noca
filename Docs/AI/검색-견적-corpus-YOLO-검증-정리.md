@@ -8,9 +8,9 @@
 - 검색 corpus는 `DAMAGE_PART` 기반 v1과 `DAMAGE` 기반 v2를 **동시에 유지**한다. 운영 활성화는 아직 하지 않았다.
 - v2는 손상 ROI 자체를 검색 대상으로 하므로 검색 Recall 계열 수치는 좋게 나왔지만, 초기 `repair hint` 기반 평가는 이미지별 정답이 아니어서 검색 품질 지표로 사용할 수 없다.
 - YOLO는 v2 `DAMAGE` ROI에 보이는 부품 후보를 별도 테이블에 저장하고, v2 검색 결과를 **soft rerank**하는 용도다. v2의 원래 `part_code`는 계속 `NULL`이다.
-- 로컬 구버전의 최소 표본 3 case 기준에서는 YOLO rerank가 유효 WORK 비용 사례를 Top-10으로 끌어오는 효과가 관측됐다. 최신 `develop`은 현재 기능 제공을 위해 최소 2 case를 임시 적용한다.
-- 최소 2 case는 표본 부족을 허용한 **LOW 신뢰도 임시 정책**이다. 전수 적재가 완료되면 운영 최소 표본을 3 case 이상으로 올리는 것을 목표로 한다. 두 임계값의 평가는 섞어 비교하지 않는다.
-- 현재 비용 산출용 `repair_case` corpus는 1,000 case이며, 유효 WORK 비용은 FRONT/REAR_BUMPER에 크게 집중된다. 새 case 적재가 불가능한 현재 제약에서는 **Top-100 견적 참조 → 동일 부품 통계 fallback** 순으로 보완한다.
+- YOLO rerank는 v2 후보 안에서 같은 부품 case를 앞으로 당기는 보조 신호로 사용한다. YOLO를 v2 `part_code`에 직접 반영하거나 hard filter로 쓰지 않는다.
+- 현재 코드의 최소 표본 2 case는 DEV 기능 검증을 위한 **LOW 신뢰도 임시값**이다. 전수 적재 후 운영 견적은 같은 부품·같은 작업 방식의 가까운 유사 사례를 **최소 10 case** 확보할 때만 제공하는 것을 목표로 한다.
+- TRAIN_ONLY 39,676 case의 검색·견적 기본 행, v2 DAMAGE feature·YOLO 후보·DINOv2 embedding 전수 처리가 로컬 DB에서 완료됐다. v2는 여전히 inactive이며, 작업 방식 분리·golden demo·API/프론트 E2E 검증 후에만 운영 전환을 판단한다.
 
 ## 2. 데이터 및 pipeline 상태
 
@@ -160,11 +160,11 @@ query의 STRICT partCode
 
 같은 case·같은 partCode에 유효 WORK가 있으면 작업비/도장비가 총 수리비에 포함된다. 같은 부품의 `PART_PRICE`도 있으면 부품비를 함께 더한다. `PART_PRICE`만 있고 유효 WORK가 없으면 작업비를 알 수 없으므로 현재 FULL_REPAIR 총 수리비에서는 제외한다. `EXCHANGE`의 부품비가 0이면 AS 원천의 부품비 결측이 총액을 왜곡하므로 case 전체를 제외한다.
 
-> **표본 정책:** 현재 로컬 작업트리는 `MIN_CASE_COUNT=3`이고, 최신 `origin/develop`의 `30671b4`는 기능 제공을 위한 임시값 `2`다. 2 case 결과는 반드시 LOW 신뢰도로 표시한다. 전수 적재 후 운영 목표는 3 case 이상이다. 아래 표에는 어느 임계값으로 측정했는지 항상 함께 기록한다.
+> **v2 YOLO 견적 표본 정책:** legacy 경로의 `MIN_CASE_COUNT=2`는 유지한다. v2 YOLO 견적 참조 경로는 `YOLO_ESTIMATE_MIN_CASES=5`, `YOLO_ESTIMATE_MAX_CASES=30`, `YOLO_ESTIMATE_CANDIDATE_K=200`을 MVP 기본값으로 사용한다. N은 정확한 사례 수가 아니라 가까운 유효 사례를 쓰는 상한이다.
 
 ## 7. 견적 데이터 현황
 
-로컬 DB read-only 확인 결과:
+전수 적재 전 DEV 기준의 로컬 DB read-only 확인 결과:
 
 | 항목 | 수량 |
 | --- | ---: |
@@ -175,7 +175,7 @@ query의 STRICT partCode
 | WORK 행 | 14,458 |
 | PART_PRICE 행 | 1,038 |
 
-원천 견적 JSON은 `aihub_estimate_raw`에 125,006건 단위로 별도 보존할 수 있으나, **현재 검색·비용 산출이 직접 참조하는 정규화 corpus는 위 1,000 case**다. 원천 보존 건수와 `repair_case` 적재 건수를 혼동하지 않는다.
+원천 견적 JSON은 `aihub_estimate_raw`에 **125,006건**, 원천 견적 행은 **1,716,713건** 전수 보존돼 있다. `aihub_estimate_raw.external_ref = repair_case.external_ref`로 연결할 수 있지만, **현재 검색·비용 산출이 직접 참조하는 정규화 corpus는 위 1,000 case**다. 원천 보존 건수와 `repair_case` 적재 건수를 혼동하지 않는다.
 
 PART_PRICE가 있는 case·part 묶음은 461개이고, 그중 유효 WORK가 없는 묶음은 83개(약 18%)다. 따라서 전체 견적서가 작업비 없이 비어 있는 문제는 아니다.
 
@@ -213,7 +213,7 @@ PART_PRICE가 있는 case·part 묶음은 461개이고, 그중 유효 WORK가 �
 | 전체 994 query 대비 YOLO rerank 가능 비율 | 7.1% | 12.3% |
 | Top-100에 2개 이상 있으나 Top-10 밖인 query | - | 87 |
 
-`122 → 209`의 87개는 데이터가 이미 후보 pool 안에 있으나 검색 표시 Top-10 밖에 있어 탈락한 경우다. 별도 `estimateReferencedCaseIds` 경로가 회수할 수 있는 구간이다. 전수 적재 후 최소 표본을 3 case로 올리면 이 수치는 다시 측정한다.
+`122 → 209`의 87개는 데이터가 이미 후보 pool 안에 있으나 검색 표시 Top-10 밖에 있어 탈락한 경우다. 별도 `estimateReferencedCaseIds` 경로가 회수할 수 있는 구간이다. 전수 적재 후 운영 최소 표본 10 case 기준으로 이 수치를 다시 측정한다.
 
 부품별 편중이 매우 크다.
 
@@ -230,6 +230,65 @@ PART_PRICE가 있는 case·part 묶음은 461개이고, 그중 유효 WORK가 �
 YOLO 부품 확정 실패는 584/994 query이며, 이는 검색·견적 후보 수와 별개인 **부품 검출 문제**다. v1은 annotation part code가 있으므로 이 손실이 없다. 따라서 v1/v2 최종 비교에는 부품 확정률도 포함한다.
 
 YOLO는 비용 연결에 실질적으로 도움이 되지만, 현재 1,000 case 견적 corpus만으로 모든 부품의 FULL_REPAIR 견적을 제공할 수는 없다. 3개 이상 후보가 확보되는 173 query 중 169개가 FRONT/REAR_BUMPER다.
+
+### TRAIN_ONLY 전수 corpus 재측정 (2026-09-19~20)
+
+전수 v2 corpus 구축 후 같은 canonical query 994개를 재실행했다. query YOLO 결과는 994개 중 `PAIRED` 410개였고, corpus 검색은 case-dedup Top-100·YOLO flat boost `0.05`로 수행했다. 아래 수치는 **같은 부품 + 유효 FULL_REPAIR** 기준이다. 아직 `EXCHANGE_INCLUDED`/`REPAIR_FAMILY` 작업 방식 분리를 적용하기 전이므로 운영 최소 10 case 확정값으로 사용하지 않는다.
+
+| 최소 사례 수 | pure vector Top-10 | YOLO Top-10 | Top-100 탐색 pool |
+| ---: | ---: | ---: | ---: |
+| 3 | 55 | 187 | 226 |
+| 5 | 6 | 111 | 192 |
+| 10 | 0 | 2 | 122 |
+
+- 10건 기준에서 Top-10에는 2개뿐이지만 Top-100에는 122개가 있다. 검색 표시 Top-10과 견적 참조 사례를 분리하는 `estimateReferencedCaseIds` 경로가 필요한 직접 근거다.
+- FRONT_BUMPER 122 query 중 YOLO Top-10 3건 이상은 95개, REAR_BUMPER 114 query 중 89개다. 범퍼 스크래치 golden demo 후보 공급은 충분하다.
+- 이 결과는 repair hint를 사용하지 않았고 DB write도 하지 않았다. `PART_PRICE row(s) with no mapped WORK` 메시지는 로커패널 부품비만 있는 행을 FULL_REPAIR에서 제외했다는 알림이다.
+
+K=200으로 확장한 재측정에서는 Top-200 pool의 유효 FULL_REPAIR 5건 이상 query가 227개, 10건 이상 query가 189개로 늘었다. 최대 사례 수 10/15/20/30의 raw 정답 비용 평가에서는 65개 평가 가능 query 기준 MdAPE가 20.24%/22.55%/22.66%/21.75%, WAPE가 28.70%/28.15%/28.37%/28.63%였다. 큰 정확도 저하 없이 더 많은 근거를 보존하는 MVP 판단으로 v2 비용 참조 상한은 30건으로 둔다. 상세 결과는 `outputs/ab_eval_2026-09-20/estimate_reference_count_accuracy_k200_raw_truth.html`에 있다.
+
+### 최대 참조 사례 수 재검증 — TRAIN_ONLY query (2026-09-20)
+
+앞의 raw 정답 평가는 `2.Validation` case 를 query 로 써서 평가 가능 query 가 65개에 그쳤다.
+그 case 들은 corpus(TRAIN_ONLY)에 없어 정답 비용을 `aihub_estimate_raw` 에서 읽어야 했기 때문이다.
+표본을 늘리려고 **corpus 안의 TRAIN_ONLY case 를 query 로 쓰는 leave-one-case-out** 으로 다시 측정했다.
+query 본인 `case_id` 는 `exclude_case_id` 로 후보에서 빼고, 정답은 **같은 case + 같은 `part_code`** 의
+유효 FULL_REPAIR 비용을 DB 에서 읽는다. 사고 견적 총액은 다른 부품 비용이 섞이므로 정답으로 쓰지 않는다.
+
+| 최대 사례 수 | Coverage | MdAPE | WAPE | p25~p75 적중률 |
+| ---: | ---: | ---: | ---: | ---: |
+| 5 | 88.6% | 25.55% | 32.07% | 32.3% |
+| 10 | 88.6% | 27.03% | 31.46% | 37.1% |
+| 15 | 88.6% | 28.51% | 31.90% | 38.7% |
+| 20 | 88.6% | 28.34% | **31.29%** | **40.3%** |
+| 30 | 88.6% | 27.90% | 31.74% | 38.7% |
+| 50 | 88.6% | 27.93% | 31.48% | 38.7% |
+
+평가 query 162개 · K=200 · flat boost 0.05 기준이다.
+
+- **N 은 정확도에 영향이 없다.** WAPE 폭이 0.78%p(31.29~32.07%)로, 10건과 50건이 사실상 같다.
+  세 지표의 최적값이 서로 다른 N 에 흩어져 있어 일관된 승자가 없다. 앞의 65건 실험(WAPE 폭 0.55%p)과
+  같은 결론이다.
+- **Coverage 는 N 과 무관하게 88.6%** 다. 산정 가능 여부는 상한이 아니라 최소 사례 수(5건)가 정하므로,
+  상한을 30건으로 두어도 `유사 견적 사례 부족` 이 늘지 않는다. 이것이 `YOLO_ESTIMATE_MAX_CASES=30`
+  의 근거다.
+- MdAPE 가 5건에서 가장 낮은 것은 정확해서가 아니라 표본이 적어 분산이 큰 쪽이다. 같은 5건에서
+  구간 적중률이 32.3% 로 가장 나쁘다.
+- TRAIN query 는 corpus 와 촬영 환경이 같아 유리할 것으로 봤으나 WAPE 는 오히려 31~32% 로
+  raw 정답 평가(28%)보다 높게 나왔다. 절대 정확도를 인용할 때는 보수적인 이 수치를 쓴다.
+
+> **구간 표시 문구:** `p25~p75` 의 실제 적중률은 32~40% 로 이론값 50% 를 밑돈다. 참조 사례의 분포가
+> 실제 비용 분포보다 좁다는 뜻이며, N 을 바꿔도 해결되지 않는다. 따라서 화면 문구는 "이 범위에 들어온다"
+> 가 아니라 **"비슷한 사례의 절반이 이 범위였다"** 로 관측 사실을 서술한다. 계산은 바꾸지 않는다.
+
+재현 명령은 다음 순서다. 2단계만 GPU 를 쓰며, 세 단계 모두 DB·feature·embedding 을 변경하지 않는다.
+
+1. `pipeline/jobs/evaluation/build_eval_query_manifest.py` — corpus 안에서 해당 부품 비용을 가진 case 의
+   DAMAGE 이미지를 골라 query manifest 를 만든다
+2. `pipeline/jobs/evaluation/audit_yolo_full_repair_coverage.py --candidate-k 200` — YOLO·임베딩·검색
+3. `pipeline/jobs/evaluation/audit_estimate_reference_count_accuracy.py` — 정답 비교·지표 산출
+
+산출물: `outputs/ab_eval_2026-09-20/train_reference_count_accuracy.html`
 
 ## 9. PART_PRICE_ONLY fallback 검토
 
@@ -251,40 +310,52 @@ YOLO는 비용 연결에 실질적으로 도움이 되지만, 현재 1,000 case 
 
 이번 표본에서는 제공률 개선 근거가 없었으므로 flag는 비활성으로 유지한다.
 
-## 10. 현재 권장 견적 산출: 2단계
+## 10. 현재 권장 견적 산출: 유사 사례 우선
 
-전수 적재 이전인 현재 조건에서, 견적 산출을 다음처럼 계층화한다. 단계 A와 B는 총 수리비(`FULL_REPAIR`)만 대상으로 하며, 동일한 유효 WORK 정책을 공유한다. 최소 표본은 현재 임시 2 case(LOW)이며 전수 적재 후 3 case 이상으로 올린다.
-
-### A. 유사 사례 기반 견적 — 우선
+이미지 검색의 목적은 같은 부품뿐 아니라 손상 범위·심각도가 비슷한 실제 사례의 견적을 참고하는 것이다. 따라서 Top-100은 비용을 평균내는 대상이 아니라 **견적 참조 사례를 찾는 탐색 pool**이다. 최소 10 case는 전수 적재 후 audit으로 확정할 **목표값**이며, 현재 1,000 case DEV 결과만으로 운영값을 고정하지 않는다.
 
 ```text
-검색 Top-100
+case 단위로 dedup한 검색 Top-100
 → 같은 query/corpus YOLO partCode
-→ 같은 partCode의 유효 WORK 비용 case 현재 최소 2개(LOW), 전수 적재 후 최소 3개
-→ 유사 사례 기반 FULL_REPAIR p25 / median / p75
+→ EXCHANGE_INCLUDED 또는 REPAIR_FAMILY 중 같은 작업 방식 그룹
+→ 유사도 순으로 가까운 사례를 선택
+→ 전수 적재 후 최소 10 case가 있을 때만 FULL_REPAIR p25 / median / p75 제공
 ```
 
-검색 화면 Top-10과 견적 참조 사례는 다를 수 있다. `estimateReferencedCaseIds`는 표시 Top-10과 섞지 않으며, "검색 유사 사례"와 "견적 참조 사례"를 화면에서 명확히 구분한다.
+- 화면의 검색 유사 사례는 Top-10만 표시한다.
+- 견적 참조 사례는 화면 Top-10 밖에 있을 수 있으며, `estimateReferencedCaseIds`로 별도 전달·표시한다.
+- Top-100 pool의 순서는 §5의 v2 YOLO soft rerank를 적용한 순서를 사용한다. query/corpus YOLO part가 없으면 pure vector 순서를 그대로 사용한다.
+- 비용 참조는 가까운 사례를 우선 선택한다. Top-100 전체를 하나의 비용 분포로 평균내지 않는다.
+- `EXCHANGE_INCLUDED`와 `REPAIR_FAMILY`는 한 분포로 합치지 않는다. 두 그룹 median 차이 audit의 중앙값은 93,430원이었다.
+- 부품·작업 방식별로 최소 10 case를 못 채우면 먼 사례나 DB 전체 통계를 억지로 섞지 않고 `유사 견적 사례 부족`으로 처리한다.
 
-이 단계는 임시 2 case 기준 `122 → 209`의 87 query를 회수할 수 있는 가장 낮은 비용의 보완책이다. 기존 로컬 3 case 평가에서는 71 → 173으로 검증됐으며, 최신 develop 병합 후 두 임계값을 분리해 재측정한다.
+작업 방식 그룹은 다음처럼 정의한다.
 
-### B. 동일 부품 통계 기반 견적 — A가 부족할 때의 후보
+- `EXCHANGE_INCLUDED`: 같은 case·부품의 유효 WORK에 `EXCHANGE`가 하나라도 포함된 경우
+- `REPAIR_FAMILY`: `EXCHANGE`는 없고 `COATING`·`SHEET_METAL`·`REPAIR`·`OVERHAUL` 중 하나 이상이 있는 경우
+- `OTHER_VALID_WORK`: 위 두 그룹에 속하지 않는 유효 WORK
 
-단계 A에서 현재 임시 최소 2 case를 못 찾으면, 현재 DB 전체 1,000 case에서 같은 `part_code`의 유효 WORK 사례를 찾는 fallback을 검토한다.
+### 현재 DEV에서의 탐색 범위 진단
 
-권장 완화 순서:
+PAIRED query 410개에서 유효 FULL_REPAIR case를 확보한 수는 다음과 같다. 이는 **YOLO boost=0인 v2 pure-vector baseline**의 현재 1,000 case corpus 공급량 진단이며 운영 기준은 아니다. §8의 YOLO rerank Top-10 수치와 직접 섞어 비교하지 않고, 전수 적재 후 동일 조건으로 다시 측정한다.
 
-```text
-동일 모델
-→ 동일 가격대
-→ 전체 차량
-```
+| candidate K | 유효 비용 2건 이상 | 유효 비용 3건 이상 |
+| ---: | ---: | ---: |
+| 10 | 36 | 10 |
+| 20 | 71 | 39 |
+| 30 | 96 | 57 |
+| 50 | 151 | 108 |
+| 100 | 209 | 173 |
 
-이는 “유사 이미지 사례”가 아니라 “동일 부품 통계 기반”임을 응답/UI에서 명시해야 한다. 현재는 최소 2 case(LOW)를 적용하고, 전수 적재 후 3 case 이상으로 올린다. 로커패널처럼 DB 전체에 유효 WORK가 0인 부품에는 적용할 수 없다.
+K=100 안에서 유효 비용 case가 5건 이상인 query는 94개(9.5%), 10건 이상인 query는 21개(2.1%)다. 따라서 최소 10 case는 전수 적재 후 5건·10건 확보율과 실제 이미지 유사성 audit을 함께 보고 확정한다.
 
-### C. 부품비 참고 — 선택적
+query마다 입력 이미지에서 부품·손상 범위가 보이는 정도가 달라 고정 rank cutoff만으로 적합성을 보장할 수 없다. 전수 적재 후에도 Top-100 안에서 유사도 순으로 가까운 10 case를 선택하고, 시각 검토와 실제 분포 audit으로 세부 cutoff를 확정한다.
 
-유효 WORK 없이 PART_PRICE만 있으면 총 수리비 대신 부품비 참고 범위만 별도로 표시할 수 있다. 현재는 flag off 상태다.
+### 동일 부품 통계 및 PART_PRICE_ONLY
+
+DB 전체의 동일 부품 통계 fallback은 유사 이미지 사례 견적과 근거가 다르므로 **현재 구현·활성화하지 않는다**. 제품 요구가 생길 때만 "동일 부품 통계 참고값"으로 명확히 분리해 재검토한다.
+
+유효 WORK 없이 PART_PRICE만 있는 경우의 부품비 참고 경로도 `ENABLE_PART_PRICE_REFERENCE=false` 상태로 유지한다.
 
 ## 11. 확정/보류 사항
 
@@ -295,8 +366,13 @@ YOLO는 비용 연결에 실질적으로 도움이 되지만, 현재 1,000 case 
 - repair hint는 검색/정답/비용 근거로 사용 금지
 - YOLO 후보는 별도 테이블에 보존
 - YOLO 부품 후보는 원 annotation과 분리해 보존
-- FULL_REPAIR 최소 사례 수는 현재 2 case(LOW)이며, 전수 적재 후 3 case 이상으로 상향
+- v2 YOLO 비용 참조는 K=200·최소 5 case·최대 30 case를 사용하며, legacy 경로의 2 case 기준과 분리
 - 로커패널에 다른 부품 작업비를 합산하지 않음
+- 견적 참조는 Top-200 탐색 pool 안의 가까운 동일 부품·동일 작업 방식 사례만 사용
+- 최대 참조 사례 수는 정확도에 영향이 없다 — 65건·162건 두 실험에서 WAPE 폭이 각각 0.55%p·0.78%p였다.
+  산정 가능 여부는 상한이 아니라 최소 사례 수(5건)가 정한다
+- 비용 범위는 "비슷한 사례의 절반이 이 범위였다"로 서술한다. `p25~p75` 실제 적중률이 32~40%라
+  "이 범위에 들어온다"는 표현은 쓰지 않는다
 
 ### 보류
 
@@ -307,8 +383,54 @@ YOLO는 비용 연결에 실질적으로 도움이 되지만, 현재 1,000 case 
 - 동일 부품 통계 기반 fallback 구현 및 활성화
 - v1 STRICT / v2 vector / v2 YOLO의 공정한 재평가
 - Top-N 거리 분포·pool case dedup·검색 latency 검증
+- 같은 작업 방식 분리(`EXCHANGE_INCLUDED` / `REPAIR_FAMILY`)를 적용한 5/10/30 case 재측정
+- 범퍼 스크래치 golden demo 시각 검토 및 API/프론트 E2E
 
-## 12. 관련 검토 산출물
+## 12. 원본 견적 전수 공급량 audit 및 전수 적재 계획
+
+`aihub_estimate_raw` 원본 125,006건을 DB write 없이 표준화 규칙으로 전수 검사했다. 이 audit은 DB 전체에 비용 사례가 있는지를 확인하는 것이며, 검색 Top-100 안에서 이미지가 충분히 유사한지는 전수 embedding 후 별도로 재검증해야 한다.
+
+| 구분 | 결과 |
+| --- | --- |
+| 원본 견적서 문서 | 125,006건 |
+| 원본 견적 행 | 1,716,713건 |
+| 원본 전체에서 유효 FULL_REPAIR 10건 이상 확보 | FRONT/REAR_BUMPER, FENDER 좌·우, WHEEL 좌·우, HEAD_LIGHT 좌·우, SIDE_MIRROR 좌·우 |
+| 원본 전체에서도 10건 미만 | ROCKER_PANEL_L 1건, ROCKER_PANEL_R 4건, TAIL_LAMP_L/R 0건 |
+
+DEV 표본에서 부족했던 REAR_WHEEL_L/R는 원본에서 각각 204/274건, HEAD_LIGHT_L/R는 378/400건으로 확인돼 전수 적재 효과를 기대할 수 있다. 반면 로커패널·테일램프는 전수 이미지 적재만으로 최소 10 case 정책을 충족할 수 없다.
+
+### 전수 적재 범위
+
+split manifest 전체 55,363건은 운영 corpus 수가 아니다.
+
+| 구분 | case 수 | 처리 |
+| --- | ---: | --- |
+| `TRAIN_ONLY` | 39,676 | 현재 전수 검색·견적 corpus 대상 |
+| `VALIDATION_ONLY` | 956 | DEMO/EVAL query용, corpus 제외 |
+| `MIXED` | 14,731 | TRAIN·VALIDATION 양쪽에 있는 동일 case. 정량 EVAL에서는 제외하고, 평가 종료 후 TRAIN 쪽 이미지로 운영 추가 여부를 결정 |
+
+전수 적재용 manifest는 `outputs/data_validation/search_case_manifests_2026-09-11/search_train_only_cases.csv`이며, 39,676건 모두 `TRAIN_ONLY`, 중복 `case_id`는 0건이다. 기존 DEV 1,000건은 이 목록에 포함된다.
+
+`load_search_data.py`는 기본적으로 DEV manifest만 허용한다. 이 전수 manifest를 사용할 때는 `--manifest-scope train-only`를 반드시 지정하며, `DEV`·`POOL` 이외 purpose 또는 `TRAIN_ONLY` 이외 split이 있으면 적재 전에 실패한다.
+
+### 전수 적재 진행 상태 및 남은 순서
+
+1. **완료** — TRAIN_ONLY 39,676 case를 `repair_case` / `repair_case_item` / `repair_case_image`와 v1 feature로 idempotent upsert했다.
+   - `DAMAGE` 이미지 109,011장, `DAMAGE_PART` 이미지 59,286장
+   - `repair_case_item` 393,339행, v1 damage feature 205,977건
+   - case 39,043건은 견적 부품 후보를 하나 이상 보유하고, 39,676건 모두 DAMAGE geometry를 보유한다.
+   - 상태 `PARTIAL`은 case·이미지 적재 실패가 아니라 원천 견적 item 정규화 보류를 뜻한다. `unmapped_part` 164,734행, work type 누락 9,503행, 수치 범위 오류 2,721행은 현재 유효 비용 행에서 제외된다. 이 전체 backlog를 즉시 해결하지 않고, 다음 coverage audit에서 데모 대상 부품에 실제 부족이 있을 때만 해당 원시 명칭을 우선 보완한다.
+2. **완료** — v2 `DAMAGE` feature 347,086건을 생성했다. canonical 계약은 `part_code=NULL`·`pair_status=UNPAIRED`이며 repair hint는 분리 테이블에만 저장했다.
+3. **완료** — v2 DAMAGE 원본 이미지 109,011장에 YOLO 부품 후보를 전수 추론했다. 신규 104,757장 처리, 기존 DEV 4,254장 skip, YOLO 오류 0건이다. 소요 시간은 1시간 21분이었다.
+4. **완료** — searchable v2 feature 294,519건의 DINOv2 embedding을 생성했다. 기존 13,375건을 재사용하고 신규 281,144건을 생성했으며 실패 0건, 소요 시간은 2시간 46분이었다.
+5. **1차 완료** — case-dedup Top-200과 raw 정답 비용 audit으로 v2 YOLO 비용 참조 정책을 최소 5·최대 30 case로 정했다. 작업 방식 분리 적용 뒤 동일 기준을 재검증한다.
+6. **보류** — 검색·견적·S3 key 정합성, API/프론트 E2E 및 v2 활성화 여부를 최종 결정한다.
+
+S3 원본 이미지는 이미 전수 업로드됐으므로, 위 적재는 S3 재업로드가 아니라 DB의 `storage_key`와 이미지 행을 정합화하는 작업이다.
+
+MVP 데모의 상세 범위·완료 조건은 [MVP 유사 사례 견적 데모 실행 기준](MVP-유사-사례-견적-데모-실행-기준.md)에서 관리한다.
+
+## 13. 관련 검토 산출물
 
 - `outputs/ab_eval_2026-09-18/guide_good_v2_yolo_boost_sweep.html`
 - `outputs/ab_eval_2026-09-18/guide_good_v2_yolo_boost_strategy_ab.html`
@@ -318,8 +440,12 @@ YOLO는 비용 연결에 실질적으로 도움이 되지만, 현재 1,000 case 
 - `outputs/ab_eval_2026-09-18/pool_only_estimate_reference_review.html`
 - `outputs/ab_eval_2026-09-18/repair_case_item_part_cost_coverage_audit.html`
 - `outputs/ab_eval_2026-09-18/rocker_panel_case_work_association_audit.html`
+- `outputs/ab_eval_2026-09-18/damage_type_work_method_compatibility_audit.html`
+- `outputs/ab_eval_2026-09-18/estimate_method_stratification_audit.html`
+- `outputs/ab_eval_2026-09-18/estimate_reference_similarity_review.html`
+- `outputs/ab_eval_2026-09-18/full_source_estimate_supply_audit.html`
 
-## 13. 별도: S3 Key 결정
+## 14. 별도: S3 Key 결정
 
 AI-Hub 사례 이미지는 기존 서비스 버킷의 실제 Key 규칙을 유지한다. 문서상 신규 builder 규칙으로 기존 객체를 임의 이전하지 않는다.
 
@@ -329,4 +455,4 @@ AI-Hub 사례 이미지는 기존 서비스 버킷의 실제 Key 규칙을 유�
 repair-cases/AIHUB_AS/as-0000160/0406472/original.jpg
 ```
 
-S3 전수 업로드/중복 방지 작업은 corpus/견적 로직과 독립적으로 수행한다. DB의 source image reference로 원본 파일을 찾고, 이미 존재하는 object는 `head-object` 등으로 확인 후 건너뛴다.
+S3 전수 업로드는 완료됐다. 향후 적재 job은 S3 객체를 재업로드하지 않고 DB의 source image reference와 storage key만 정합화한다.

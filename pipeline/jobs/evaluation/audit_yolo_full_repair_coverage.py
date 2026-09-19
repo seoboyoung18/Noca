@@ -298,6 +298,20 @@ def flat_rows(audits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def metric_summary(audits: list[dict[str, Any]]) -> dict[str, Any]:
     paired = [a for a in audits if a.get("pairStatus") == "PAIRED" and a.get("partCode")]
+    threshold_summary = {
+        str(minimum): {
+            "vectorTop10Queries": sum(
+                a["validWorkCostVectorTop10Count"] >= minimum for a in paired
+            ),
+            "yoloTop10Queries": sum(
+                a["validWorkCostYoloTop10Count"] >= minimum for a in paired
+            ),
+            "poolQueries": sum(
+                a["validWorkCostPoolCount"] >= minimum for a in paired
+            ),
+        }
+        for minimum in (3, 5, 10)
+    }
     statuses = {status: sum(a.get("status") == status for a in audits)
                 for status in (STATUS_QUERY_PART_UNRESOLVED, STATUS_NO_VISUAL_MATCH,
                                STATUS_NO_WORK_COST, STATUS_POOL_NOT_TOP10, STATUS_VECTOR_VALID,
@@ -326,6 +340,7 @@ def metric_summary(audits: list[dict[str, Any]]) -> dict[str, Any]:
         "poolOnlyEstimableQueries": sum(a["status"] == STATUS_POOL_ESTIMABLE for a in paired),
         "yoloNewValidWorkCostCases": new_count,
         "yoloDroppedValidWorkCostCases": dropped_count,
+        "caseCountThresholds": threshold_summary,
         "statuses": statuses, "byPart": by_part, "byDamageType": by_damage,
     }
 
@@ -361,10 +376,16 @@ def render_html(audits: list[dict[str, Any]], summary: dict[str, Any], root: Pat
         f"<tr><td>{html.escape(str(a.get('externalRef') or a.get('caseId')))}</td><td>{html.escape(str(a.get('partCode') or '-'))}</td><td>{html.escape(str(a.get('damageType') or '-'))}</td><td>{html.escape(str(a.get('pairStatus') or '-'))}</td><td>{html.escape(str(a.get('status')))}</td><td>{a.get('validWorkCostPoolCount',0)}</td><td>{a.get('validWorkCostVectorTop10Count',0)}</td><td>{a.get('validWorkCostYoloTop10Count',0)}</td></tr>"
         for a in audits
     )
+    threshold_rows = "".join(
+        f"<tr><td>{minimum}건 이상</td><td>{counts['vectorTop10Queries']}</td>"
+        f"<td>{counts['yoloTop10Queries']}</td><td>{counts['poolQueries']}</td></tr>"
+        for minimum, counts in summary["caseCountThresholds"].items()
+    )
     return f'''<!doctype html><html lang="ko"><meta charset="utf-8"><title>v2 YOLO FULL_REPAIR coverage audit</title><style>
 body{{font:14px system-ui;margin:24px;background:#f5f7fb;color:#172033}}h1,h2,h3{{margin:0 0 10px}}.summary,.section{{background:#fff;border:1px solid #d8deea;border-radius:10px;padding:16px;margin:16px 0}}.stats{{display:flex;gap:10px;flex-wrap:wrap}}.stat{{background:#eef2ff;border-radius:8px;padding:10px 14px}}.stat b{{font-size:22px;display:block}}table{{width:100%;border-collapse:collapse;font-size:12px}}th,td{{border:1px solid #d8deea;padding:6px;text-align:left}}th{{background:#f1f4fa}}.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}}article{{background:#fff;border:1px solid #d8deea;border-radius:9px;padding:12px}}.sample-img{{width:100%;height:210px;object-fit:contain;background:#eef2f7}}.note{{background:#fff7ed;padding:10px;border-radius:8px;color:#92400e}}@media(max-width:900px){{body{{margin:10px}}}}
 </style><main><h1>v2 DAMAGE · YOLO FULL_REPAIR 견적 연결률 전수 audit</h1><p class="note">vector pool {100}개를 baseline과 YOLO flat 0.05가 공유합니다. 유효 비용은 기존 EstimateService의 WORK/PART_PRICE 필터와 case 집계를 사용하되, WORK가 없는 PART_PRICE_ONLY는 FULL_REPAIR에서 제외했습니다. repair hint와 DB write는 사용하지 않았습니다.</p>
-<div class="summary"><h2>전체 요약</h2><div class="stats"><div class="stat"><b>{summary['queryCount']}</b>전체 query</div><div class="stat"><b>{summary['queryPairedCount']}</b>PAIRED</div><div class="stat"><b>{summary['vectorTop10FullRepairEstimableQueries']}</b>vector Top-10 estimable</div><div class="stat"><b>{summary['yoloRerankTop10FullRepairEstimableQueries']}</b>YOLO Top-10 estimable</div><div class="stat"><b>{summary['difference']:+d}</b>차이</div><div class="stat"><b>{summary['poolValidWorkCostQueries']}</b>pool valid WORK</div><div class="stat"><b>{summary['poolOnlyEstimableQueries']}</b>pool-only estimable</div><div class="stat"><b>{summary['yoloNewValidWorkCostCases']}</b>YOLO 신규 valid case</div><div class="stat"><b>{summary['yoloDroppedValidWorkCostCases']}</b>YOLO 밀어낸 valid case</div></div></div>
+<div class="summary"><h2>전체 요약</h2><div class="stats"><div class="stat"><b>{summary['queryCount']}</b>전체 query</div><div class="stat"><b>{summary['queryPairedCount']}</b>PAIRED</div><div class="stat"><b>{summary['vectorTop10FullRepairEstimableQueries']}</b>vector Top-10 3건 이상</div><div class="stat"><b>{summary['yoloRerankTop10FullRepairEstimableQueries']}</b>YOLO Top-10 3건 이상</div><div class="stat"><b>{summary['difference']:+d}</b>3건 이상 차이</div><div class="stat"><b>{summary['poolValidWorkCostQueries']}</b>pool valid WORK</div><div class="stat"><b>{summary['poolOnlyEstimableQueries']}</b>pool-only 3건 이상</div><div class="stat"><b>{summary['yoloNewValidWorkCostCases']}</b>YOLO 신규 valid case</div><div class="stat"><b>{summary['yoloDroppedValidWorkCostCases']}</b>YOLO 밀어낸 valid case</div></div></div>
+<section class="section"><h2>유효 FULL_REPAIR 사례 수별 확보 query</h2><p>Top-100은 견적 참조 탐색 pool이고, Top-10은 현재 검색 표시 순위다. 운영 목표인 10건은 이 표와 이미지 검토를 함께 보고 확정한다.</p><table><tr><th>최소 사례 수</th><th>vector Top-10</th><th>YOLO Top-10</th><th>Top-100 pool</th></tr>{threshold_rows}</table></section>
 <section class="section"><h2>부품별</h2><table><tr><th>partCode</th><th>query</th><th>vector estimable</th><th>YOLO estimable</th><th>pool valid</th></tr>{group_table(summary['byPart'])}</table></section>
 <section class="section"><h2>damageType별</h2><table><tr><th>damageType</th><th>query</th><th>vector estimable</th><th>YOLO estimable</th><th>pool valid</th></tr>{group_table(summary['byDamageType'])}</table></section>
 <section class="section"><h2>query별 상태</h2><table><tr><th>query</th><th>part</th><th>damage</th><th>pair</th><th>status</th><th>pool valid</th><th>vector Top-10</th><th>YOLO Top-10</th></tr>{query_rows}</table></section>
