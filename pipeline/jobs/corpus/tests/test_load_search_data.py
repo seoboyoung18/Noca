@@ -81,6 +81,47 @@ class SearchDataLoaderTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "purpose=DEV"):
                 load_case_manifest(path)
 
+    def test_load_case_manifest_train_only_accepts_dev_and_pool(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cases.csv"
+            path.write_text(
+                "case_id,purpose,dataset_split\n"
+                "as-0000001,DEV,TRAIN_ONLY\n"
+                "as-0000002,POOL,TRAIN_ONLY\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                load_case_manifest(path, scope="train-only"),
+                {"as-0000001", "as-0000002"},
+            )
+
+    def test_load_case_manifest_train_only_rejects_validation_or_mixed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cases.csv"
+            path.write_text(
+                "case_id,purpose,dataset_split\n"
+                "as-0000001,POOL,TRAIN_ONLY\n"
+                "as-0000002,EVAL,VALIDATION_ONLY\n"
+                "as-0000003,FULL_ONLY,MIXED\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "purpose=DEV 또는 POOL"):
+                load_case_manifest(path, scope="train-only")
+
+    def test_load_case_manifest_train_only_rejects_non_train_split(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cases.csv"
+            path.write_text(
+                "case_id,purpose,dataset_split\n"
+                "as-0000001,POOL,MIXED\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "dataset_split=TRAIN_ONLY"):
+                load_case_manifest(path, scope="train-only")
+
     def test_search_label_index_includes_damage_and_damage_part(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

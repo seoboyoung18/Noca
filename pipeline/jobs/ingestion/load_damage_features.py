@@ -83,11 +83,12 @@ def selected_damage_labels(
     subset_root: Path,
     readiness_csv: Path,
     case_manifest: Path,
+    manifest_scope: str = "dev",
     source: str = "all",
     limit: int | None = None,
 ) -> dict[str, list[Path]]:
     selected = load_readiness(readiness_csv.resolve(), source)
-    selected &= load_case_manifest(case_manifest.resolve())
+    selected &= load_case_manifest(case_manifest.resolve(), scope=manifest_scope)
     if limit is not None:
         if limit < 1:
             raise ValueError("limit must be positive")
@@ -280,6 +281,12 @@ def main() -> None:
     parser.add_argument("--readiness-csv", type=Path, required=True)
     parser.add_argument("--case-manifest", type=Path, required=True)
     parser.add_argument(
+        "--manifest-scope",
+        choices=("dev", "train-only"),
+        default="dev",
+        help="dev는 DEV 사례만, train-only는 TRAIN_ONLY의 DEV·POOL 사례를 적재합니다.",
+    )
+    parser.add_argument(
         "--dsn",
         help="지원 중단 옵션. 접속 문자열은 DATABASE_URL 환경변수만 사용합니다.",
     )
@@ -300,6 +307,7 @@ def main() -> None:
         subset_root=subset_root,
         readiness_csv=args.readiness_csv,
         case_manifest=args.case_manifest,
+        manifest_scope=args.manifest_scope,
         source=args.source,
         limit=args.limit,
     )
@@ -308,6 +316,7 @@ def main() -> None:
         "image_source": "DAMAGE",
         "part_code_policy": "NULL",
         "pair_status": "UNPAIRED",
+        "manifest_scope": args.manifest_scope,
         "selected_case_count": len(labels_by_case),
         "damage_image_count": sum(len(labels) for labels in labels_by_case.values()),
         **summarize_labels(labels_by_case, dataset_root=dataset_root, subset_root=subset_root),

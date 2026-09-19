@@ -231,28 +231,50 @@ def load_readiness(path: Path, source: str) -> set[str]:
     return selected
 
 
-def load_case_manifest(path: Path) -> set[str]:
+def load_case_manifest(path: Path, *, scope: str = "dev") -> set[str]:
+    if scope not in {"dev", "train-only"}:
+        raise ValueError(f"unsupported manifest scope: {scope}")
+
+    allowed_purposes = {"DEV"} if scope == "dev" else {"DEV", "POOL"}
     selected: set[str] = set()
     with path.open(encoding="utf-8-sig", newline="") as fp:
         reader = csv.DictReader(fp)
         has_purpose = "purpose" in (reader.fieldnames or [])
-        non_dev_purposes: set[str] = set()
+        has_dataset_split = "dataset_split" in (reader.fieldnames or [])
+        invalid_purposes: set[str] = set()
+        invalid_splits: set[str] = set()
         for row in reader:
             case_id = str(row.get("case_id") or "").strip()
             if not CASE_RE.fullmatch(case_id):
                 continue
             if has_purpose:
                 purpose = str(row.get("purpose") or "").strip()
-                if purpose != "DEV":
-                    non_dev_purposes.add(purpose or "<empty>")
+                if purpose not in allowed_purposes:
+                    invalid_purposes.add(purpose or "<empty>")
+                    continue
+            if scope == "train-only":
+                dataset_split = str(row.get("dataset_split") or "").strip()
+                if not has_dataset_split or dataset_split != "TRAIN_ONLY":
+                    invalid_splits.add(dataset_split or "<empty>")
                     continue
             selected.add(case_id)
 
-    if non_dev_purposes:
-        values = ", ".join(sorted(non_dev_purposes))
+    if invalid_purposes:
+        values = ", ".join(sorted(invalid_purposes))
+        if scope == "dev":
+            raise ValueError(
+                "검색 DB 적재 manifest에는 purpose=DEV 사례만 포함할 수 있습니다. "
+                f"발견된 목적: {values}. search_dev_cases.csv를 사용하세요."
+            )
         raise ValueError(
-            "검색 DB 적재 manifest에는 purpose=DEV 사례만 포함할 수 있습니다. "
-            f"발견된 목적: {values}. search_dev_cases.csv를 사용하세요."
+            "train-only 검색 DB 적재 manifest에는 purpose=DEV 또는 POOL 사례만 포함할 수 있습니다. "
+            f"발견된 목적: {values}."
+        )
+    if invalid_splits:
+        values = ", ".join(sorted(invalid_splits))
+        raise ValueError(
+            "train-only 검색 DB 적재 manifest에는 dataset_split=TRAIN_ONLY 사례만 포함할 수 있습니다. "
+            f"발견된 split: {values}."
         )
     return selected
 
@@ -802,6 +824,10 @@ def main() -> None:
     parser.add_argument("--readiness-csv", type=Path, required=True)
     parser.add_argument("--case-manifest", type=Path, required=True,
                         help="DEV/DEMO/EVAL 등 사례 단위 subset manifest")
+    parser.add_argument(
+        "--manifest-scope", choices=("dev", "train-only"), default="dev",
+        help="dev는 DEV만, train-only는 TRAIN_ONLY의 DEV+POOL만 허용",
+    )
     mapping = parser.add_mutually_exclusive_group(required=True)
     mapping.add_argument("--mapping-workbook", type=Path)
     mapping.add_argument("--mapping-seed-sql", type=Path,
@@ -825,7 +851,7 @@ def main() -> None:
     subset_root = args.subset_root.resolve()
     dataset_root = (args.dataset_root or subset_root.parent).resolve()
     selected = load_readiness(args.readiness_csv.resolve(), args.source)
-    selected &= load_case_manifest(args.case_manifest.resolve())
+    selected &= load_case_manifest(args.case_manifest.resolve(), scope=args.manifest_scope)
     if args.limit is not None:
         selected = set(sorted(selected)[:args.limit])
     label_index = build_label_index(subset_root, selected)
@@ -839,6 +865,7 @@ def main() -> None:
         ),
         "include_damage_reference": args.include_damage_reference,
         "pipeline_version_id": args.pipeline_version_id,
+        "manifest_scope": args.manifest_scope,
         "readiness_selected": len(selected),
         "mapping_rows": len(mapping_rows) if args.mapping_workbook else "seed_sql",
         "raw_estimate_scope": "separate_aihub_estimate_raw_all_125006",
