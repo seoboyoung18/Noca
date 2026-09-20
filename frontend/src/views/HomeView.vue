@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import LogoMark from '../components/LogoMark.vue'
@@ -22,7 +22,8 @@ import { accidentRoute, analysisProgressView } from '../data/accidents'
  *
  * 화면은 <b>한 화면에 고정</b>한다(본문 overflow: hidden) — 앱처럼 보이려면 홈 전체가 따라 움직이면 안 된다.
  * 대신 사고 이력 목록만 제 영역 안에서 스크롤한다(.hscroll). 위쪽(인사·CTA·타일·진행 중)은 줄지 않고, 남는 높이를 목록이 가져간다.
- * 높이는 <b>Galaxy S24(360x780)</b> 기준으로 맞췄다 — 진행 중 카드까지 있는 가장 빡빡한 상태에서 이력 카드 2장이 온전히 들어간다.
+ * 높이는 기기 하나에 맞추지 않는다. 남는 높이를 flex 로 나눠 가져(아래 style 참고) 화면이 클수록 카드가 더 보이고,
+ * 마지막에 fitList() 로 얇게 걸친 자락만 잘라 카드 단위로 맞춘다.
  */
 const router = useRouter()
 const auth = useAuthStore()
@@ -98,6 +99,39 @@ function openFinished(a) {
   router.push(accidentRoute(a))
 }
 function openRecent(a) { router.push(accidentRoute(a)) }
+
+/* ----- 목록 높이 다듬기 -----
+ * 남는 높이를 그대로 쓰면 기기에 따라 다음 카드가 몇 px 만 걸쳐 보인다 — 잘린 게 아니라 렌더링이 깨진 것처럼 보인다.
+ * 그런 얇은 자락만 잘라 카드 단위로 맞춘다. 절반쯤 걸쳐 보이는 건 "아래 더 있다" 는 신호라 그대로 둔다.
+ */
+const listEl = ref(null)
+const listMore = ref(false) // 아래에 더 있는지 — 끝을 흐리게 해서 스크롤된다는 걸 알린다
+const CARD = 114 // 카드 106 + 위 여백 8
+const MIN_PEEK = 28 // 이보다 얇게 걸치면 잘라낸다
+function fitList() {
+  const el = listEl.value
+  if (!el) return
+  el.style.maxHeight = '' // 제한을 풀고 flex 가 준 높이를 잰다
+  const avail = el.clientHeight
+  const rest = avail % CARD
+  if (avail > CARD && rest > 0 && rest < MIN_PEEK) el.style.maxHeight = `${avail - rest}px`
+  onListScroll()
+}
+function onListScroll() {
+  const el = listEl.value
+  listMore.value = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > 4
+}
+// 목록이 생겼다 없어졌다 하고(v-if) 건수도 바뀌므로 그때마다 다시 붙인다. 화면 크기가 바뀌면 본문 높이가 바뀌어 콜백이 돈다
+let ro
+watch(() => recent.value.length, async (n) => {
+  await nextTick()
+  ro?.disconnect(); ro = null
+  if (!n || !listEl.value) return
+  ro = new ResizeObserver(fitList)
+  ro.observe(listEl.value.parentElement)
+  fitList()
+}, { immediate: true })
+onUnmounted(() => ro?.disconnect())
 
 </script>
 
@@ -185,7 +219,7 @@ function openRecent(a) { router.push(accidentRoute(a)) }
           <button class="link" @click="router.push('/history')">전체 보기</button>
         </div>
         <!-- 목록만 제 영역 안에서 스크롤한다 — 화면 전체는 움직이지 않는다 -->
-        <div class="hscroll">
+        <div ref="listEl" class="hscroll" :class="{ more: listMore }" @scroll.passive="onListScroll">
           <AccidentRow v-for="a in recent" :key="a.accidentId" :a="a" @open="openRecent">
             <template #action>
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:0 0 18px"><path d="M6 3.5L10.5 8L6 12.5" stroke="#8B95A1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -218,29 +252,45 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 <style scoped>
 /* 홈은 한 화면에 고정한다 — 페이지가 통째로 스크롤되면 앱이 아니라 웹페이지처럼 보인다 */
 .body.fixed { overflow: hidden; }
-/* flex 컬럼이라 내용이 길어지면 고정 높이 자식(CTA·타일·카드)이 눌린다 — 줄지 않게 고정하고, 남는 높이는 목록만 가져간다 */
+/* 화면 비율은 기기마다 다르다. 특정 높이에 맞춰 단계로 끊으면 그 사이 기기에서 어색해지므로,
+   남는 높이를 flex 로 이어서 나눠 갖는다.
+   - 글자·섹션 머리는 줄지 않는다(기본 flex-shrink: 0)
+   - 목록은 카드 2장(228px)을 먼저 확보한다(flex-shrink: 0). 자리가 모자라면 CTA·타일·진행 중 카드가 min-height 까지 줄어 내준다
+   - 덕분에 웬만한 기기에서 카드가 2장 딱 맞게 들어간다 — 2px 모자라 한 장이 잘려 보이는 일이 없다
+   - 남는 높이는 목록이 모두 가져간다 — 화면이 클수록 카드가 더 보인다 */
 .body.col > * { flex-shrink: 0; }
-.body.col > .hscroll { flex: 1 1 0; }
-/* 사고 이력 목록 — 여기만 스크롤. S24(780)에서 228px 이상이라 카드 2장이 들어간다.
-   더 짧은 기기에서도 한 장은 온전히 보이게 최소 높이를 둔다(카드 106 + 바깥 여백 8) */
-.hscroll { overflow-y: auto; min-height: 114px; scrollbar-width: none; -ms-overflow-style: none; }
+.body.col > .cta,
+.body.col > .tiles,
+.body.col > .busy { flex-shrink: 1; }
+.body.col > .hscroll { flex: 1 0 228px; }
+/* 위쪽을 최소까지 줄여도 2장이 안 들어가는 화면에서는 "한 장 + 걸친 자락" 으로 낮춘다.
+   경계 720px = 고정 280(여백·글자·섹션 머리) + 위쪽 최소 212(74+70+68) + 카드 2장 228
+   148px = 카드 한 장 114 + 자락 34 — 자락이 없으면 아래에 더 있다는 걸 알 수 없다 */
+@media (max-height: 719px) {
+  .body.col > .hscroll { flex-basis: 148px; }
+}
+/* 사고 이력 목록 — 여기만 스크롤한다. 끝에 얇게 걸친 자락은 fitList() 가 max-height 로 잘라낸다 */
+.hscroll { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+/* 카드가 딱 맞게 들어가면 스크롤된다는 걸 알 길이 없다 — 아래에 더 있을 때만 끝을 흐리게 한다 */
+.hscroll.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent); }
 .hscroll::-webkit-scrollbar { display: none; }
 .hscroll .tail { height: 8px; }
 
 .brand { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
 .me { flex: 0 0 44px; width: 44px; height: 44px; margin: -6px -6px -6px 0; display: flex; align-items: center; justify-content: center; border-radius: 22px; }
-.hello { margin-top: 18px; font-size: 14px; color: var(--text-2); }
-.cta { flex: 0 0 88px; margin-top: 16px; width: 100%; height: 88px; padding: 0 20px; border-radius: 16px; background: var(--primary); text-align: left; display: flex; align-items: center; gap: 12px; transition: background .15s; }
+.hello { margin-top: 22px; font-size: 14px; color: var(--text-2); }
+.cta { flex-basis: 96px; min-height: 74px; margin-top: 18px; width: 100%; padding: 0 20px; border-radius: 16px; background: var(--primary); text-align: left; display: flex; align-items: center; gap: 12px; transition: background .15s; }
 .cta:hover { background: var(--primary-dark); }
 .ct { font-size: 18px; font-weight: 700; color: #fff; }
 .cs { margin-top: 4px; font-size: 13px; color: rgba(255,255,255,.75); }
-.tiles { margin-top: 10px; display: flex; gap: 10px; }
-.tile { position: relative; flex: 1 1 0; min-width: 0; height: 88px; padding: 0 16px; border-radius: 16px; background: var(--primary-50); overflow: hidden; text-align: left; display: flex; flex-direction: column; justify-content: center; }
+.tiles { flex-basis: 92px; min-height: 70px; margin-top: 10px; display: flex; gap: 10px; }
+.tile { position: relative; flex: 1 1 0; min-width: 0; height: 100%; padding: 0 16px; border-radius: 16px; background: var(--primary-50); overflow: hidden; text-align: left; display: flex; flex-direction: column; justify-content: center; }
 .tile:hover { background: var(--primary-100); }
 .tile .wm { position: absolute; }
 .tile b { position: relative; font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .tile span { position: relative; margin-top: 4px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
-.busy { flex: 0 0 80px; margin-top: 12px; width: 100%; height: 80px; padding: 0 14px; background: var(--primary-soft); border-radius: 12px; display: flex; align-items: center; gap: 14px; }
+.busy { flex-basis: 86px; min-height: 68px; margin-top: 12px; width: 100%; padding: 0 14px; background: var(--primary-soft); border-radius: 12px; display: flex; align-items: center; gap: 14px; }
 .busy.done { background: var(--primary-50); border: 1px solid var(--primary-200); }
 .busy.done.fail { background: var(--danger-bg); border-color: transparent; }
 .ring { position: relative; flex: 0 0 48px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; }
@@ -250,15 +300,14 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 .bar { margin-top: 8px; display: block; height: 4px; border-radius: 2px; background: #fff; overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 2px; background: var(--primary); transition: width .3s; }
 .skel { margin-top: 8px; height: 106px; background: var(--bg-2); border-color: transparent; }
-.sechead { margin-top: 20px; }
+.sechead { margin-top: 22px; }
 
-/* 주소창이 떠서 화면이 줄었을 때(S24 706)·작은 기기에서는 위쪽을 더 줄여 목록 자리를 지킨다 — 고정 화면이라 넘치면 잘린다 */
-@media (max-height: 740px) {
-  .hello { margin-top: 12px; }
-  /* CTA·진행 중 카드는 flex-basis 로 높이를 고정해 뒀다 — height 만 바꾸면 먹지 않는다 */
-  .cta { flex-basis: 76px; height: 76px; margin-top: 12px; }
-  .tile { height: 76px; }
-  .busy { flex-basis: 72px; height: 72px; }
-  .sechead { margin-top: 16px; }
+/* 더 줄일 수 없을 만큼 짧은 화면(가로 보기 등)에서는 고정을 포기하고 스크롤을 돌려준다 — 잘려서 안 보이는 것보다 낫다.
+   640px 까지는 위쪽을 최소로 줄여 담을 수 있다(280 + 212 + 148 = 640) */
+@media (max-height: 639px) {
+  .body.fixed { overflow-y: auto; }
+  .body.col > .hscroll { flex: 0 0 auto; }
+  .hscroll { overflow: visible; }
+  .hscroll .tail { height: 24px; }
 }
 </style>
