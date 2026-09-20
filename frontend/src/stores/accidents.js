@@ -13,6 +13,10 @@ const MOCK_ACCIDENTS = () => [
     status: 'ANALYZING', hiddenAt: null, imageCount: 3, thumbnailUrl: null, thumbnailExpiresAt: null, estimateId: null, estimatedCostMin: null, estimatedCostMedian: null, estimatedCostMax: null, checklistStatus: null },
   { accidentId: 3, vehicleId: 1, vehicleInputType: 'REGISTERED', modelId: 14, manufacturer: '현대', modelName: '아반떼', vehicleType: 'SEDAN', carClass: 'Mid-size', modelYear: 2021, createdAt: daysAgo(35),
     status: 'ANALYSIS_FAILED', hiddenAt: null, imageCount: 2, thumbnailUrl: null, thumbnailExpiresAt: null, estimateId: null, estimatedCostMin: null, estimatedCostMedian: null, estimatedCostMax: null, checklistStatus: null },
+  { accidentId: 4, vehicleId: 2, vehicleInputType: 'REGISTERED', modelId: 44, manufacturer: '기아', modelName: '쏘렌토', vehicleType: 'SUV', carClass: 'Full-size', modelYear: 2019, createdAt: daysAgo(58),
+    status: 'ESTIMATED', hiddenAt: null, imageCount: 5, thumbnailUrl: null, thumbnailExpiresAt: null, estimateId: 2, estimatedCostMin: 410000, estimatedCostMedian: 530000, estimatedCostMax: 690000, checklistStatus: 'COMPLETED' },
+  { accidentId: 5, vehicleId: 1, vehicleInputType: 'REGISTERED', modelId: 14, manufacturer: '현대', modelName: '아반떼', vehicleType: 'SEDAN', carClass: 'Mid-size', modelYear: 2021, createdAt: daysAgo(96),
+    status: 'REPAIR_RECORDED', hiddenAt: null, imageCount: 3, thumbnailUrl: null, thumbnailExpiresAt: null, estimateId: 3, estimatedCostMin: 220000, estimatedCostMedian: 280000, estimatedCostMax: 350000, checklistStatus: 'COMPLETED' },
 ]
 
 /* ----- 목업 전용 보관 (가드 off) -----

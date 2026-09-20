@@ -17,8 +17,11 @@ import { accidentRoute, analysisProgressView } from '../data/accidents'
  *  - 진행 중: status=ANALYZING 인 사고. 가장 최근 1건은 진행 상태 API(GET .../analysis)를 3초마다 받아 단계·퍼센트를 보인다.
  *    분석이 끝나면(COMPLETED·FAILED) 목록을 다시 받고, 그 사고는 사용자가 카드를 눌러 결과를 보기 전까지 "진행 완료" 카드로 이 섹션에 남는다
  *    (누르고 돌아오면 아래 사고 이력 미리보기로 내려간다). 아직 안 본 완료 건은 회원별 localStorage 에 둔다 — 홈을 떠나 있는 동안 끝난 분석도 같게 다룬다
- *  - 최근 사고(미리보기): 진행 중·진행 완료(미확인)를 뺀 최근 3건. 카드는 사고 이력 화면과 같은 AccidentRow(PDF 버튼은 두지 않음 — 이력 화면에서)
+ *  - 사고 이력(미리보기): 진행 중·진행 완료(미확인)를 뺀 최근 5건. 카드는 사고 이력 화면과 같은 AccidentRow(PDF 버튼은 두지 않음 — 이력 화면에서)
  * 썸네일은 10분 서명 URL 이라 홈에 들어올 때마다 새로 받는다.
+ *
+ * 화면은 <b>한 화면에 고정</b>한다(본문 overflow: hidden) — 앱처럼 보이려면 홈 전체가 따라 움직이면 안 된다.
+ * 대신 사고 이력 목록만 제 영역 안에서 스크롤한다(.hscroll). 위쪽(인사·CTA·타일·진행 중)은 줄지 않고, 남는 높이를 목록이 가져간다.
  */
 const router = useRouter()
 const auth = useAuthStore()
@@ -30,13 +33,15 @@ const watching = ref([]) // 홈에서 "분석 중" 으로 본 accidentId. 완료
 function readWatching() { try { const v = JSON.parse(localStorage.getItem(SEEN_KEY()) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
 function writeWatching(ids) { watching.value = ids; try { ids.length ? localStorage.setItem(SEEN_KEY(), JSON.stringify(ids)) : localStorage.removeItem(SEEN_KEY()) } catch { /* 저장소 없으면 세션 안에서만 */ } }
 
+const PREVIEW_MAX = 5 // 미리보기에 담는 건수. 화면에는 2건쯤 보이고 나머지는 목록 안에서 스크롤한다
+
 const analyzing = computed(() => accidents.items.filter((a) => a.status === 'ANALYZING'))
 const busy = computed(() => analyzing.value[0] || null)
 /** 분석이 끝났는데 아직 결과를 안 본 사고 — 진행 중 섹션에 "진행 완료" 로 남는다 */
 const finished = computed(() => accidents.items.filter((a) => a.status !== 'ANALYZING' && watching.value.includes(a.accidentId)))
 const busyCount = computed(() => analyzing.value.length + finished.value.length)
-/** 미리보기 — 진행 중·진행 완료(미확인) 제외 최근 3건 */
-const recent = computed(() => accidents.items.filter((a) => a.status !== 'ANALYZING' && !watching.value.includes(a.accidentId)).slice(0, 3))
+/** 미리보기 — 진행 중·진행 완료(미확인) 제외 최근 PREVIEW_MAX 건 */
+const recent = computed(() => accidents.items.filter((a) => a.status !== 'ANALYZING' && !watching.value.includes(a.accidentId)).slice(0, PREVIEW_MAX))
 const loaded = computed(() => accidents.loaded)
 
 // 분석 중으로 보인 사고는 기록해 둔다(끝났을 때 "진행 완료" 로 남기기 위해)
@@ -97,7 +102,7 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 
 <template>
   <Screen>
-    <div class="body col scroll" style="padding-top:20px">
+    <div class="body col fixed" style="padding-top:20px">
       <div class="row" style="gap:8px">
         <LogoMark />
         <span class="brand flex1">노카</span>
@@ -128,7 +133,7 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 
       <!-- 진행 중 — 분석 중인 사고 + 끝났지만 아직 결과를 안 본 사고("진행 완료") -->
       <template v-if="busyCount">
-        <div class="row between" style="margin-top:28px">
+        <div class="row between sechead" style="margin-top:28px">
           <span class="sec">진행 중</span>
           <span class="sub">{{ busyCount }}건</span>
         </div>
@@ -167,30 +172,31 @@ function openRecent(a) { router.push(accidentRoute(a)) }
         </button>
       </template>
 
-      <!-- 사고 이력 미리보기 — 최근 3건, 카드는 사고 이력 화면과 동일 -->
+      <!-- 사고 이력 미리보기 — 카드는 사고 이력 화면과 동일. 목록만 제 영역 안에서 스크롤한다 -->
       <template v-if="!loaded && accidents.loading">
-        <div class="row between" style="margin-top:28px"><span class="sec">사고 이력</span></div>
+        <div class="row between sechead" style="margin-top:28px"><span class="sec">사고 이력</span></div>
         <div class="card skel" aria-busy="true"></div>
-        <div style="height:24px"></div>
       </template>
 
       <template v-else-if="recent.length">
-        <div class="row between" style="margin-top:28px">
+        <div class="row between sechead" style="margin-top:28px">
           <span class="sec">사고 이력</span>
           <button class="link" @click="router.push('/history')">전체 보기</button>
         </div>
-        <AccidentRow v-for="a in recent" :key="a.accidentId" :a="a" @open="openRecent">
-          <template #action>
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:0 0 18px"><path d="M6 3.5L10.5 8L6 12.5" stroke="#8B95A1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </template>
-        </AccidentRow>
-        <div style="height:24px"></div>
+        <!-- 목록만 제 영역 안에서 스크롤한다 — 화면 전체는 움직이지 않는다 -->
+        <div class="hscroll">
+          <AccidentRow v-for="a in recent" :key="a.accidentId" :a="a" @open="openRecent">
+            <template #action>
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:0 0 18px"><path d="M6 3.5L10.5 8L6 12.5" stroke="#8B95A1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </template>
+          </AccidentRow>
+          <div class="tail"></div>
+        </div>
       </template>
 
       <template v-else-if="accidents.error && !loaded">
-        <div class="row between" style="margin-top:28px"><span class="sec">사고 이력</span></div>
+        <div class="row between sechead" style="margin-top:28px"><span class="sec">사고 이력</span></div>
         <p class="sub" style="margin-top:12px">{{ accidents.error }} <button class="link" @click="accidents.load(true)">다시 시도</button></p>
-        <div style="height:24px"></div>
       </template>
 
       <template v-else-if="!busyCount">
@@ -203,15 +209,22 @@ function openRecent(a) { router.push(accidentRoute(a)) }
           </div>
         </div>
       </template>
-      <div v-else style="height:24px"></div>
     </div>
     <div class="spacer"></div>
   </Screen>
 </template>
 
 <style scoped>
-/* .body.col 은 flex 컬럼 + overflow 라 내용이 화면보다 길어지면 고정 높이 자식(CTA·타일·카드)이 줄어든다 — 줄지 않게 고정 */
+/* 홈은 한 화면에 고정한다 — 페이지가 통째로 스크롤되면 앱이 아니라 웹페이지처럼 보인다 */
+.body.fixed { overflow: hidden; }
+/* flex 컬럼이라 내용이 길어지면 고정 높이 자식(CTA·타일·카드)이 눌린다 — 줄지 않게 고정하고, 남는 높이는 목록만 가져간다 */
 .body.col > * { flex-shrink: 0; }
+.body.col > .hscroll { flex: 1 1 0; }
+/* 사고 이력 목록 — 여기만 스크롤. 화면이 짧아도 카드 하나는 온전히 보이게 최소 높이를 둔다(카드 106 + 바깥 여백 8) */
+.hscroll { overflow-y: auto; min-height: 114px; scrollbar-width: none; -ms-overflow-style: none; }
+.hscroll::-webkit-scrollbar { display: none; }
+.hscroll .tail { height: 8px; }
+
 .brand { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
 .me { flex: 0 0 44px; width: 44px; height: 44px; margin: -6px -6px -6px 0; display: flex; align-items: center; justify-content: center; border-radius: 22px; }
 .hello { margin-top: 28px; font-size: 14px; color: var(--text-2); }
@@ -235,4 +248,14 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 .bar { margin-top: 8px; display: block; height: 4px; border-radius: 2px; background: #fff; overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 2px; background: var(--primary); transition: width .3s; }
 .skel { margin-top: 8px; height: 106px; background: var(--bg-2); border-color: transparent; }
+
+/* 작은 화면(4.7~5.5인치)에서는 위쪽 여백·높이를 줄여 목록에 자리를 내준다 — 고정 화면이라 넘치면 잘린다 */
+@media (max-height: 740px) {
+  .hello { margin-top: 16px; }
+  /* CTA·진행 중 카드는 flex-basis 로 높이를 고정해 뒀다 — height 만 바꾸면 먹지 않는다 */
+  .cta { flex-basis: 80px; height: 80px; margin-top: 14px; }
+  .tile { height: 80px; }
+  .busy { flex-basis: 76px; height: 76px; }
+  .sechead { margin-top: 18px !important; }
+}
 </style>
