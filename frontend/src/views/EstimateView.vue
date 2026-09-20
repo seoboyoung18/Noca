@@ -5,7 +5,7 @@ import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import BottomSheet from '../components/BottomSheet.vue'
 import { AUTH_GUARD_OFF } from '../router'
-import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetchEstimate } from '../lib/api'
+import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetchEstimate, fetchEstimatePdfStatus } from '../lib/api'
 import { imageThumb } from '../data/accidents'
 import { useChecklistStore } from '../stores/checklist'
 import {
@@ -26,6 +26,8 @@ import {
  * 부품별 내역 카드를 누르면 그 부품(partCode)의 도형만 남기고 나머지는 숨긴다 — 다른 사진에만 있으면 그 사진으로 넘긴다. 다시 누르면 전체.
  * 견적은 AI 콜백이 만들므로 결과가 있어도 견적이 아직 없을 수 있다 — 그때는 부위 목록만 보이고 금액은 "산정 중".
  * 견적을 받으면 정비 체크리스트 생성을 서버 큐에 넣는다(서버는 자동 생성하지 않음) — 이미 있으면 409 라 조용히 넘어간다.
+ * 아래 버튼은 리포트를 이미 만들었는지에 따라 갈린다(S15P21A307-558) — 만들어 둔 것을 또 만들라고 권할 이유가 없다.
+ * 만들기 전이면 "리포트 만들기"(생성 중 화면을 거쳐 리포트로), 이미 만들었으면 "리포트 보기"(리포트로 바로).
  */
 const route = useRoute()
 const router = useRouter()
@@ -40,8 +42,26 @@ const imageUrls = ref({}) // imageId → RESIZED URL
 const notice = ref(false)
 const photo = ref(0)
 
+/* ----- 이미 만든 리포트가 있는지 -----
+ * 리포트(PDF)는 견적 하나당 한 건이고, 요청한 적이 없으면 상태 API 가 data: null 을 준다.
+ * 만들었거나(COMPLETED) 만드는 중(QUEUED·PROCESSING)이면 "리포트 보기" 로 바꾼다.
+ * 실패(FAILED)는 남은 리포트가 없으니 "만들기" 로 두어 다시 시도할 수 있게 한다.
+ * 상태를 못 받아 오면 "만들기" 다 — 모를 때는 기능을 줄이지 않는다. 이미 있는 리포트를 다시 열어도 탈이 없다.
+ */
+const reportMade = ref(false)
+const REPORT_ALIVE = ['QUEUED', 'PROCESSING', 'COMPLETED']
+async function loadReportState() {
+  reportMade.value = false
+  if (!estimateId.value) return
+  try {
+    const s = await fetchEstimatePdfStatus(estimateId.value)
+    reportMade.value = REPORT_ALIVE.includes(s?.status)
+  } catch { /* 모르면 버튼을 남긴다 */ }
+}
+
 async function load() {
-  if (!accidentId) { applyMock(); return } // 목업 진입(쿼리 없음) — 서버 없이 화면 확인
+  // 목업 진입(쿼리 없음) — 서버 없이 화면 확인. 리포트 상태까지 받고 나서 로딩을 내려야 버튼이 깜빡이지 않는다
+  if (!accidentId) { applyMock(); await loadReportState(); loading.value = false; return }
   loading.value = true
   error.value = ''
   try {
@@ -54,6 +74,7 @@ async function load() {
     if (!estimateId.value) estimateId.value = (await fetchAccidentEstimates(accidentId))[0]?.estimateId ?? null
     if (estimateId.value) {
       estimate.value = await fetchEstimate(estimateId.value)
+      await loadReportState() // 자체 try 로 감싸 두었다 — 여기서 실패해도 분석 결과 화면은 그대로 뜬다
       useChecklistStore().ensureRequested(accidentId) // 기다리지 않는다 — 체크리스트 화면이 상태를 이어 받는다
     }
   } catch (e) {
@@ -145,11 +166,12 @@ const notices = computed(() => {
   return list.length || !laborOnly ? list : [LABOR_ONLY_NOTICE]
 })
 
-function makeReport() {
+function openReport() {
   const query = {}
   if (accidentId) query.accidentId = accidentId
   if (estimateId.value) query.estimateId = estimateId.value
-  router.push({ path: '/report/generating', query })
+  // 이미 만든 리포트는 생성 중 화면을 건너뛴다 — 만들지도 않으면서 "만들고 있어요" 를 보여 줄 이유가 없다
+  router.push({ path: reportMade.value ? '/report' : '/report/generating', query })
 }
 
 /* ----- 목업 (쿼리 없음 · 가드 off) — 서버 응답 모양 그대로 ----- */
@@ -187,7 +209,6 @@ function applyMock() {
     ],
   }
   estimateId.value = AUTH_GUARD_OFF ? 1 : null
-  loading.value = false
 }
 </script>
 
@@ -309,7 +330,7 @@ function applyMock() {
     </div>
 
     <div v-if="!loading && !error && stage === 'done'" class="foot">
-      <button class="btn" :disabled="!est" @click="makeReport">리포트 만들기</button>
+      <button class="btn" :disabled="!est" @click="openReport">{{ reportMade ? '리포트 보기' : '리포트 만들기' }}</button>
     </div>
 
     <BottomSheet v-model="notice">
