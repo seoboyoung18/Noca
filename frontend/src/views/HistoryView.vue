@@ -18,7 +18,10 @@ import { accidentRoute, groupAccidents } from '../data/accidents'
  * 지우는 것이 아니라 서버가 내 목록에서 자리만 감춘다 — 기기를 바꿔도 유지되고, 사진·분석·견적·체크리스트와 이미 받은 리포트 링크는 그대로다.
  * 사고와 체크리스트는 1:1 이라 제거하면 체크리스트도 함께 빠진다고 안내한다. 더보기(세로 ⋮) → 이력 제거하기 → 카드마다 제거 버튼 → 확인 시트.
  * 되돌리기는 "제거한 이력" 화면에서 건별로 한다 — 서버에 일괄 복구가 없고, 무엇을 되살리는지 보고 고르는 편이 안전하다.
- * 행 구성(S15P21A307-531): 사고마다 카드 하나(components/AccidentRow — 홈 미리보기와 공유) | 오른쪽 세로 중앙에 PDF 아이콘 버튼.
+ * 견적 PDF 도 같은 방식이다(S15P21A307-558) — 더보기 → 견적 다운로드 → 카드마다 PDF 버튼. 평소에는 카드에 두지 않는다.
+ *   문구를 "견적" 으로 두는 건 받는 파일이 예상견적_{reportNo}.pdf 이기 때문이다 — 화면 문구와 내려받은 파일 이름이 어긋나지 않게.
+ *   목록에 들어오는 대부분은 이력을 훑으러 온 것이지 파일을 받으러 온 것이 아니다. 카드마다 버튼이 서 있으면 누를 것이 둘이 되어 어느 쪽이 본동작인지 흐려진다.
+ * 행 구성(S15P21A307-531): 사고마다 카드 하나(components/AccidentRow — 홈 미리보기와 공유) | 오른쪽 세로 중앙에 동작 자리(평소 화살표, 모드에서 PDF·제거 버튼).
  * 예상 금액·사진 장수·접수일은 행에서 뺐다(금액은 견적 화면·홈 카드에서, 날짜는 그룹 라벨로).
  * 사고 설명은 목록 API 에 없어 견적이 있는 행만 견적 항목으로 조립한다(lib/accidentDesc — 나의 체크리스트와 공유).
  */
@@ -28,17 +31,24 @@ const groups = computed(() => groupAccidents(store.items))
 
 onMounted(() => store.load(true))
 
-function open(a) { if (!hideMode.value) router.push(accidentRoute(a)) }
+function open(a) { if (!picking.value) router.push(accidentRoute(a)) }
 
 /* ===== 더보기 메뉴 · 제거 모드 · 제거한 이력 화면 ===== */
 const menu = ref(false)
-const hideMode = ref(false) // 켜지면 카드 이동이 멈추고 PDF 자리에 제거 버튼이 나온다
+const hideMode = ref(false) // 켜지면 카드 이동이 멈추고 동작 자리에 제거 버튼이 나온다
+const pdfMode = ref(false) // 켜지면 카드 이동이 멈추고 동작 자리에 PDF 받기 버튼이 나온다
+/** 카드를 "고르는" 모드 — 둘 중 하나라도 켜져 있으면 카드 이동을 멈춘다 */
+const picking = computed(() => hideMode.value || pdfMode.value)
+/** 받을 리포트가 하나도 없으면 모드에 들어가 봐야 전부 비활성이다 */
+const anyEstimate = computed(() => store.items.some((a) => a.estimateId))
 const showHidden = ref(false) // 제거한 이력 화면
 const target = ref(null) // 확인 시트가 가리키는 사고
 const lastHidden = ref(null) // 토스트의 "되돌리기" 대상
 const busy = ref(false) // 제거·되돌리기 요청 중 — 연타 방지
-function startHide() { menu.value = false; hideMode.value = true }
-function openHidden() { menu.value = false; hideMode.value = false; showHidden.value = true; store.loadHidden() }
+function endPicking() { hideMode.value = false; pdfMode.value = false }
+function startHide() { menu.value = false; pdfMode.value = false; hideMode.value = true }
+function startPdf() { menu.value = false; hideMode.value = false; pdfMode.value = true }
+function openHidden() { menu.value = false; endPicking(); showHidden.value = true; store.loadHidden() }
 function closeHidden() { showHidden.value = false }
 function askHide(a) { target.value = a }
 async function confirmHide() {
@@ -94,8 +104,8 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
     <!-- 홈("전체 보기")과 마이페이지(통계 카드) 두 곳에서 들어오므로 뒤로가기는 거쳐 온 화면으로. 직접 진입이면 홈 -->
     <AppHeader title="사고 이력" back="/home" back-history>
       <template #right>
-        <!-- 제거 모드에서는 "완료", 평소에는 더보기(세로 점 3개). 받은 이력이 있을 때만 -->
-        <button v-if="hideMode" class="act strong" @click="hideMode = false">완료</button>
+        <!-- 고르는 모드(제거·리포트)에서는 "완료", 평소에는 더보기(세로 점 3개). 받은 이력이 있을 때만 -->
+        <button v-if="picking" class="act strong" @click="endPicking">완료</button>
         <button v-else-if="showHidden" class="act strong" @click="closeHidden">완료</button>
         <button v-else-if="store.all.length || store.hiddenCount" class="icn" aria-label="더보기" :aria-expanded="menu" @click="menu = !menu">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="4" r="1.8" fill="#191F28"/><circle cx="10" cy="10" r="1.8" fill="#191F28"/><circle cx="10" cy="16" r="1.8" fill="#191F28"/></svg>
@@ -105,6 +115,10 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
     <!-- 더보기 메뉴 -->
     <div v-if="menu" class="menu-dim" @click="menu = false"></div>
     <div v-if="menu" class="menu" role="menu">
+      <button role="menuitem" :disabled="!anyEstimate" @click="startPdf">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.3 1.8h5l3 3v8a1.3 1.3 0 0 1-1.3 1.3H4.3A1.3 1.3 0 0 1 3 12.8V3.1a1.3 1.3 0 0 1 1.3-1.3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9.3 1.8v3h3" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 7.2v3.6M6.2 9l1.8 1.8L9.8 9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        견적 다운로드
+      </button>
       <button role="menuitem" :disabled="!store.items.length" @click="startHide">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4.2h11M6.2 4.2V2.9h3.6v1.3M3.9 4.2l.6 8.2a1 1 0 0 0 1 .9h5a1 1 0 0 0 1-.9l.6-8.2M6.6 6.8v4M9.4 6.8v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         이력 제거하기
@@ -163,19 +177,20 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
       <div class="row between">
         <span class="lbl">총 {{ store.total ?? store.items.length }}건</span>
         <span v-if="hideMode" class="sub" style="font-size:12px;color:var(--primary)">제거할 이력을 선택하세요</span>
+        <span v-else-if="pdfMode" class="sub" style="font-size:12px;color:var(--primary)">견적을 받을 이력을 선택하세요</span>
       </div>
       <template v-for="g in groups" :key="g.label">
         <div class="lbl" style="margin-top:16px">{{ g.label }}</div>
         <!-- 카드는 홈 "최근 사고" 미리보기와 공유(AccidentRow). 오른쫽 동작만 여기서 끼운다 -->
-        <AccidentRow v-for="a in g.items" :key="a.accidentId" :a="a" :clickable="!hideMode" :class="{ picking: hideMode }" @open="open">
+        <AccidentRow v-for="a in g.items" :key="a.accidentId" :a="a" :clickable="!picking" :class="{ picking }" @open="open">
           <template #action>
             <!-- 제거 모드: PDF 자리에 제거 버튼 -->
             <button v-if="hideMode" class="pdf hide" :disabled="busy" :aria-label="`${vehicleName(a)} 이력 제거하기`" @click.stop="askHide(a)">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 6.3h17M9.3 6.3V4.3a1 1 0 0 1 1-1h3.4a1 1 0 0 1 1 1v2M5.8 6.3l.9 12.4a1.6 1.6 0 0 0 1.6 1.5h7.4a1.6 1.6 0 0 0 1.6-1.5l.9-12.4M10 10.2v6M14 10.2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span class="pl">제거</span>
             </button>
-            <!-- PDF 받기 — 아이콘 버튼. 견적이 없는 행도 같은 자리에 비활성으로 둬 행마다 배치가 같게 -->
-            <button v-else class="pdf" :class="{ busy: pdfBusyFor(a) }" :disabled="!a.estimateId || pdfBusyId !== null" :aria-busy="pdfBusyFor(a)"
+            <!-- 리포트 모드: PDF 받기. 견적이 없는 행도 같은 자리에 비활성으로 둬 행마다 배치가 같게 -->
+            <button v-else-if="pdfMode" class="pdf" :class="{ busy: pdfBusyFor(a) }" :disabled="!a.estimateId || pdfBusyId !== null" :aria-busy="pdfBusyFor(a)"
               :aria-label="pdfLabel(a)" :title="pdfLabel(a)" @click.stop="pdf(a)">
               <span v-if="pdfBusyFor(a)" class="spin" aria-hidden="true"></span>
               <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -185,6 +200,8 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
               </svg>
               <span class="pl">PDF</span>
             </button>
+            <!-- 평소: 눌러서 들어가는 카드라는 표시만. 홈 미리보기와 같은 화살표다 -->
+            <svg v-else width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:0 0 18px"><path d="M6 3.5L10.5 8L6 12.5" stroke="#8B95A1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </template>
         </AccidentRow>
       </template>
