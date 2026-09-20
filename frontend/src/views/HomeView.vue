@@ -22,6 +22,7 @@ import { accidentRoute, analysisProgressView } from '../data/accidents'
  *
  * 화면은 <b>한 화면에 고정</b>한다(본문 overflow: hidden) — 앱처럼 보이려면 홈 전체가 따라 움직이면 안 된다.
  * 대신 사고 이력 목록만 제 영역 안에서 스크롤한다(.hscroll). 위쪽(인사·CTA·타일·진행 중)은 줄지 않고, 남는 높이를 목록이 가져간다.
+ * 높이는 <b>Galaxy S24(360x780)</b> 기준으로 맞췄다 — 진행 중 카드까지 있는 가장 빡빡한 상태에서 이력 카드 2장이 온전히 들어간다.
  */
 const router = useRouter()
 const auth = useAuthStore()
@@ -33,7 +34,7 @@ const watching = ref([]) // 홈에서 "분석 중" 으로 본 accidentId. 완료
 function readWatching() { try { const v = JSON.parse(localStorage.getItem(SEEN_KEY()) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
 function writeWatching(ids) { watching.value = ids; try { ids.length ? localStorage.setItem(SEEN_KEY(), JSON.stringify(ids)) : localStorage.removeItem(SEEN_KEY()) } catch { /* 저장소 없으면 세션 안에서만 */ } }
 
-const PREVIEW_MAX = 5 // 미리보기에 담는 건수. 화면에는 2건쯤 보이고 나머지는 목록 안에서 스크롤한다
+const PREVIEW_MAX = 5 // 미리보기에 담는 건수. S24 에 2건이 보이고 나머지는 목록 안에서 스크롤한다
 
 const analyzing = computed(() => accidents.items.filter((a) => a.status === 'ANALYZING'))
 const busy = computed(() => analyzing.value[0] || null)
@@ -133,7 +134,7 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 
       <!-- 진행 중 — 분석 중인 사고 + 끝났지만 아직 결과를 안 본 사고("진행 완료") -->
       <template v-if="busyCount">
-        <div class="row between sechead" style="margin-top:28px">
+        <div class="row between sechead">
           <span class="sec">진행 중</span>
           <span class="sub">{{ busyCount }}건</span>
         </div>
@@ -174,12 +175,12 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 
       <!-- 사고 이력 미리보기 — 카드는 사고 이력 화면과 동일. 목록만 제 영역 안에서 스크롤한다 -->
       <template v-if="!loaded && accidents.loading">
-        <div class="row between sechead" style="margin-top:28px"><span class="sec">사고 이력</span></div>
+        <div class="row between sechead"><span class="sec">사고 이력</span></div>
         <div class="card skel" aria-busy="true"></div>
       </template>
 
       <template v-else-if="recent.length">
-        <div class="row between sechead" style="margin-top:28px">
+        <div class="row between sechead">
           <span class="sec">사고 이력</span>
           <button class="link" @click="router.push('/history')">전체 보기</button>
         </div>
@@ -195,7 +196,7 @@ function openRecent(a) { router.push(accidentRoute(a)) }
       </template>
 
       <template v-else-if="accidents.error && !loaded">
-        <div class="row between sechead" style="margin-top:28px"><span class="sec">사고 이력</span></div>
+        <div class="row between sechead"><span class="sec">사고 이력</span></div>
         <p class="sub" style="margin-top:12px">{{ accidents.error }} <button class="link" @click="accidents.load(true)">다시 시도</button></p>
       </template>
 
@@ -220,25 +221,26 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 /* flex 컬럼이라 내용이 길어지면 고정 높이 자식(CTA·타일·카드)이 눌린다 — 줄지 않게 고정하고, 남는 높이는 목록만 가져간다 */
 .body.col > * { flex-shrink: 0; }
 .body.col > .hscroll { flex: 1 1 0; }
-/* 사고 이력 목록 — 여기만 스크롤. 화면이 짧아도 카드 하나는 온전히 보이게 최소 높이를 둔다(카드 106 + 바깥 여백 8) */
+/* 사고 이력 목록 — 여기만 스크롤. S24(780)에서 228px 이상이라 카드 2장이 들어간다.
+   더 짧은 기기에서도 한 장은 온전히 보이게 최소 높이를 둔다(카드 106 + 바깥 여백 8) */
 .hscroll { overflow-y: auto; min-height: 114px; scrollbar-width: none; -ms-overflow-style: none; }
 .hscroll::-webkit-scrollbar { display: none; }
 .hscroll .tail { height: 8px; }
 
 .brand { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
 .me { flex: 0 0 44px; width: 44px; height: 44px; margin: -6px -6px -6px 0; display: flex; align-items: center; justify-content: center; border-radius: 22px; }
-.hello { margin-top: 28px; font-size: 14px; color: var(--text-2); }
-.cta { flex: 0 0 92px; margin-top: 20px; width: 100%; height: 92px; padding: 0 20px; border-radius: 16px; background: var(--primary); text-align: left; display: flex; align-items: center; gap: 12px; transition: background .15s; }
+.hello { margin-top: 18px; font-size: 14px; color: var(--text-2); }
+.cta { flex: 0 0 88px; margin-top: 16px; width: 100%; height: 88px; padding: 0 20px; border-radius: 16px; background: var(--primary); text-align: left; display: flex; align-items: center; gap: 12px; transition: background .15s; }
 .cta:hover { background: var(--primary-dark); }
 .ct { font-size: 18px; font-weight: 700; color: #fff; }
 .cs { margin-top: 4px; font-size: 13px; color: rgba(255,255,255,.75); }
 .tiles { margin-top: 10px; display: flex; gap: 10px; }
-.tile { position: relative; flex: 1 1 0; min-width: 0; height: 92px; padding: 0 16px; border-radius: 16px; background: var(--primary-50); overflow: hidden; text-align: left; display: flex; flex-direction: column; justify-content: center; }
+.tile { position: relative; flex: 1 1 0; min-width: 0; height: 88px; padding: 0 16px; border-radius: 16px; background: var(--primary-50); overflow: hidden; text-align: left; display: flex; flex-direction: column; justify-content: center; }
 .tile:hover { background: var(--primary-100); }
 .tile .wm { position: absolute; }
 .tile b { position: relative; font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .tile span { position: relative; margin-top: 4px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
-.busy { flex: 0 0 84px; margin-top: 12px; width: 100%; height: 84px; padding: 0 14px; background: var(--primary-soft); border-radius: 12px; display: flex; align-items: center; gap: 14px; }
+.busy { flex: 0 0 80px; margin-top: 12px; width: 100%; height: 80px; padding: 0 14px; background: var(--primary-soft); border-radius: 12px; display: flex; align-items: center; gap: 14px; }
 .busy.done { background: var(--primary-50); border: 1px solid var(--primary-200); }
 .busy.done.fail { background: var(--danger-bg); border-color: transparent; }
 .ring { position: relative; flex: 0 0 48px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; }
@@ -248,14 +250,15 @@ function openRecent(a) { router.push(accidentRoute(a)) }
 .bar { margin-top: 8px; display: block; height: 4px; border-radius: 2px; background: #fff; overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 2px; background: var(--primary); transition: width .3s; }
 .skel { margin-top: 8px; height: 106px; background: var(--bg-2); border-color: transparent; }
+.sechead { margin-top: 20px; }
 
-/* 작은 화면(4.7~5.5인치)에서는 위쪽 여백·높이를 줄여 목록에 자리를 내준다 — 고정 화면이라 넘치면 잘린다 */
+/* 주소창이 떠서 화면이 줄었을 때(S24 706)·작은 기기에서는 위쪽을 더 줄여 목록 자리를 지킨다 — 고정 화면이라 넘치면 잘린다 */
 @media (max-height: 740px) {
-  .hello { margin-top: 16px; }
+  .hello { margin-top: 12px; }
   /* CTA·진행 중 카드는 flex-basis 로 높이를 고정해 뒀다 — height 만 바꾸면 먹지 않는다 */
-  .cta { flex-basis: 80px; height: 80px; margin-top: 14px; }
-  .tile { height: 80px; }
-  .busy { flex-basis: 76px; height: 76px; }
-  .sechead { margin-top: 18px !important; }
+  .cta { flex-basis: 76px; height: 76px; margin-top: 12px; }
+  .tile { height: 76px; }
+  .busy { flex-basis: 72px; height: 72px; }
+  .sechead { margin-top: 16px; }
 }
 </style>
