@@ -17,14 +17,15 @@ const router = useRouter()
 const store = useAppStore()
 const auth = useAuthStore()
 
-// 연결된 계정 — 소셜 계정 이름(가입 때 받은 값, 닉네임을 바꿔도 고정) · 로그인 방식 · 이메일(있을 때만)
-// 소셜 이름은 서버 값 → 가입 시 브라우저에 보관한 값 순으로 쓰고, 없으면 줄을 비운다 (앱 닉네임을 반복하지 않음)
+// 연결된 계정 — 이름 · 이메일 두 줄과 로그인 방식 칩(카카오/구글). "○○ 계정으로 로그인" 문장은 뺐다(S15P21A307-559) — 칩이 이미 말한다
+// 이름: 소셜 계정 이름(서버 값 → 가입 시 브라우저에 보관한 값) 이 있으면 그것, 없으면 앱 닉네임
 const PROVIDER_LABEL = { KAKAO: '카카오', GOOGLE: '구글' }
 const provider = computed(() => auth.me?.provider || 'KAKAO')
 const providerLabel = computed(() => PROVIDER_LABEL[provider.value] || provider.value)
 const socialName = computed(() => (AUTH_GUARD_OFF && !auth.me ? '김싸피' : auth.socialName))
-// 서버는 이메일을 저장하지 않아(member.email 항상 NULL) 대부분 비어 있다. 있을 때만 보여 준다
-const email = computed(() => auth.me?.email || '')
+const displayName = computed(() => socialName.value || auth.nickname || '')
+// 이메일: 프로필(GET /api/members/me) → 로그인 정보 순. 서버가 소셜에서 이메일을 못 받았으면 null 이라 그때는 "이메일 정보 없음"
+const email = computed(() => (AUTH_GUARD_OFF && !auth.me ? 'ssafy@kakao.com' : profile.value?.email || auth.me?.email || ''))
 
 // 탈퇴 안내의 건수 — GET /api/members/me 의 vehicleCount·accidentCount. 못 받으면 목업 수치
 const profile = ref(null)
@@ -74,9 +75,9 @@ async function doQuit() {
     <div class="body fixed" style="padding-top:20px">
       <div class="lbl">연결된 계정</div>
       <div class="card row" style="margin-top:8px;padding:20px 16px;gap:12px">
-        <span class="flex1" style="display:flex;flex-direction:column;gap:8px">
-          <span v-if="socialName" style="font-size:16px;font-weight:700">{{ socialName }}</span>
-          <span :style="socialName ? 'font-size:14px;color:var(--text-2)' : 'font-size:16px;font-weight:700'">{{ providerLabel }} 계정으로 로그인{{ email ? ' · ' + email : '' }}</span>
+        <span class="flex1" style="display:flex;flex-direction:column;gap:6px;min-width:0">
+          <span style="font-size:16px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ displayName || '이름 정보 없음' }}</span>
+          <span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :style="email ? 'color:var(--text-2)' : 'color:var(--text-3)'">{{ email || '이메일 정보 없음' }}</span>
         </span>
         <span class="kk" :class="{ gg: provider === 'GOOGLE' }">{{ providerLabel }}</span>
       </div>

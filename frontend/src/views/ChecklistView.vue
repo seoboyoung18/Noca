@@ -223,7 +223,12 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
         </span>
         <!-- AI 한 줄 요약 — 서버 값이 생기기 전까지 목업 문구 -->
         <button v-if="cl.status === 'COMPLETED'" class="infob" :class="{ on: pop }" aria-label="AI 한 줄 요약 보기" :aria-expanded="pop" @click="pop = !pop">
-          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M10 9v4.5M10 6.5h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <!-- AI 요약 버튼 — 정보(i)가 아니라 AI 를 뜻하는 반짝임(마름모 별 셋). 큰 별 하나 + 작은 별 둘 -->
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M8.5 4.5C8.9 8 10 9.6 15 11C10 12.4 8.9 14 8.5 17.5C8.1 14 7 12.4 2 11C7 9.6 8.1 8 8.5 4.5Z"/>
+            <path d="M15.5 2C15.7 3.6 16.2 4.2 18 4.5C16.2 4.8 15.7 5.4 15.5 7C15.3 5.4 14.8 4.8 13 4.5C14.8 4.2 15.3 3.6 15.5 2Z"/>
+            <path d="M16 13C16.15 14.3 16.6 14.7 18 15C16.6 15.3 16.15 15.7 16 17C15.85 15.7 15.4 15.3 14 15C15.4 14.7 15.85 14.3 16 13Z"/>
+          </svg>
         </button>
       </div>
 
