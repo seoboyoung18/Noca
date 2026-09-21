@@ -10,7 +10,7 @@ import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetch
 import { imageThumb } from '../data/accidents'
 import { useChecklistStore } from '../stores/checklist'
 import {
-  LABOR_ONLY_NOTICE, confidenceLabel, detectionShapes, exclusionText, numberParts, pointToPercent, wonOne, wonRange, wonShort,
+  detectionShapes, exclusionText, numberParts, pointToPercent, wonOne, wonRange, wonShort,
 } from '../data/estimates'
 
 /* ===== 예상 견적 · 분석 결과 (S07b, 목업 A안 — 사진 위 번호 콜아웃) =====
@@ -148,13 +148,6 @@ const markLabel = (m) => (m.partCode ? parts.value.find((p) => p.partCode === m.
 const est = computed(() => estimate.value)
 const priceRange = computed(() => wonRange(est.value?.totalMin, est.value?.totalMax))
 const priceMedian = computed(() => wonOne(est.value?.totalMedian))
-const confidence = computed(() => confidenceLabel(est.value?.confidenceGrade))
-const notices = computed(() => {
-  const list = est.value?.notices?.length ? est.value.notices : []
-  // 문구 테이블 전이라 서버 notices 가 비어 있다. 부품비가 원천에 없어 null 인 견적은 공임 기준 고지를 FE 가 붙인다
-  const laborOnly = (est.value?.items || []).some((it) => it.partCostMedian == null && it.itemMedian != null)
-  return list.length || !laborOnly ? list : [LABOR_ONLY_NOTICE]
-})
 
 function openReport() {
   const query = {}
@@ -246,14 +239,11 @@ function applyMock() {
           <div class="big">{{ priceRange }}</div>
           <div v-if="priceMedian" class="sub" style="margin-top:8px">중앙값 {{ priceMedian }}</div>
           <div class="range"><i></i></div>
-          <div class="row" style="margin-top:14px;gap:6px">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 1.4l4.6 1.8v3.4c0 3-1.9 5.2-4.6 6-2.7-.8-4.6-3-4.6-6V3.2z" :stroke="est.confidenceGrade === 'LOW' ? '#B7791F' : '#4E36E4'" stroke-width="1.4" stroke-linejoin="round"/></svg>
-            <span style="font-size:12px;color:var(--text-2)">
-              <template v-if="confidence">신뢰도 {{ confidence }}</template>
-              <template v-if="est.refCaseTotal != null"> · 유사 사례 {{ est.refCaseTotal }}건 기준</template>
-            </span>
+          <!-- 신뢰도 등급·사례 부족 경고는 화면에서 뺐다(S15P21A307-559) — 고지가 겹쳐 많았다. 근거 건수만 남긴다 -->
+          <div v-if="est.refCaseTotal != null" class="row" style="margin-top:14px;gap:6px">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 1.4l4.6 1.8v3.4c0 3-1.9 5.2-4.6 6-2.7-.8-4.6-3-4.6-6V3.2z" stroke="#4E36E4" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <span style="font-size:12px;color:var(--text-2)">유사 사례 {{ est.refCaseTotal }}건 기준</span>
           </div>
-          <p v-if="est.confidenceGrade === 'LOW'" class="lowc">참조 사례가 적어 실제 금액과 차이가 클 수 있어요</p>
         </template>
         <template v-else-if="est">
           <div class="big" style="font-size:20px">산정할 수 없어요</div>
@@ -264,7 +254,6 @@ function applyMock() {
           <p class="sub" style="margin-top:8px;line-height:1.5">손상 부위 분석은 끝났고 금액 계산이 남았어요. 잠시 후 다시 확인해 주세요.</p>
         </template>
       </div>
-      <p v-for="n in notices" :key="n.code" class="sub" style="margin-top:8px;font-size:11px;line-height:1.5">{{ n.message }}</p>
 
       <!-- 인식된 손상 부위 — 사진 위 폴리곤 + 바운딩박스 -->
       <div v-if="photos.length" style="margin-top:24px">
@@ -303,7 +292,7 @@ function applyMock() {
             </span>
             <span v-if="!p.na" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
               <span style="font-size:15px;font-weight:700">{{ wonOne(p.median) }}</span>
-              <span class="sub" style="font-size:12px">{{ wonShort(p.min, p.max) }}<template v-if="p.low"> · <span style="color:var(--warn)">사례 부족</span></template></span>
+              <span class="sub" style="font-size:12px">{{ wonShort(p.min, p.max) }}</span>
             </span>
             <span v-else class="tag warn">산정 불가</span>
           </button>
@@ -333,7 +322,6 @@ function applyMock() {
 .big { margin-top: 10px; font-size: 28px; font-weight: 700; color: var(--text); letter-spacing: -0.04em; white-space: nowrap; }
 .range { position: relative; margin-top: 14px; height: 4px; border-radius: 2px; background: var(--line); }
 .range i { position: absolute; left: 20%; right: 25%; top: 0; height: 4px; border-radius: 2px; background: var(--primary); }
-.lowc { margin: 8px 0 0; font-size: 12px; color: var(--warn); }
 .shot { position: relative; margin-top: 12px; width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--bg-2); display: flex; align-items: center; justify-content: center; }
 .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* 검출 도형(폴리곤·코너 하이라이트)의 스타일은 components/DetectionOverlay 에 있다 — 리포트 미리보기와 공유 */
