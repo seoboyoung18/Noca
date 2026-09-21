@@ -164,7 +164,7 @@ onUnmounted(() => { stopped = true; clearTimeout(timer) }) // 화면을 떠나�
     <header class="hdr"><span class="ttl">분석 중</span></header>
     <div class="prog"><i style="width:100%"></i></div>
 
-    <div class="body col scroll" style="padding:0">
+    <div class="body col fixed" style="padding:0">
       <div class="gap"></div>
 
       <!-- 실패 · 요청 거절 -->
@@ -215,7 +215,7 @@ onUnmounted(() => { stopped = true; clearTimeout(timer) }) // 화면을 떠나�
         <p v-if="excludedText" class="sub" style="margin-top:20px;padding:0 40px;font-size:12px;line-height:1.5">{{ excludedText }}</p>
 
         <div class="flex1"></div>
-        <div class="center" style="padding-bottom:40px">
+        <div class="center" style="padding-bottom:16px">
           <p class="sub" style="font-size:12px">창을 닫아도 분석은 계속돼요</p>
           <p class="sub" style="font-size:12px;margin-top:4px">사고 이력에서 결과를 확인할 수 있어요</p>
         </div>

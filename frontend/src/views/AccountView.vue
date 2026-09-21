@@ -71,7 +71,7 @@ async function doQuit() {
 <template>
   <Screen>
     <AppHeader title="계정 관리" back="/my" line />
-    <div class="body" style="padding-top:20px">
+    <div class="body fixed" style="padding-top:20px">
       <div class="lbl">연결된 계정</div>
       <div class="card row" style="margin-top:8px;padding:20px 16px;gap:12px">
         <span class="flex1" style="display:flex;flex-direction:column;gap:8px">

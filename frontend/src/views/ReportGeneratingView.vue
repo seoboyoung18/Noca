@@ -15,7 +15,7 @@ onUnmounted(() => clearTimeout(t))
   <Screen>
     <header class="hdr"><span class="ttl">리포트 생성 중</span></header>
     <div class="prog"><i style="width:100%"></i></div>
-    <div class="body col" style="padding:0">
+    <div class="body col fixed" style="padding:0">
       <div style="flex:0 0 clamp(60px, 22vh, 201px)"></div>
       <div style="display:flex;flex-direction:column;align-items:center;text-align:center">
         <svg width="72" height="72" viewBox="0 0 72 72" fill="none" aria-hidden="true" style="animation:dcspin 1s linear infinite">

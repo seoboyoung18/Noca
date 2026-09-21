@@ -14,7 +14,7 @@ const rows = [
 <template>
   <Screen>
     <AppHeader title="알림 설정" back="/my" line />
-    <div class="body scroll" style="padding-top:20px">
+    <div class="body fixed" style="padding-top:20px">
       <div class="lbl">알림</div>
       <div class="card" style="margin-top:8px;padding:0 16px">
         <div v-for="r in rows" :key="r.key" class="trow">
