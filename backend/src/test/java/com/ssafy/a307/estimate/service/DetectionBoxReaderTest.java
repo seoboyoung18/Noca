@@ -1,6 +1,7 @@
-package com.ssafy.a307.estimate.pdf;
+package com.ssafy.a307.estimate.service;
 
-import com.ssafy.a307.estimate.pdf.EstimatePdfDocument.Box;
+import com.ssafy.a307.estimate.dto.EstimateItemResponse;
+import com.ssafy.a307.estimate.dto.EstimateReportResponse.Box;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -102,6 +103,27 @@ class DetectionBoxReaderTest {
         assertThat(reader.read("  ", (short) 1000, (short) 500, NUMBERS)).isEmpty();
         assertThat(reader.read("{not json", (short) 1000, (short) 500, NUMBERS)).isEmpty();
         assertThat(reader.read("{\"detections\":[]}", (short) 1000, (short) 500, NUMBERS)).isEmpty();
+    }
+
+    /**
+     * 박스 번호는 예상 수리비 표의 순번이다. 미리보기와 PDF 가 이 함수 하나로 세야 사진의 ① 이
+     * 표의 같은 행을 가리킨다 (S15P21A307-560).
+     */
+    @Test
+    @DisplayName("번호는 표의 행 순서이고 같은 부위는 먼저 나온 행 번호를 쓴다")
+    void partNumbersFollowTableRows() {
+        Map<String, Integer> numbers = DetectionBoxReader.partNumbers(List.of(
+                item("FRONT_BUMPER"), item(null), item("HEAD_LAMP_L"), item("FRONT_BUMPER")));
+
+        assertThat(numbers).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "FRONT_BUMPER", 1,
+                // 부위 코드가 빈 행도 표에는 한 줄을 차지한다 — 번호를 건너뛰지 않으면 어긋난다
+                "HEAD_LAMP_L", 3));
+    }
+
+    private static EstimateItemResponse item(String partCode) {
+        return new EstimateItemResponse(1L, partCode, "부위", "FRONT", "Scratched", "exchange", "교환",
+                null, null, null, null, 100, 100, 100, 3, false);
     }
 
     private static String detections(String partCode, int x, int y, int width, int height) {

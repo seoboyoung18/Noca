@@ -7,6 +7,7 @@ import com.ssafy.a307.common.exception.ErrorCode;
 import com.ssafy.a307.estimate.dto.EstimateBasisResponse;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse.Accident;
+import com.ssafy.a307.estimate.dto.EstimateReportResponse.Box;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse.Image;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse.Vehicle;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse.Narrative;
@@ -17,6 +18,7 @@ import com.ssafy.a307.estimate.narrative.EstimateNarrativeReader;
 import com.ssafy.a307.estimate.narrative.EstimateNarrativeRepository;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository.ReportContextView;
+import com.ssafy.a307.estimate.repository.EstimateReportRepository.ReportImageView;
 import com.ssafy.a307.estimate.repository.NativeTimestamps;
 import com.ssafy.a307.estimatevalidation.dto.ValidationResultResponse;
 import com.ssafy.a307.estimatevalidation.service.EstimateValidationService;
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 사고 분석 견적 리포트 조립 (S15P21A307-337·338).
@@ -45,6 +48,7 @@ public class EstimateReportService {
     private final EstimateNoticeProvider noticeProvider;
     private final EstimateNarrativeRepository narrativeRepository;
     private final EstimateNarrativeReader narrativeReader;
+    private final DetectionBoxReader boxReader;
 
     @Transactional(readOnly = true)
     public EstimateReportResponse report(Long estimateId, Long memberId) {
@@ -55,12 +59,10 @@ public class EstimateReportService {
         EstimateResponse estimate = estimateQueryService.detail(estimateId, memberId);
         EstimateBasisResponse basis = estimateQueryService.basis(estimateId, memberId);
 
+        // 박스 번호는 예상 수리비 표의 순번이다. PDF 와 같은 함수로 센다 (S15P21A307-560).
+        Map<String, Integer> partNumbers = DetectionBoxReader.partNumbers(estimate.items());
         List<Image> images = reportRepository.findAnalyzedImages(context.getJobId()).stream()
-                .map(image -> new Image(image.getImageId(), image.getAngleCode(),
-                        downloadUrls.presign(image.getOverlayKey())
-                                .map(PresignedDownload::url)
-                                .map(Object::toString)
-                                .orElse(null)))
+                .map(image -> image(image, partNumbers))
                 .toList();
 
         ValidationResultResponse validation = reportRepository
@@ -84,6 +86,37 @@ public class EstimateReportService {
 
         requireSections(report);
         return report;
+    }
+
+    /**
+     * 화면이 그릴 사진 한 장 (S15P21A307-560).
+     *
+     * <p><b>PDF 와 같은 순서로 고른다</b>({@code EstimatePdfProcessor#toPdfImage}) — 오버레이가
+     * 있으면 그것, 없으면 사용자가 올린 축소본. 박스도 같은 판독기·같은 번호로 만든다.
+     *
+     * <p><b>오버레이에는 박스를 얹지 않는다.</b> 그 그림에 이미 파손 표시가 들어 있어, 두 표시가
+     * 겹치면 어느 쪽이 AI 의 판단인지 알 수 없다. 사진이 없으면 박스도 없다 — 얹을 곳이 없다.
+     */
+    private Image image(ReportImageView view, Map<String, Integer> partNumbers) {
+        String overlayUrl = presign(view.getOverlayKey());
+        if (overlayUrl != null) {
+            return new Image(view.getImageId(), view.getAngleCode(),
+                    overlayUrl, overlayUrl, true, List.of());
+        }
+        String photoUrl = presign(view.getResizedKey());
+        List<Box> boxes = photoUrl == null
+                ? List.of()
+                : boxReader.read(view.getDetections(), view.getResizedWidth(),
+                        view.getResizedHeight(), partNumbers);
+        return new Image(view.getImageId(), view.getAngleCode(), null, photoUrl, false, boxes);
+    }
+
+    /** 5분짜리 조회 URL. 키가 없거나 서명이 실패하면 {@code null} — 그 칸은 비운다. */
+    private String presign(String key) {
+        return downloadUrls.presign(key)
+                .map(PresignedDownload::url)
+                .map(Object::toString)
+                .orElse(null);
     }
 
     /**
