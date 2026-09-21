@@ -38,7 +38,7 @@ def _settings() -> Settings:
         model_imgsz=960, part_weights=Path("part.pt"), damage_weights=Path("damage.pt"),
         part_model_version="1", damage_model_version="1", database_url="postgresql://test",
         embedding_model_name="model", embedding_model_revision="revision",
-        embedding_model_version="version", search_top_k=20,
+        embedding_model_version="version", search_top_k=20, yolo_corpus_part_boost=0.03,
     )
 
 

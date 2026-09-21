@@ -415,10 +415,11 @@ def test_not_approved_rows_are_excluded(assessment_status):
 
     result = service.calculate(_request([part]))
 
-    # case 1이 불인정으로 빠지므로 최소 사례 수(3) 미달 → 미해결 처리.
-    assert result["estimable"] is False
-    assert result["unresolvedParts"][0]["reason"] == "INSUFFICIENT_CASES"
-
+    # case 1이 불인정으로 빠지고 2·3만 남는다. 최소 사례 수가 바뀌어도
+    # 이 테스트가 확인할 것은 "불인정 행이 빠졌는가" 하나다.
+    assert result["estimable"] is True
+    assert result["refCaseTotal"] == 2
+    assert result["items"][0]["referencedCaseIds"] == [2, 3]
 
 def test_reference_price_and_ancillary_rows_are_excluded():
     rows = [
@@ -456,3 +457,74 @@ def test_source_aware_columns_read_post_adjustment_for_sc():
 
     item = result["items"][0]
     assert item["itemTotal"] == round(statistics.median([100000, 110000, 120000]))
+
+
+def test_part_price_only_reference_is_separate_from_full_repair():
+    rows = [
+        _row(1, "PART_A", "PART_PRICE", part_cost=10000),
+        _row(2, "PART_A", "PART_PRICE", part_cost=20000),
+        _row(3, "PART_A", "PART_PRICE", part_cost=30000),
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows), enable_part_price_reference=True)
+    part = _part(part_code="PART_A", referenced_case_ids=[],)
+    part["partPriceCandidateCases"] = [
+        {"caseId": 1, "similarity": 0.9, "corpusPartMatched": True, "corpusPartCode": "PART_A"},
+        {"caseId": 2, "similarity": 0.8, "corpusPartMatched": True, "corpusPartCode": "PART_A"},
+        {"caseId": 3, "similarity": 0.7, "corpusPartMatched": True, "corpusPartCode": "PART_A"},
+    ]
+    result = service.calculate(_request([part]))
+    assert result["estimable"] is False
+    assert result["totals"] is None
+    assert result["partPriceReferences"][0]["referenceKind"] == "PART_PRICE_ONLY"
+    assert result["partPriceReferences"][0]["costDistribution"] == {
+        "p25": 15000, "median": 20000, "p75": 25000,
+    }
+
+
+def test_part_price_reference_requires_three_valid_cases_and_excludes_not_approved():
+    rows = [
+        _row(1, "PART_A", "PART_PRICE", part_cost=10000),
+        _row(2, "PART_A", "PART_PRICE", part_cost=20000, assessment_status="NOT_APPROVED"),
+        _row(3, "PART_A", "PART_PRICE", part_cost=0),
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows), enable_part_price_reference=True)
+    part = _part(part_code="PART_A")
+    part["partPriceCandidateCases"] = [
+        {"caseId": i, "similarity": 1 - i / 10, "corpusPartMatched": True, "corpusPartCode": "PART_A"}
+        for i in (1, 2, 3)
+    ]
+    result = service.calculate(_request([part]))
+    assert result["partPriceReferences"] == []
+
+
+def test_part_price_reference_uses_sc_post_adjustment_part_cost():
+    rows = [
+        _row(i, "PART_A", "PART_PRICE", source="AIHUB_SC", part_cost=999999,
+             post_adjustment_part_cost=value)
+        for i, value in enumerate((10000, 20000, 30000), 1)
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows), enable_part_price_reference=True)
+    part = _part(part_code="PART_A")
+    part["partPriceCandidateCases"] = [
+        {"caseId": i, "similarity": 1 - i / 10, "corpusPartMatched": True, "corpusPartCode": "PART_A"}
+        for i in (1, 2, 3)
+    ]
+    result = service.calculate(_request([part]))
+    assert result["partPriceReferences"][0]["costDistribution"]["median"] == 20000
+
+
+def test_yolo_estimate_reference_selects_only_full_repair_cases():
+    rows = []
+    for case_id in (1, 2, 3):
+        rows.append(_row(case_id, "PART_A", "WORK", work_code="REPAIR",
+                         part_cost=50000 + case_id * 1000, labor_cost=30000))
+    rows.append(_row(4, "PART_A", "PART_PRICE", part_cost=99999))
+    service = EstimateService(InMemoryCostCaseRepository(rows), enable_yolo_estimate_references=True)
+    candidates = [
+        {"caseId": case_id, "similarity": 1 - case_id / 10,
+         "corpusPartMatched": True, "corpusPartCode": "PART_A"}
+        for case_id in (1, 2, 3, 4)
+    ]
+    selected = service.select_full_repair_reference_candidates(candidates, "PART_A")
+    assert [row["caseId"] for row in selected] == [1, 2, 3]
+    assert all(row["includedInDistribution"] for row in selected)

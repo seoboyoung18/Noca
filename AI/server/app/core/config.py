@@ -24,6 +24,12 @@ class Settings:
     embedding_model_revision: str
     embedding_model_version: str
     search_top_k: int
+    yolo_corpus_part_boost: float
+    enable_part_price_reference: bool = False
+    enable_yolo_estimate_references: bool = False
+    yolo_estimate_candidate_k: int = 200
+    yolo_estimate_min_cases: int = 5
+    yolo_estimate_max_cases: int = 30
 
     @property
     def has_required_runtime_config(self) -> bool:
@@ -50,4 +56,12 @@ def load_settings() -> Settings:
         embedding_model_version=os.getenv(
             "EMBEDDING_MODEL_VERSION", "f9e44c8-pooler-pad20-lb224gray"),
         search_top_k=int(os.getenv("SEARCH_TOP_K", "20")),
+        yolo_corpus_part_boost=float(os.getenv("YOLO_CORPUS_PART_BOOST", "0.03")),
+        enable_part_price_reference=os.getenv("ENABLE_PART_PRICE_REFERENCE", "false").strip().lower()
+        in {"1", "true", "yes", "on"},
+        enable_yolo_estimate_references=os.getenv("ENABLE_YOLO_ESTIMATE_REFERENCES", "false").strip().lower()
+        in {"1", "true", "yes", "on"},
+        yolo_estimate_candidate_k=int(os.getenv("YOLO_ESTIMATE_CANDIDATE_K", "200")),
+        yolo_estimate_min_cases=int(os.getenv("YOLO_ESTIMATE_MIN_CASES", "5")),
+        yolo_estimate_max_cases=int(os.getenv("YOLO_ESTIMATE_MAX_CASES", "30")),
     )

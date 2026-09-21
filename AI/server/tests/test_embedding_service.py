@@ -118,6 +118,27 @@ class EmbeddingServiceTest(unittest.TestCase):
 
         self.assertEqual(groups[("REAR_BUMPER", "Scratched")]["fallbackStage"], "ALL")
 
+    def test_merged_group_preserves_configured_thirty_estimate_references(self):
+        groups = {}
+        first = {
+            "detectionId": "501:damage:damage-001", "partCode": "REAR_BUMPER",
+            "damageType": "Scratched", "confidence": 0.8, "pairStatus": "PAIRED",
+            "searchability": "STRICT", "fallbackStage": "ALL", "searchHitCount": 1,
+            "referencedCaseIds": [10], "cases": [{"caseId": 10, "similarity": 0.8}],
+            "estimateReferencedCaseIds": list(range(1, 21)),
+            "estimateReferenceMinimumCaseCount": 5,
+            "estimateReferenceMaximumCaseCount": 30,
+        }
+        second = {**first, "detectionId": "502:damage:damage-002",
+                  "estimateReferencedCaseIds": list(range(21, 41))}
+
+        _merge_strict(groups, first)
+        _merge_strict(groups, second)
+
+        actual = groups[("REAR_BUMPER", "Scratched")]
+        self.assertEqual(actual["estimateReferencedCaseIds"], list(range(1, 31)))
+        self.assertEqual(actual["estimateReferenceMinimumCaseCount"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

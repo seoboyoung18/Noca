@@ -9,11 +9,13 @@ from __future__ import annotations
 import logging
 import statistics
 from collections import defaultdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..infrastructure.cost_repository import CostCaseRepository, CostCaseRow
-from ..schemas.contracts import EstimateRequest
 from . import estimate_config as config
+
+if TYPE_CHECKING:
+    from ..schemas.contracts import EstimateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +76,14 @@ class _CaseCost:
 
 
 class EstimateService:
-    def __init__(self, repository: CostCaseRepository) -> None:
+    def __init__(self, repository: CostCaseRepository, *,
+                 enable_part_price_reference: bool = False,
+                 enable_yolo_estimate_references: bool = False,
+                 yolo_estimate_max_cases: int = 30) -> None:
         self._repository = repository
+        self._enable_part_price_reference = enable_part_price_reference
+        self._enable_yolo_estimate_references = enable_yolo_estimate_references
+        self._yolo_estimate_max_cases = yolo_estimate_max_cases
 
     def calculate(self, request: EstimateRequest) -> dict[str, Any]:
         strict_parts = [part for part in request.parts if part.get("searchability") == "STRICT"]
@@ -84,7 +92,12 @@ class EstimateService:
 
         case_ids = sorted({
             int(case_id)
-            for part in strict_parts for case_id in part.get("referencedCaseIds", [])
+            for part in strict_parts
+            for case_id in (
+                list(_estimate_case_ids(part, self._enable_yolo_estimate_references))
+                + [candidate.get("caseId") for candidate in part.get("partPriceCandidateCases", [])]
+            )
+            if case_id is not None
         })
         part_codes = sorted({part["partCode"] for part in strict_parts})
         rows = self._repository.fetch_case_items(case_ids, part_codes)
@@ -92,10 +105,22 @@ class EstimateService:
         for row in rows:
             rows_by_key[(row.case_id, row.part_code)].append(row)
 
+        part_price_references = [
+            reference
+            for part in strict_parts
+            for reference in (
+                _part_price_reference(part, rows_by_key)
+                if self._enable_part_price_reference else []
+            )
+        ]
+
         items: list[dict[str, Any]] = []
         unresolved: list[UnresolvedPart] = []
         for part in strict_parts:
-            resolved = _resolve_item(part, rows_by_key)
+            resolved = _resolve_item(
+                part, rows_by_key,
+                case_ids=_estimate_case_ids(part, self._enable_yolo_estimate_references),
+            )
             if isinstance(resolved, UnresolvedPart):
                 unresolved.append(resolved)
             else:
@@ -103,7 +128,9 @@ class EstimateService:
 
         if not items:
             reason = unresolved[0].reason if unresolved else "INSUFFICIENT_CASES"
-            return _non_estimable(reason, unresolved=unresolved)
+            return _non_estimable(
+                reason, unresolved=unresolved, part_price_references=part_price_references,
+            )
 
         totals = {
             "min": sum(item["costDistribution"]["p25"] for item in items),
@@ -123,10 +150,65 @@ class EstimateService:
             "refCaseTotal": ref_case_total,
             "items": items,
             "unresolvedParts": [part.to_dict() for part in unresolved],
+            "partPriceReferences": part_price_references,
         }
 
+    def select_full_repair_reference_candidates(
+        self, candidates: list[dict[str, Any]], part_code: str,
+        *, max_cases: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Select valid FULL_REPAIR cases from one v2 vector pool.
 
-def _non_estimable(reason: str, *, unresolved: list[UnresolvedPart]) -> dict[str, Any]:
+        SearchService supplies the already-ranked Top-100 pool. This method is
+        the single cost-policy gateway for the new estimate reference path: it
+        reuses the same row filter and ``_aggregate_case`` used by ``calculate``
+        and therefore never treats PART_PRICE-only rows as FULL_REPAIR.
+        """
+        limit = max_cases or self._yolo_estimate_max_cases
+        normalized: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for candidate in candidates:
+            try:
+                case_id = int(candidate["caseId"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if case_id in seen:
+                continue
+            seen.add(case_id)
+            normalized.append({**candidate, "caseId": case_id})
+        normalized.sort(key=lambda row: (-(float(row.get("similarity") or 0.0)), row["caseId"]))
+        rows = self._repository.fetch_case_items(
+            [row["caseId"] for row in normalized], [part_code],
+        )
+        rows_by_key: dict[tuple[int, str], list[CostCaseRow]] = defaultdict(list)
+        for row in rows:
+            rows_by_key[(row.case_id, row.part_code)].append(row)
+        output: list[dict[str, Any]] = []
+        for candidate in normalized:
+            case_id = candidate["caseId"]
+            included = [
+                row for row in rows_by_key.get((case_id, part_code), [])
+                if _is_included_row(row)
+            ]
+            case_cost = _aggregate_case(case_id, part_code, included)
+            if case_cost is None:
+                continue
+            output.append({
+                **candidate,
+                "caseId": case_id,
+                "fullRepairTotal": case_cost.total,
+                "repairMethods": sorted(case_cost.methods),
+                "includedInDistribution": True,
+            })
+            if len(output) >= limit:
+                break
+        return output
+
+
+def _non_estimable(
+    reason: str, *, unresolved: list[UnresolvedPart],
+    part_price_references: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "estimable": False,
         "nonEstimableReason": reason,
@@ -135,18 +217,107 @@ def _non_estimable(reason: str, *, unresolved: list[UnresolvedPart]) -> dict[str
         "refCaseTotal": 0,
         "items": [],
         "unresolvedParts": [part.to_dict() for part in unresolved],
+        "partPriceReferences": part_price_references or [],
     }
+
+
+PART_PRICE_REFERENCE_NOTICE = (
+    "부품비만의 참고 범위입니다. 작업비·도장비·총 수리비는 포함하지 않습니다."
+)
+
+
+def _source_aware_part_price(row: CostCaseRow) -> int:
+    """Return the source-specific PART_PRICE amount used by the reference path."""
+    value = row.post_adjustment_part_cost if row.source == "AIHUB_SC" else row.part_cost
+    return int(value or 0)
+
+
+def _part_price_reference(
+    part: dict[str, Any], rows_by_key: dict[tuple[int, str], list[CostCaseRow]],
+) -> list[dict[str, Any]]:
+    """Build an optional PART_PRICE_ONLY reference without touching FULL_REPAIR.
+
+    Candidate metadata is supplied by SearchService from the shared v2 Top-100
+    vector pool.  This helper intentionally does not inspect repair hints or
+    sibling WORK rows; those rows remain exclusively in ``_aggregate_case``.
+    """
+    # The caller gates this helper with the feature flag by removing references
+    # at construction time; keeping searchability/part checks here makes it safe
+    # for direct use in tests and future callers.
+    if part.get("searchability") != "STRICT" or not part.get("partCode"):
+        return []
+    part_code = str(part["partCode"])
+    raw_candidates = part.get("partPriceCandidateCases") or [
+        {"caseId": case_id}
+        for case_id in part.get("referencedCaseIds", [])
+    ]
+    candidates: list[tuple[int, float | None]] = []
+    seen: set[int] = set()
+    for candidate in raw_candidates:
+        if candidate.get("corpusPartMatched") is not True:
+            continue
+        if candidate.get("corpusPartCode") != part_code:
+            continue
+        try:
+            case_id = int(candidate.get("caseId"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if case_id in seen:
+            continue
+        seen.add(case_id)
+        similarity = candidate.get("similarity")
+        candidates.append((case_id, float(similarity) if similarity is not None else None))
+    # Search metadata is already similarity ordered, but sorting here makes the
+    # service deterministic when a client sends a candidate list directly.
+    if any(similarity is not None for _, similarity in candidates):
+        candidates.sort(key=lambda pair: (-(pair[1] if pair[1] is not None else float("-inf")), pair[0]))
+
+    valid: list[tuple[int, float | None, int]] = []
+    for case_id, similarity in candidates:
+        rows = rows_by_key.get((case_id, part_code), [])
+        amount = sum(
+            _source_aware_part_price(row)
+            for row in rows
+            if row.line_type == "PART_PRICE"
+            and row.assessment_status != "NOT_APPROVED"
+            and _source_aware_part_price(row) > 0
+        )
+        if amount > 0:
+            valid.append((case_id, similarity, amount))
+        if len(valid) >= 10:
+            break
+    if len(valid) < config.MIN_CASE_COUNT:
+        return []
+    amounts = [amount for _, _, amount in valid]
+    p25, median, p75 = _percentiles(amounts)
+    return [{
+        "partCode": part_code,
+        "referenceKind": "PART_PRICE_ONLY",
+        "refCaseCount": len(valid),
+        "referencedCaseIds": [case_id for case_id, _, _ in valid],
+        "costDistribution": {"p25": p25, "median": median, "p75": p75},
+        "notice": PART_PRICE_REFERENCE_NOTICE,
+    }]
+
+
+def _estimate_case_ids(part: dict[str, Any], yolo_references_enabled: bool) -> list[Any]:
+    if yolo_references_enabled and "estimateReferencedCaseIds" in part:
+        return list(part.get("estimateReferencedCaseIds") or [])
+    return list(part.get("referencedCaseIds", []))
 
 
 def _resolve_item(
     part: dict[str, Any], rows_by_key: dict[tuple[int, str], list[CostCaseRow]],
+    *, case_ids: list[Any] | None = None,
 ) -> dict[str, Any] | UnresolvedPart:
     part_code = part["partCode"]
     damage_type = part["damageType"]
-    case_ids: list[int] = [int(case_id) for case_id in part.get("referencedCaseIds", [])]
+    resolved_case_ids: list[int] = [int(case_id) for case_id in (
+        case_ids if case_ids is not None else part.get("referencedCaseIds", [])
+    )]
 
     case_costs: list[_CaseCost] = []
-    for case_id in case_ids:
+    for case_id in resolved_case_ids:
         rows = [row for row in rows_by_key.get((case_id, part_code), []) if _is_included_row(row)]
         if not rows:
             continue

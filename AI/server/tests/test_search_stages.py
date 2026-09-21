@@ -23,6 +23,7 @@ class _Cursor:
     """질의 내용을 보고 답을 고르는 최소 스텁. 두 종류의 SELECT 만 온다."""
 
     price_tier: str | None = "P3"
+    image_source: str | None = None
 
     def __enter__(self): return self
     def __exit__(self, *exc): return False
@@ -32,6 +33,8 @@ class _Cursor:
         return None
 
     def fetchone(self):
+        if "feature_pipeline_version" in getattr(self, "_last", ""):
+            return {"image_source": type(self).image_source}
         if "vehicle_model" in getattr(self, "_last", ""):
             return {"price_tier": type(self).price_tier}
         return _MODEL_ROW
@@ -62,6 +65,7 @@ class SearchStageTest(unittest.TestCase):
         self._saved_modules = {k: sys.modules.get(k) for k in ("psycopg", "psycopg.rows")}
         _install_fake_psycopg()
         _Cursor.price_tier = "P3"
+        _Cursor.image_source = None
         self._original_query = VectorRepository.__dict__["_query"]
         self.calls: list[dict] = []
         self.plan: list[list[SearchHit]] = []
@@ -150,6 +154,21 @@ class SearchStageTest(unittest.TestCase):
             self.assertEqual(call["part_code"], "REAR_BUMPER")
             self.assertEqual(call["damage_type"], "SCRATCHED")
             self.assertEqual(call["limit"], 10)
+
+    def test_v2_는_strict_query_part를_하드필터하지_않고_yolo_rerank로_넘긴다(self):
+        _Cursor.image_source = "DAMAGE"
+        self.plan = [[_hit()]]
+        self._search(model_id=None)
+        self.assertIsNone(self.calls[0]["part_code"])
+        self.assertEqual("REAR_BUMPER", self.calls[0]["yolo_query_part_code"])
+        self.assertEqual(0.03, self.calls[0]["yolo_boost"])
+
+    def test_v2_query_part가_없으면_기존_vector_path다(self):
+        _Cursor.image_source = "DAMAGE"
+        self.plan = [[_hit()]]
+        self._search(part_code=None, model_id=None)
+        self.assertIsNone(self.calls[0]["part_code"])
+        self.assertIsNone(self.calls[0]["yolo_query_part_code"])
 
 
 if __name__ == "__main__":

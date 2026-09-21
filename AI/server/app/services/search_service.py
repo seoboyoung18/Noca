@@ -11,6 +11,7 @@ from PIL import Image
 from ..infrastructure.image_fetcher import download_image
 from ..infrastructure.vector_repository import SearchHit, VectorRepository
 from .embedding_service import EmbeddingService
+from .estimate_service import EstimateService
 
 if TYPE_CHECKING:
     from ..schemas.contracts import SearchRequest
@@ -18,11 +19,27 @@ if TYPE_CHECKING:
 
 class SearchService:
     def __init__(self, repository: VectorRepository, embedding_service: EmbeddingService,
-                 *, pipeline_version_id: int, top_k: int) -> None:
+                 *, pipeline_version_id: int, top_k: int,
+                 enable_part_price_reference: bool = False,
+                 estimate_service: EstimateService | None = None,
+                 enable_yolo_estimate_references: bool = False,
+                 yolo_estimate_candidate_k: int = 200,
+                 yolo_estimate_min_cases: int = 5,
+                 yolo_estimate_max_cases: int = 30) -> None:
+        if yolo_estimate_min_cases < 1:
+            raise ValueError("yolo_estimate_min_cases must be positive")
+        if yolo_estimate_max_cases < yolo_estimate_min_cases:
+            raise ValueError("yolo_estimate_max_cases must be at least yolo_estimate_min_cases")
         self._repository = repository
         self._embedding_service = embedding_service
         self._pipeline_version_id = pipeline_version_id
         self._top_k = top_k
+        self._enable_part_price_reference = enable_part_price_reference
+        self._estimate_service = estimate_service
+        self._enable_yolo_estimate_references = enable_yolo_estimate_references
+        self._yolo_estimate_candidate_k = yolo_estimate_candidate_k
+        self._yolo_estimate_min_cases = yolo_estimate_min_cases
+        self._yolo_estimate_max_cases = yolo_estimate_max_cases
 
     @property
     def repository(self) -> VectorRepository:
@@ -53,19 +70,86 @@ class SearchService:
                         searchability = detection.get("searchability")
                         damage_type = _damage_code(detection.get("damageType"))
                         part_code = detection.get("partCode")
-                        stage, hits = await asyncio.to_thread(
-                            self._repository.search,
-                            vector=vector, pipeline_version_id=self._pipeline_version_id,
-                            damage_type=damage_type,
-                            part_code=(str(part_code) if searchability == "STRICT" and part_code else None),
-                            model_id=request.vehicle.model_id, limit=self._top_k,
+                        is_strict_v2 = (
+                            self._pipeline_version_id == 2
+                            and searchability == "STRICT" and bool(part_code)
                         )
-                        result = _result(detection, stage, hits)
+                        paired_v2 = is_strict_v2 and detection.get("pairStatus") == "PAIRED"
+                        pool_enabled = paired_v2 and (
+                            self._enable_part_price_reference or self._enable_yolo_estimate_references
+                        )
+                        search_limit = (
+                            self._yolo_estimate_candidate_k if pool_enabled
+                            else self._top_k
+                        )
+                        exclude_case_id = _query_case_id(detection, image_result)
+                        search_kwargs = {
+                            "vector": vector, "pipeline_version_id": self._pipeline_version_id,
+                            "damage_type": damage_type,
+                            "part_code": (str(part_code) if searchability == "STRICT" and part_code else None),
+                            "model_id": request.vehicle.model_id, "limit": search_limit,
+                        }
+                        if exclude_case_id is not None:
+                            search_kwargs["exclude_case_id"] = exclude_case_id
+                        stage, hits = await asyncio.to_thread(
+                            self._repository.search, **search_kwargs,
+                        )
+                        result = _result(
+                            detection, stage, hits,
+                            candidate_pool=(hits if pool_enabled else None),
+                            include_part_price_candidates=self._enable_part_price_reference,
+                        )
+                        result.update(self._estimate_reference_fields(
+                            detection, image_result, hits, paired_v2,
+                        ))
                         if searchability == "STRICT" and part_code:
                             _merge_strict(strict, result)
                         else:
                             vector_only.append(result)
         return {"parts": list(strict.values()), "vectorOnly": vector_only}
+
+    def _estimate_reference_fields(
+        self, detection: Mapping[str, Any], image_result: Mapping[str, Any],
+        hits: list[SearchHit], paired_v2: bool,
+    ) -> dict[str, Any]:
+        if not self._enable_yolo_estimate_references:
+            return _empty_estimate_reference("FEATURE_DISABLED")
+        if self._pipeline_version_id != 2:
+            return _empty_estimate_reference("PIPELINE_NOT_V2")
+        part_code = detection.get("partCode")
+        if not paired_v2 or not part_code:
+            return _empty_estimate_reference("QUERY_PART_UNRESOLVED")
+        if self._estimate_service is None:
+            return _empty_estimate_reference("ESTIMATE_SERVICE_UNAVAILABLE")
+        candidates = [
+            {"caseId": hit.case_id,
+             "similarity": hit.vector_similarity if hit.vector_similarity is not None else hit.similarity,
+             "corpusPartMatched": hit.corpus_part_matched,
+             "corpusPartCode": hit.corpus_part_code,
+             "corpusPartConfidence": hit.corpus_part_confidence,
+             "corpusPartOverlap": hit.corpus_part_overlap}
+            for hit in hits
+            if hit.corpus_part_matched and hit.corpus_part_code == part_code
+        ]
+        valid = self._estimate_service.select_full_repair_reference_candidates(
+            candidates, str(part_code), max_cases=self._yolo_estimate_max_cases,
+        )
+        if len(valid) < self._yolo_estimate_min_cases:
+            result = _empty_estimate_reference("INSUFFICIENT_FULL_REPAIR_CASES")
+            result["estimateReferenceCandidateCount"] = len(valid)
+            result["estimateReferenceMinimumCaseCount"] = self._yolo_estimate_min_cases
+            result["estimateReferenceMaximumCaseCount"] = self._yolo_estimate_max_cases
+            return result
+        ids = [int(candidate["caseId"]) for candidate in valid]
+        visible_ids = {int(hit.case_id) for hit in hits[:self._top_k]}
+        return {
+            "estimateReferencedCaseIds": ids,
+            "estimateReferenceReason": "YOLO_PART_MATCHED_FULL_REPAIR_POOL",
+            "estimateReferenceCandidateCount": len(valid),
+            "estimateReferenceMinimumCaseCount": self._yolo_estimate_min_cases,
+            "estimateReferenceMaximumCaseCount": self._yolo_estimate_max_cases,
+            "estimateReferenceVisibleCaseCount": len(set(ids) & visible_ids),
+        }
 
 
 def _damage_code(value: object) -> str:
@@ -78,9 +162,11 @@ def _damage_code(value: object) -> str:
     return mapping[str(value)]
 
 
-def _result(detection: Mapping[str, Any], stage: str, hits: list[SearchHit]) -> dict[str, Any]:
+def _result(detection: Mapping[str, Any], stage: str, hits: list[SearchHit],
+            candidate_pool: list[SearchHit] | None = None,
+            include_part_price_candidates: bool = False) -> dict[str, Any]:
     confidence = (detection.get("confidence") or {}).get("damage")
-    return {
+    result = {
         "detectionId": detection["detectionId"],
         "partCode": detection.get("partCode"),
         "damageType": detection["damageType"],
@@ -92,10 +178,47 @@ def _result(detection: Mapping[str, Any], stage: str, hits: list[SearchHit]) -> 
         "referencedCaseIds": [hit.case_id for hit in hits[:10]],
         "cases": [
             {"caseId": hit.case_id, "similarity": round(hit.similarity, 4),
-             "repairYear": hit.repair_year, "itemTotal": hit.item_total}
+             "repairYear": hit.repair_year, "itemTotal": hit.item_total,
+             "corpusPartMatched": hit.corpus_part_matched, "corpusPartCode": hit.corpus_part_code,
+             "corpusPartConfidence": hit.corpus_part_confidence, "corpusPartOverlap": hit.corpus_part_overlap,
+             "vectorSimilarity": hit.vector_similarity, "rerankedSimilarity": hit.reranked_similarity,
+             "rankingReason": hit.ranking_reason}
             for hit in hits[:10]
         ],
+        **_empty_estimate_reference("FEATURE_DISABLED"),
     }
+    if candidate_pool is not None and include_part_price_candidates:
+        result["partPriceCandidateCases"] = [
+            {"caseId": hit.case_id, "similarity": round(
+                hit.vector_similarity if hit.vector_similarity is not None else hit.similarity, 6,
+            ), "corpusPartMatched": hit.corpus_part_matched,
+             "corpusPartCode": hit.corpus_part_code}
+            for hit in candidate_pool
+        ]
+        result["partPriceCandidatePoolSize"] = len(candidate_pool)
+    return result
+
+
+def _empty_estimate_reference(reason: str) -> dict[str, Any]:
+    return {
+        "estimateReferencedCaseIds": [],
+        "estimateReferenceReason": reason,
+        "estimateReferenceCandidateCount": 0,
+        "estimateReferenceMinimumCaseCount": 0,
+        "estimateReferenceMaximumCaseCount": 0,
+        "estimateReferenceVisibleCaseCount": 0,
+    }
+
+
+def _query_case_id(detection: Mapping[str, Any], image_result: Mapping[str, Any]) -> int | None:
+    for value in (detection.get("caseId"), detection.get("case_id"),
+                  image_result.get("caseId"), image_result.get("case_id")):
+        try:
+            if value is not None and str(value).isdigit():
+                return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 # Fallback stages ordered by how much they widen the candidate pool.
@@ -128,3 +251,45 @@ def _merge_strict(groups: dict[tuple[str, str], dict[str, Any]], result: dict[st
     current["cases"] = merged
     current["referencedCaseIds"] = [case["caseId"] for case in merged]
     current["searchHitCount"] = len(by_case)
+    if "partPriceCandidateCases" in result or "partPriceCandidateCases" in current:
+        candidate_by_case = {
+            int(candidate["caseId"]): candidate
+            for candidate in current.get("partPriceCandidateCases", [])
+        }
+        for candidate in result.get("partPriceCandidateCases", []):
+            case_id = int(candidate["caseId"])
+            previous = candidate_by_case.get(case_id)
+            if previous is None or candidate.get("similarity", 0) > previous.get("similarity", 0):
+                candidate_by_case[case_id] = candidate
+        current["partPriceCandidateCases"] = sorted(
+            candidate_by_case.values(),
+            key=lambda candidate: (-candidate.get("similarity", 0), candidate["caseId"]),
+        )[:100]
+        current["partPriceCandidatePoolSize"] = len(current["partPriceCandidateCases"])
+    if "estimateReferencedCaseIds" in result:
+        maximum = max(
+            int(current.get("estimateReferenceMaximumCaseCount") or 0),
+            int(result.get("estimateReferenceMaximumCaseCount") or 0),
+        )
+        # Legacy or test payloads without explicit metadata keep the old
+        # visible-result cap. Runtime v2 results always provide their max.
+        maximum = maximum or 10
+        estimate_ids = list(dict.fromkeys(
+            [int(case_id) for case_id in current.get("estimateReferencedCaseIds", [])]
+            + [int(case_id) for case_id in result.get("estimateReferencedCaseIds", [])]
+        ))[:maximum]
+        current["estimateReferencedCaseIds"] = estimate_ids
+        current["estimateReferenceCandidateCount"] = len(estimate_ids)
+        current["estimateReferenceMinimumCaseCount"] = max(
+            int(current.get("estimateReferenceMinimumCaseCount") or 0),
+            int(result.get("estimateReferenceMinimumCaseCount") or 0),
+        )
+        current["estimateReferenceMaximumCaseCount"] = maximum
+        visible_ids = {int(case["caseId"]) for case in current.get("cases", [])}
+        current["estimateReferenceVisibleCaseCount"] = len(set(estimate_ids) & visible_ids)
+        if estimate_ids:
+            current["estimateReferenceReason"] = "YOLO_PART_MATCHED_FULL_REPAIR_POOL"
+        elif current.get("estimateReferenceReason") == "FEATURE_DISABLED":
+            current["estimateReferenceReason"] = result.get(
+                "estimateReferenceReason", "INSUFFICIENT_FULL_REPAIR_CASES",
+            )

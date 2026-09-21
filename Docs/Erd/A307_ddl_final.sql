@@ -427,6 +427,83 @@ CREATE TABLE repair_case_image_part_annotation (
     CONSTRAINT uk_rcipa_source UNIQUE (case_image_id, source_annotation_ref)
 );
 
+-- DAMAGE annotation의 repair 부품 후보. 직접 부품 bbox가 아니므로
+-- repair_case_damage_feature.part_code에는 복사하지 않는다.
+CREATE TABLE repair_case_damage_feature_part_hint (
+    hint_id             BIGSERIAL PRIMARY KEY,
+    damage_feature_id   BIGINT       NOT NULL
+        REFERENCES repair_case_damage_feature(damage_feature_id) ON DELETE CASCADE,
+    part_code           VARCHAR(50)  NOT NULL
+        REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    hint_source         VARCHAR(20)  NOT NULL DEFAULT 'REPAIR',
+    raw_part_name       VARCHAR(100) NOT NULL,
+    repair_methods      JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    source_annotation_ref VARCHAR(255) NOT NULL,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT ck_rcdfph_source CHECK (hint_source = 'REPAIR'),
+    CONSTRAINT ck_rcdfph_methods CHECK (jsonb_typeof(repair_methods) = 'array'),
+    CONSTRAINT uk_rcdfph_source UNIQUE (
+        damage_feature_id, part_code, hint_source, source_annotation_ref
+    )
+);
+
+CREATE INDEX ix_rcdfph_feature
+    ON repair_case_damage_feature_part_hint (damage_feature_id);
+CREATE INDEX ix_rcdfph_part
+    ON repair_case_damage_feature_part_hint (part_code);
+
+-- DAMAGE 원본 이미지에 대해 별도로 실행한 part YOLO 근거. repair hint와 feature.part_code는
+-- 절대 갱신하지 않으며, v2 검색 corpus의 VECTOR_ONLY 계약도 바꾸지 않는다.
+CREATE TABLE repair_case_image_part_inference (
+    image_part_inference_id BIGSERIAL PRIMARY KEY,
+    case_image_id BIGINT NOT NULL REFERENCES repair_case_image(case_image_id) ON DELETE CASCADE,
+    part_model_name VARCHAR(100) NOT NULL,
+    part_model_version VARCHAR(50) NOT NULL,
+    weights_sha256 VARCHAR(64),
+    run_status VARCHAR(30) NOT NULL,
+    detected_part_count INTEGER NOT NULL DEFAULT 0,
+    raw_predictions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    error_code VARCHAR(100),
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rcipi_model UNIQUE (case_image_id, part_model_name, part_model_version),
+    CONSTRAINT ck_rcipi_status CHECK (run_status IN ('SUCCEEDED','PART_NOT_DETECTED','ERROR')),
+    CONSTRAINT ck_rcipi_count CHECK (detected_part_count >= 0),
+    CONSTRAINT ck_rcipi_error CHECK ((run_status = 'ERROR' AND error_code IS NOT NULL)
+                                  OR (run_status <> 'ERROR' AND error_code IS NULL))
+);
+
+CREATE TABLE repair_case_damage_feature_part_mapping (
+    damage_feature_id BIGINT NOT NULL REFERENCES repair_case_damage_feature(damage_feature_id) ON DELETE CASCADE,
+    image_part_inference_id BIGINT NOT NULL REFERENCES repair_case_image_part_inference(image_part_inference_id) ON DELETE CASCADE,
+    mapping_status VARCHAR(20) NOT NULL,
+    primary_candidate_id BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT pk_rcdfpm PRIMARY KEY (damage_feature_id, image_part_inference_id),
+    CONSTRAINT ck_rcdfpm_status CHECK (mapping_status IN ('PAIRED','UNPAIRED','AMBIGUOUS'))
+);
+
+CREATE TABLE repair_case_damage_feature_part_candidate (
+    candidate_id BIGSERIAL PRIMARY KEY,
+    damage_feature_id BIGINT NOT NULL REFERENCES repair_case_damage_feature(damage_feature_id) ON DELETE CASCADE,
+    image_part_inference_id BIGINT NOT NULL REFERENCES repair_case_image_part_inference(image_part_inference_id) ON DELETE CASCADE,
+    candidate_index SMALLINT NOT NULL,
+    part_code VARCHAR(50) NOT NULL REFERENCES part_code(part_code) ON DELETE RESTRICT,
+    part_confidence NUMERIC(5,4) NOT NULL,
+    part_bbox JSONB NOT NULL,
+    overlap_score NUMERIC(6,5) NOT NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uk_rcdfpc_candidate UNIQUE (damage_feature_id, image_part_inference_id, candidate_index),
+    CONSTRAINT ck_rcdfpc_index CHECK (candidate_index >= 0),
+    CONSTRAINT ck_rcdfpc_confidence CHECK (part_confidence BETWEEN 0 AND 1),
+    CONSTRAINT ck_rcdfpc_overlap CHECK (overlap_score BETWEEN 0 AND 1)
+);
+ALTER TABLE repair_case_damage_feature_part_mapping
+    ADD CONSTRAINT fk_rcdfpm_primary_candidate FOREIGN KEY (primary_candidate_id)
+    REFERENCES repair_case_damage_feature_part_candidate(candidate_id) ON DELETE SET NULL;
+
 CREATE TABLE repair_cost_stat (
     stat_id           BIGSERIAL   PRIMARY KEY,
     car_class         VARCHAR(20) NOT NULL,
@@ -1021,6 +1098,11 @@ CREATE UNIQUE INDEX ux_emv_active ON embedding_model_version (is_active)
 CREATE INDEX ix_roi_hnsw          ON repair_case_roi_embedding
     USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX ix_rcipa_image       ON repair_case_image_part_annotation (case_image_id);
+CREATE INDEX ix_rcipi_image_status ON repair_case_image_part_inference (case_image_id, run_status);
+CREATE INDEX ix_rcdfpm_inference_status
+    ON repair_case_damage_feature_part_mapping (image_part_inference_id, mapping_status);
+CREATE INDEX ix_rcdfpc_inference ON repair_case_damage_feature_part_candidate (image_part_inference_id);
+CREATE INDEX ix_rcdfpc_part ON repair_case_damage_feature_part_candidate (part_code);
 
 -- ── 견적서 검증 ──
 CREATE INDEX ix_ev_member         ON estimate_validation (member_id, created_at DESC);
