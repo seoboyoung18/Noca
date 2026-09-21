@@ -11,7 +11,7 @@ import { useEstimatePdf } from '../lib/estimatePdf'
 import { carClassLabel, vehicleName, vehicleTypeLabel } from '../data/vehicles'
 import { angleLabel } from '../data/accidents'
 import {
-  confidenceLabel, damageTypeLabel, detectionMarks, fallbackLabel, formatDateTime, wonComma, wonOne, wonRange,
+  damageTypeLabel, detectionMarks, fallbackLabel, formatDateTime, wonComma, wonOne, wonRange,
 } from '../data/estimates'
 
 /* ===== 리포트 미리보기 (S08) — GET /api/estimates/{estimateId}/report =====
@@ -223,7 +223,6 @@ const MOCK_ANALYSIS = {
             </div>
             <div v-if="est.totalMedian != null" class="sub" style="margin-top:6px;font-size:12px;text-align:right">중앙값 {{ wonOne(est.totalMedian) }}</div>
             <p v-if="naItems.length" class="sub" style="margin-top:8px;font-size:11px">{{ naItems.map((i) => i.partNameKo).join(', ') }}는 근거 사례 부족으로 총액에서 제외했습니다</p>
-            <p v-for="n in est.notices || []" :key="n.code" class="sub" style="margin-top:6px;font-size:11px">{{ n.message }}</p>
           </div>
         </template>
         <template v-else-if="est">
@@ -235,9 +234,8 @@ const MOCK_ANALYSIS = {
           <p v-for="b in basisItems" :key="b.partCode" class="rp"><b style="color:var(--text)">{{ b.partNameKo }}</b> — {{ b.narrative }}</p>
         </template>
         <p v-else class="rp">동일 차종·비슷한 가격대의 실제 수리 사례를 기준으로 부품별 중앙값을 산출했습니다.</p>
-        <p v-if="est?.refCaseTotal != null || confidenceLabel(est?.confidenceGrade) || fallback" style="margin-top:10px;font-size:12px;color:var(--text-2)">
+        <p v-if="est?.refCaseTotal != null || fallback" style="margin-top:10px;font-size:12px;color:var(--text-2)">
           <template v-if="est?.refCaseTotal != null">참고 사례 {{ est.refCaseTotal }}건</template>
-          <template v-if="confidenceLabel(est?.confidenceGrade)"> · 신뢰도 {{ confidenceLabel(est.confidenceGrade) }}</template>
           <template v-if="fallback"> · {{ fallback }}</template>
         </p>
 

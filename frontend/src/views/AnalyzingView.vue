@@ -6,10 +6,18 @@ import { fetchAnalysisProgress, requestAnalysis } from '../lib/api'
 import { ANALYSIS_STAGES } from '../data/accidents'
 
 /*
- * 분석 중 (S07) — 서버가 주는 단계 수로 진행을 그린다. 퍼센트·남은 시간은 서버가 주지 않으므로 만들지 않는다.
+ * 분석 중 (S07) — 진행 게이지는 <b>예상 소요 시간</b>으로 순차 진행시키고, 서버 단계는 그보다 앞서 있을 때만 따른다.
  *   POST /api/accidents/{id}/analysis  → 접수(202). 409 면 이미 진행 중이라 조회로 이어 간다
- *   GET  /api/accidents/{id}/analysis  → 2초 간격 폴링. doneStages(0~4)·currentStage 로 게이지와 문구를 갱신
+ *   GET  /api/accidents/{id}/analysis  → 2초 간격 폴링. status·doneStages·currentStage·startedAt
  *   COMPLETED → 4/4 를 채운 뒤 결과 화면 · FAILED → 실패 상태(다시 시도 가능)
+ *
+ * 서버의 doneStages 는 실제로는 1에 머물다 끝날 때 4로 뛴다(단계 전이가 콜백 한 번에 일어난다). 그대로 그리면 게이지가 1단계에서
+ * 멈춰 있다가 완료 때 4로 점프해 "멈췄나" 싶어진다. 그래서 단계마다 예상 소요 시간(EXPECTED_SEC, 분석 응답 시간 측정 S15P21A307-159
+ * 기준 — 8장 중앙값 14초·최대 18초에 견적 구간을 더한 값)을 두고, 시작 시각(startedAt)부터 흐른 시간으로 단계를 순차 진행시킨다.
+ *  - 시간으로는 3단계(마지막 단계 진행 중)까지만 간다 — 4/4 는 서버가 COMPLETED 라고 할 때만
+ *  - 마지막 단계는 예상보다 오래 걸려도 전체 95% 를 향해 천천히 차오른다(1 − e^(−t/τ)) — 멈춘 것처럼 보이지 않게, 다 된 것처럼도 보이지 않게
+ *  - 서버가 시간 예측보다 앞서 있으면(doneStages 가 더 큼) 그쪽을 따른다. 뒤처져 있으면 무시한다
+ *  - QUEUED(순서 대기) 동안은 시계를 돌리지 않는다
  * accidentId 는 라우트 쿼리(?accidentId=)로 받는다. 사고 접수·사진 업로드 화면이 연결되면 그쪽에서 넘겨 준다.
  * 쿼리가 없으면(프로토타입 경로) 서버 없이 모의 단계 시퀀스를 흘려 화면 전환만 보여 준다.
  */
@@ -22,6 +30,9 @@ const accidentId = Number(route.query.accidentId) || null
 const STAGES = ANALYSIS_STAGES
 const TOTAL = STAGES.length
 const POLL_MS = 2000
+/** 단계별 예상 소요(초): 사진 확인(워커 대기 포함) · 손상 검출 · 부품 연결 · 수리비 계산. 합 26초 */
+const EXPECTED_SEC = [6, 10, 5, 5]
+const TICK_MS = 250 // 게이지 갱신 주기 — 폴링(2초)보다 촘촘해야 사이가 이어져 보인다
 const EXCLUDE_REASON = { NOT_VEHICLE: '차량이 아닌 사진', RATIO_BELOW_THRESHOLD: '차량이 너무 작게 찍힌 사진' }
 
 // failureReason 코드 → 안내 문구. 서버(AnalysisRequestFailure·AnalysisCallbackService)와 AI 서버 오류 명세의 코드 그대로.
@@ -47,17 +58,49 @@ const failureReason = ref('')
 const excluded = ref([])        // 분석에서 제외된 사진 [{ imageId, reason }]
 const fatal = ref('')           // 요청 자체가 거절된 경우의 안내 (400·404·503 등)
 
+/* ----- 예상 소요 시간 기반 진행 -----
+ * shownDone = 화면에 "끝났다" 고 보이는 단계 수. 시간(startedAt 부터 흐른 초가 누적 예상치를 넘을 때마다 +1, 최대 TOTAL-1)과
+ * 서버(doneStages) 중 큰 쪽. 단계가 바뀐 시각(stageAt)부터 그 단계 안의 채움(frac)을 센다.
+ */
+const now = ref(Date.now())
+const startedAt = ref(null)   // 시계의 0점 — 서버 startedAt, 없으면 PROCESSING 을 처음 본 시각
+const shownDone = ref(0)
+const stageAt = ref(Date.now())
+let ticker = null
+const CUM = EXPECTED_SEC.map((_, i) => EXPECTED_SEC.slice(0, i + 1).reduce((a, b) => a + b, 0)) // 누적 경계(초)
+
+function timeDone() {
+  if (!startedAt.value) return 0
+  const sec = (now.value - startedAt.value) / 1000
+  let n = 0
+  while (n < TOTAL - 1 && sec >= CUM[n]) n++
+  return n
+}
+function advance() {
+  now.value = Date.now()
+  if (status.value === 'COMPLETED' || status.value === 'FAILED') return
+  const target = Math.min(TOTAL - 1, Math.max(timeDone(), doneStages.value))
+  if (target > shownDone.value) { shownDone.value = target; stageAt.value = now.value }
+}
+function startTicker() { if (!ticker) ticker = setInterval(advance, TICK_MS) }
+function stopTicker() { clearInterval(ticker); ticker = null }
+function resetProgress() { startedAt.value = null; shownDone.value = 0; stageAt.value = Date.now(); now.value = Date.now() }
+
 // 화면 파생값: cur = 진행 중인 단계 index(0-based). 완료면 TOTAL
-const cur = computed(() => {
-  if (status.value === 'COMPLETED') return TOTAL
-  const i = STAGES.findIndex((s) => s.code === currentStage.value)
-  return i >= 0 ? i : Math.min(doneStages.value, TOTAL - 1)
+const cur = computed(() => (status.value === 'COMPLETED' ? TOTAL : Math.min(shownDone.value, TOTAL - 1)))
+/** 현재 단계 안의 채움 비율. 마지막 단계는 그 칸의 80%(전체 95%)를 향해 천천히(멈춘 듯 보이지 않게), 그 앞 단계는 예상 시간에 맞춰 선형으로 */
+const frac = computed(() => {
+  if (status.value !== 'PROCESSING' && !(status.value === 'QUEUED' && startedAt.value)) return 0
+  const t = Math.max(0, (now.value - stageAt.value) / 1000)
+  const exp = EXPECTED_SEC[cur.value] || 5
+  return cur.value >= TOTAL - 1 ? Math.min(0.8, 1 - Math.exp(-t / exp)) : Math.min(1, t / exp)
 })
-const pct = computed(() => (status.value === 'COMPLETED' ? 100 : (doneStages.value / TOTAL) * 100))
+const pct = computed(() => (status.value === 'COMPLETED' ? 100 : ((shownDone.value + frac.value) / TOTAL) * 100))
 const stageText = computed(() => {
   if (status.value === 'FAILED') return '분석을 완료하지 못했어요'
   if (status.value === 'COMPLETED') return '분석이 끝났어요'
-  if (status.value === 'QUEUED' || !currentStage.value) return doneStages.value ? STAGES[Math.min(doneStages.value, TOTAL - 1)].text : '분석 순서를 기다리고 있어요'
+  if (status.value === 'QUEUED' && !shownDone.value) return '분석 순서를 기다리고 있어요'
+  if (!status.value) return '분석을 준비하고 있어요'
   return STAGES[cur.value].text
 })
 const failed = computed(() => status.value === 'FAILED' || !!fatal.value)
@@ -84,6 +127,15 @@ function apply(p) {
   currentStage.value = p?.currentStage ?? null
   failureReason.value = p?.failureReason || ''
   excluded.value = p?.excludedImages || []
+  // 시계의 0점: 서버가 시작 시각을 주면 그것, 아니면 PROCESSING 을 처음 본 지금. QUEUED 동안은 돌리지 않는다
+  if (status.value === 'PROCESSING' && !startedAt.value) {
+    const t = p?.startedAt ? Date.parse(p.startedAt) : NaN
+    startedAt.value = Number.isNaN(t) ? Date.now() : Math.min(t, Date.now())
+    stageAt.value = Date.now()
+  }
+  if (status.value === 'COMPLETED') shownDone.value = TOTAL
+  if (status.value === 'PROCESSING' || status.value === 'QUEUED') startTicker(); else stopTicker()
+  advance()
 }
 
 function finish() {
@@ -133,6 +185,7 @@ function retry() {
   doneStages.value = 0
   currentStage.value = null
   failureReason.value = ''
+  resetProgress()
   start()
 }
 
@@ -156,7 +209,7 @@ function runMock() {
 }
 
 onMounted(() => { accidentId ? start() : runMock() })
-onUnmounted(() => { stopped = true; clearTimeout(timer) }) // 화면을 떠나면 폴링을 반드시 끈다
+onUnmounted(() => { stopped = true; clearTimeout(timer); stopTicker() }) // 화면을 떠나면 폴링·게이지 타이머를 반드시 끈다
 </script>
 
 <template>
@@ -198,13 +251,13 @@ onUnmounted(() => { stopped = true; clearTimeout(timer) }) // 화면을 떠나�
 
         <div style="margin-top:24px;padding:0 40px">
           <div class="bar"><i :style="{ width: pct + '%' }"></i></div>
-          <div style="margin-top:10px;text-align:right;font-size:12px;font-weight:600;color:var(--text-2)">{{ Math.min(doneStages, TOTAL) }} / {{ TOTAL }}</div>
+          <div style="margin-top:10px;text-align:right;font-size:12px;font-weight:600;color:var(--text-2)">{{ Math.min(shownDone, TOTAL) }} / {{ TOTAL }}</div>
         </div>
 
         <div class="list">
           <div v-for="(s, k) in STAGES" :key="s.code" class="li">
             <span class="ic">
-              <svg v-if="k < doneStages || status === 'COMPLETED'" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 9.6L7 13L14.5 5" stroke="#4E36E4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg v-if="k < shownDone || status === 'COMPLETED'" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 9.6L7 13L14.5 5" stroke="#4E36E4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <svg v-else-if="k === cur && status !== 'QUEUED'" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="animation:dcspin 1s linear infinite"><circle cx="9" cy="9" r="7" stroke="#EEEBFD" stroke-width="2.5"/><circle cx="9" cy="9" r="7" stroke="#4E36E4" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="31"/></svg>
               <span v-else class="pend"></span>
             </span>
