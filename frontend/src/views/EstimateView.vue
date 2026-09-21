@@ -230,7 +230,7 @@ function applyMock() {
     <div v-else class="body scroll" style="padding-top:16px">
       <div class="notice">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:0 0 16px"><circle cx="8" cy="8" r="6.6" stroke="#B7791F" stroke-width="1.5"/><path d="M8 4.6v4" stroke="#B7791F" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.1" r="0.85" fill="#B7791F"/></svg>
-        <span class="flex1">AI 추정치이며 법적 효력이 없습니다</span>
+        <span class="flex1">본 견적은 AI가 추정한 참고용 견적입니다.</span>
         <button class="more" @click="notice = true">자세히</button>
       </div>
 
