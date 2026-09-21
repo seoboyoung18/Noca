@@ -85,7 +85,13 @@ class SchemaConformityTest {
             //   테이블이 잘못된 것이 아니라 이 목록이 뒤늦게 따라온 것이다(아래 Coverage 주석).
             "FEATURE_PIPELINE_VERSION",
             "REPAIR_CASE_DAMAGE_FEATURE",
-            "REPAIR_CASE_IMAGE_PART_ANNOTATION"));
+            "REPAIR_CASE_IMAGE_PART_ANNOTATION",
+            // ↓ S15P21A307-556(v2 DAMAGE corpus · YOLO 부품 후보)가 정본에만 더한 넷. 232 와 같은
+            //   성격이다 — 파이프라인이 쓰고 서비스 엔티티가 없어 H2 로 옮길 이유가 없다.
+            "REPAIR_CASE_DAMAGE_FEATURE_PART_CANDIDATE",
+            "REPAIR_CASE_DAMAGE_FEATURE_PART_HINT",
+            "REPAIR_CASE_DAMAGE_FEATURE_PART_MAPPING",
+            "REPAIR_CASE_IMAGE_PART_INFERENCE"));
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("sharedTables")
@@ -185,7 +191,7 @@ class SchemaConformityTest {
     class Coverage {
 
         @Test
-        @DisplayName("정본 43테이블 중 34개가 H2 에 있고 누락 9개의 목록이 고정되어 있다")
+        @DisplayName("정본 47테이블 중 34개가 H2 에 있고 누락 13개의 목록이 고정되어 있다")
         void missingTablesAreKnown() {
             Set<String> missing = new TreeSet<>(canonical().keySet());
             missing.removeAll(h2().keySet());
@@ -218,8 +224,11 @@ class SchemaConformityTest {
             // S15P21A307-537 이 견적 리포트 요약(estimate_narrative)을 양쪽에 더했다(42/33 → 43/34).
             // 누락은 그대로다. 엔티티가 같은 커밋에 들어왔으므로 H2 에 없으면 컨텍스트부터 뜨지 않는다.
             //
+            // S15P21A307-556 이 파이프라인 테이블 4개를 정본에만 더했다(43/34 → 47/34, 누락 9 → 13).
+            // 232 때처럼 수치를 함께 고치지 않아 깨졌고, S15P21A307-560 에서 맞췄다. H2 는 그대로다.
+            //
             // 새 테이블이 한쪽에만 들어가면 여기서 깨진다. 그것이 이 테스트의 목적이다.
-            assertThat(canonical()).hasSize(43);
+            assertThat(canonical()).hasSize(47);
             assertThat(h2()).hasSize(34);
             assertThat(missing)
                     .as("정본에 테이블이 늘었거나 H2 로 옮겼다면 KNOWN_MISSING_TABLES 와 머리말을 함께 고칠 것")

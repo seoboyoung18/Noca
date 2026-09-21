@@ -1,6 +1,7 @@
-package com.ssafy.a307.estimate.pdf;
+package com.ssafy.a307.estimate.service;
 
-import com.ssafy.a307.estimate.pdf.EstimatePdfDocument.Box;
+import com.ssafy.a307.estimate.dto.EstimateItemResponse;
+import com.ssafy.a307.estimate.dto.EstimateReportResponse.Box;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -8,11 +9,16 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * AI 가 보낸 검출 좌표를 PDF 가 그릴 사각형으로 (S15P21A307-547).
+ * AI 가 보낸 검출 좌표를 사진 위 사각형으로 (S15P21A307-547 · -560).
+ *
+ * <p><b>리포트 미리보기와 PDF 가 이 한 판독기를 같이 쓴다.</b> 처음엔 PDF 만 박스를 그렸는데,
+ * 미리보기가 같은 견적을 다른 모습으로 보여 주면 사용자는 어느 쪽이 맞는지 모른다. 그래서
+ * PDF 전용 패키지에서 서비스 계층으로 옮겼다 — 두 곳이 서로의 패키지를 물지 않게.
  *
  * <h2>왜 좌표가 여기 있나</h2>
  *
@@ -24,11 +30,12 @@ import java.util.Map;
  * <h2>픽셀이 아니라 비율로 돌려준다</h2>
  *
  * <p>좌표는 AI 가 분석한 <b>축소본 픽셀</b>이고 {@code accident_image_asset(RESIZED)} 의 치수와
- * 기준이 같다. PDF 는 그 사진을 지면 폭에 맞춰 다시 줄이므로 픽셀을 그대로 쓰면 배율이 어긋난다.
+ * 기준이 같다. PDF 와 화면은 그 사진을 다시 줄여 그리므로 픽셀을 그대로 쓰면 배율이 어긋난다.
  * 사진 크기 대비 퍼센트로 바꿔 두면 얼마로 줄이든 박스가 손상 위에 남는다.
  *
- * <p><b>화면과 달리 잘라내기(crop) 보정이 없다.</b> 화면은 4:3 틀에 {@code object-fit: cover} 로
- * 가운데를 잘라 넣어 잘린 만큼 원점을 옮겨야 하지만, PDF 는 사진을 통째로 비율대로 싣는다.
+ * <p><b>잘라내기(crop) 보정이 없다.</b> 사진 전체 기준이라, 견적 화면처럼 4:3 틀에
+ * {@code object-fit: cover} 로 잘라 넣는 곳에서는 이 값을 그대로 쓸 수 없다. PDF 와 리포트
+ * 미리보기는 사진을 통째로 원래 비율대로 싣는다.
  *
  * <h2>모르면 그리지 않는다</h2>
  *
@@ -41,6 +48,27 @@ import java.util.Map;
 public class DetectionBoxReader {
 
     private final ObjectMapper objectMapper;
+
+    /**
+     * 부위 코드 → 예상 수리비 표의 순번 (S15P21A307-547). 박스 번호가 이 값이다.
+     *
+     * <p>같은 부위가 두 행에 있으면 <b>먼저 나온 행</b>의 번호를 쓴다. 번호는 행마다 하나씩
+     * 올라가므로 PDF 템플릿의 {@code stat.count} 와 어긋나지 않는다.
+     *
+     * <p><b>미리보기와 PDF 가 이 함수 하나로 센다</b>(S15P21A307-560). 따로 세면 한쪽 규칙만
+     * 바뀌었을 때 사진의 ① 이 표의 다른 행을 가리킨다.
+     */
+    public static Map<String, Integer> partNumbers(List<EstimateItemResponse> items) {
+        Map<String, Integer> numbers = new HashMap<>();
+        int number = 1;
+        for (EstimateItemResponse item : items) {
+            if (item.partCode() != null) {
+                numbers.putIfAbsent(item.partCode(), number);
+            }
+            number++;
+        }
+        return numbers;
+    }
 
     /**
      * @param numbers 부위 코드 → 견적 항목 표의 순번. 표에 없는 부위는 번호 없이 박스만 그린다

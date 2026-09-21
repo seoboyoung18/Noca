@@ -120,7 +120,9 @@ public interface EstimateReportRepository extends JpaRepository<Estimate, Long> 
 
         /**
          * 축소본 S3 key (S15P21A307-547). 오버레이가 없을 때 PDF 가 이것을 싣는다.
-         * 화면 응답에는 나가지 않는다 — 화면은 사고 이미지 API 로 사진을 이미 받고 있다.
+         * <b>키 자체는 응답으로 내보내지 않는다</b> — 리포트 응답은 이것으로 서명한 조회 URL 을
+         * {@code imageUrl} 로 준다(S15P21A307-560). 처음엔 "화면은 사고 이미지 API 로 사진을 받는다"
+         * 고 보고 PDF 에만 썼는데, 리포트 미리보기는 그 API 를 부르지 않아 사진 칸이 비어 있었다.
          */
         String getResizedKey();
 

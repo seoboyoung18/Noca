@@ -179,6 +179,13 @@ class EstimateReportApiTest {
                 .andExpect(jsonPath("$.data.images[1].overlayUrl").value(nullValue()))
                 .andExpect(jsonPath("$.data.images[2].imageId").value((int) noOverlay))
                 .andExpect(jsonPath("$.data.images[2].overlayUrl").value(nullValue()))
+                // 그릴 사진은 imageUrl 이다 (S15P21A307-560). 오버레이가 있으면 그것, 없으면 축소본 —
+                // 이 픽스처엔 축소본이 없어 오버레이가 없는 두 장은 비어 있다
+                .andExpect(jsonPath("$.data.images[0].imageUrl").value("https://bucket.example/overlay"))
+                .andExpect(jsonPath("$.data.images[0].overlay").value(true))
+                .andExpect(jsonPath("$.data.images[2].imageUrl").value(nullValue()))
+                .andExpect(jsonPath("$.data.images[2].overlay").value(false))
+                .andExpect(jsonPath("$.data.images[0].resizedKey").doesNotExist())
                 .andExpect(jsonPath("$.data.images[0].overlayKey").doesNotExist());
     }
 

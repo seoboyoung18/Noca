@@ -10,6 +10,7 @@ import com.ssafy.a307.estimate.pdf.EstimatePdfStoragePort.StoredPdf;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository.ReportContextView;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository.ReportImageView;
+import com.ssafy.a307.estimate.service.DetectionBoxReader;
 import com.ssafy.a307.estimate.service.EstimateReportService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

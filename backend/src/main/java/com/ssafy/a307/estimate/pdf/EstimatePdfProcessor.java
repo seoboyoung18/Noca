@@ -1,13 +1,13 @@
 package com.ssafy.a307.estimate.pdf;
 
 import com.ssafy.a307.accident.image.AccidentImageStoragePort;
-import com.ssafy.a307.estimate.dto.EstimateItemResponse;
 import com.ssafy.a307.estimate.dto.EstimateReportResponse;
 import com.ssafy.a307.estimate.pdf.EstimatePdfRepository.JobView;
 import com.ssafy.a307.estimate.pdf.EstimatePdfStoragePort.StoredPdf;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository.ReportContextView;
 import com.ssafy.a307.estimate.repository.EstimateReportRepository.ReportImageView;
+import com.ssafy.a307.estimate.service.DetectionBoxReader;
 import com.ssafy.a307.estimate.service.EstimateReportService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -105,7 +105,7 @@ public class EstimatePdfProcessor {
         Map<Long, ImageSource> sources = imageSources(job.getEstimateId(), ownerId);
         // 박스 번호는 예상 수리비 표의 순번과 같아야 한다 - 표의 부위와 사진의 번호가
         // 이어지지 않으면 번호는 장식일 뿐이다.
-        Map<String, Integer> partNumbers = partNumbers(report);
+        Map<String, Integer> partNumbers = DetectionBoxReader.partNumbers(report.estimate().items());
         List<EstimatePdfDocument.Image> images = report.images().stream()
                 .limit(MAX_IMAGES_IN_PDF)
                 .map(image -> toPdfImage(image.imageId(), image.angleCode(),
@@ -187,24 +187,6 @@ public class EstimatePdfProcessor {
                     image.getResizedWidth(), image.getResizedHeight()));
         }
         return sources;
-    }
-
-    /**
-     * 부위 코드 → 예상 수리비 표의 순번 (S15P21A307-547).
-     *
-     * <p>같은 부위가 두 행에 있으면 <b>먼저 나온 행</b>의 번호를 쓴다. 번호는 행마다 하나씩
-     * 올라가므로 템플릿의 {@code stat.count} 와 어긋나지 않는다.
-     */
-    private static Map<String, Integer> partNumbers(EstimateReportResponse report) {
-        Map<String, Integer> numbers = new HashMap<>();
-        int number = 1;
-        for (EstimateItemResponse item : report.estimate().items()) {
-            if (item.partCode() != null) {
-                numbers.putIfAbsent(item.partCode(), number);
-            }
-            number++;
-        }
-        return numbers;
     }
 
     /**
