@@ -19,7 +19,7 @@ const N = 3
 const cards = [
   { step: 1, title: '촬영', desc: '차량 손상 부위를 카메라로 찍어요', img: '/assets/landing-shoot.webp', alt: '스마트폰으로 차량 손상 부위를 촬영하는 모습', boxes: [] },
   { step: 2, title: '분석', desc: 'AI가 부위와 손상 유형을 인식해요', img: '/assets/landing-analyze.webp', alt: '앞휀더 긁힘을 인식한 사진', boxes: [{ l: 33.3, t: 24, w: 53.3, h: 35, label: '앞휀더 · 긁힘' }] },
-  { step: 3, title: '리포트', desc: '예상 수리비와 근거를 리포트로 받아요', img: '/assets/landing-report.webp', alt: '스마트폰에 표시된 예상 수리비 리포트', boxes: [] },
+  { step: 3, title: '리포트', desc: '예상 수리비와 근거를 리포트로 받아요', img: '/assets/landing-report2.webp', alt: '스마트폰에 표시된 예상 수리비 리포트', boxes: [] },
 ]
 
 /* 뷰포트 폭 — 카드 한 장의 폭이자 이동 거리의 밑값. 처음 값 320 은 360px 화면 기준(가장 흔함), 마운트 직후 실측으로 덮는다 */
