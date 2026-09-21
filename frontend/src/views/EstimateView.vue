@@ -337,9 +337,13 @@ function applyMock() {
 .shot { position: relative; margin-top: 12px; width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--bg-2); display: flex; align-items: center; justify-content: center; }
 .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* 검출 도형(폴리곤·코너 하이라이트)의 스타일은 components/DetectionOverlay 에 있다 — 리포트 미리보기와 공유 */
-/* 박스 왼쪽 위 부위명 라벨. 박스 선(1.2px)에 맞춰 왼쪽을 정렬하고 위로 올린다 */
-.lbl { position: absolute; transform: translate(-1px, -100%); max-width: 62%; padding: 3px 7px; border-radius: 5px 5px 5px 0; background: #0284C7; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 6px rgba(56,189,248,.85), 0 1px 3px rgba(0,0,0,.35); pointer-events: none; animation: fadein .2s ease-out; }
-.lbl.inside { transform: translate(-1px, 1px); border-radius: 0 5px 5px 5px; }
+/* 박스 왼쪽 위 부위명 라벨. 박스 선(1.2px)에 맞춰 왼쪽을 정렬하고 위로 올린다.
+   등장 애니메이션은 전역 fadein 을 쓰지 않는다 — fadein 은 transform 을 translateX 만으로 덮어써서, 끝나는 순간 제 transform(-100% 위)이
+   돌아오며 라벨이 "한 칸 올라가" 보였다. 세로 위치를 keyframe 안에 함께 둬서 제 자리에서 왼쪽으로만 미끄러져 들어온다 */
+.lbl { position: absolute; transform: translate(-1px, -100%); max-width: 62%; padding: 3px 7px; border-radius: 5px 5px 5px 0; background: #0284C7; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 6px rgba(56,189,248,.85), 0 1px 3px rgba(0,0,0,.35); pointer-events: none; animation: lblin .2s ease-out; }
+.lbl.inside { transform: translate(-1px, 1px); border-radius: 0 5px 5px 5px; animation-name: lblin-inside; }
+@keyframes lblin { from { opacity: 0; transform: translate(13px, -100%); } to { opacity: 1; transform: translate(-1px, -100%); } }
+@keyframes lblin-inside { from { opacity: 0; transform: translate(13px, 1px); } to { opacity: 1; transform: translate(-1px, 1px); } }
 .only { font-size: 12px; color: #0284C7; font-weight: 500; text-decoration: underline; }
 .excl { position: absolute; left: 10px; bottom: 10px; padding: 4px 8px; border-radius: 6px; background: rgba(25,31,40,.75); color: #fff; font-size: 11px; font-weight: 500; }
 .thumbs { margin-top: 8px; display: flex; gap: 6px; }
