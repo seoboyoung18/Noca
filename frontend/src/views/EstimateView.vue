@@ -25,7 +25,8 @@ import {
  * 라벨은 글자 크기가 고정돼야 해서 SVG 가 아니라 HTML 로 얹고, 위치만 pointToPercent 로 환산한다.
  * 부품별 내역 카드를 누르면 그 부품(partCode)의 도형만 남기고 나머지는 숨긴다 — 다른 사진에만 있으면 그 사진으로 넘긴다. 다시 누르면 전체.
  * 견적은 AI 콜백이 만들므로 결과가 있어도 견적이 아직 없을 수 있다 — 그때는 부위 목록만 보이고 금액은 "산정 중".
- * 견적을 받으면 정비 체크리스트 생성을 서버 큐에 넣는다(서버는 자동 생성하지 않음) — 이미 있으면 409 라 조용히 넘어간다.
+ * 견적이 <b>산정됐을 때만</b>(estimable) 정비 체크리스트 생성을 서버 큐에 넣는다(서버는 자동 생성하지 않음) — 이미 있으면 409 라 조용히 넘어간다.
+ * 산정 불가 견적에는 만들지 않는다(S15P21A307-559) — 금액도 부품 내역도 없는 사고에 체크리스트가 생기면 근거 없는 항목만 남는다.
  * 아래 버튼은 리포트를 이미 만들었는지에 따라 갈린다(S15P21A307-558) — 만들어 둔 것을 또 만들라고 권할 이유가 없다.
  * 만들기 전이면 "리포트 만들기"(생성 중 화면을 거쳐 리포트로), 이미 만들었으면 "리포트 보기"(리포트로 바로).
  */
@@ -75,7 +76,8 @@ async function load() {
     if (estimateId.value) {
       estimate.value = await fetchEstimate(estimateId.value)
       await loadReportState() // 자체 try 로 감싸 두었다 — 여기서 실패해도 분석 결과 화면은 그대로 뜬다
-      useChecklistStore().ensureRequested(accidentId) // 기다리지 않는다 — 체크리스트 화면이 상태를 이어 받는다
+      // 산정된 견적일 때만 체크리스트를 만든다. 기다리지 않는다 — 체크리스트 화면이 상태를 이어 받는다
+      if (estimate.value?.estimable) useChecklistStore().ensureRequested(accidentId)
     }
   } catch (e) {
     if (e.status === 401) return
