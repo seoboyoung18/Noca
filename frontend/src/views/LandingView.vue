@@ -7,7 +7,7 @@ import LogoMark from '../components/LogoMark.vue'
 const router = useRouter()
 
 /* 카드 슬라이드 — 디자인 스크립트 이식 (앞뒤 클론으로 무한 루프)
- * 세 장은 1 촬영 → 2 분석 → 3 리포트 순서다 (S15P21A307-559). 카드마다 단계 칩을 얹고, 사진 아래 스테퍼(.stepper)가 점 표시 대신 같은 순서로 함께 움직인다.
+ * 세 장은 1 촬영 → 2 분석 → 3 리포트 순서다 (S15P21A307-559). 사진 아래 스테퍼(.stepper)가 점 표시 대신 같은 순서로 함께 움직인다.
  * 카드는 <b>한 장이 뷰포트를 꽉 채운다</b>(화면 폭 − 양옆 20px). 예전엔 300px 카드에 320px 뷰포트라 다음 장이 8px 비쳤는데,
  * 그 자락을 없애고 아래 문단·버튼과 좌우 선을 맞췄다. 폭은 화면마다 다르니 ResizeObserver 로 재서 이동 거리(STEP)를 만든다.
  * 인식 박스는 분석 카드에만 둔다. 촬영 카드는 화면 속 촬영 프레임이, 리포트 카드는 폰 속 리포트가 이미 뜻을 말하지만
@@ -17,8 +17,8 @@ const router = useRouter()
 const GAP = 12
 const N = 3
 const cards = [
-  { step: 1, title: '촬영', desc: '손상 부위를 가까이 찍어요', img: '/assets/landing-shoot.webp', alt: '스마트폰으로 차량 손상 부위를 촬영하는 모습', boxes: [] },
-  { step: 2, title: '분석', desc: 'AI 가 부위와 손상 유형을 인식해요', img: '/assets/landing-analyze.webp', alt: '앞휀더 긁힘을 인식한 사진', boxes: [{ l: 33.3, t: 24, w: 53.3, h: 35, label: '앞휀더 · 긁힘' }] },
+  { step: 1, title: '촬영', desc: '차량 손상 부위를 카메라로 찍어요', img: '/assets/landing-shoot.webp', alt: '스마트폰으로 차량 손상 부위를 촬영하는 모습', boxes: [] },
+  { step: 2, title: '분석', desc: 'AI가 부위와 손상 유형을 인식해요', img: '/assets/landing-analyze.webp', alt: '앞휀더 긁힘을 인식한 사진', boxes: [{ l: 33.3, t: 24, w: 53.3, h: 35, label: '앞휀더 · 긁힘' }] },
   { step: 3, title: '리포트', desc: '예상 수리비와 근거를 리포트로 받아요', img: '/assets/landing-report.webp', alt: '스마트폰에 표시된 예상 수리비 리포트', boxes: [] },
 ]
 
@@ -120,7 +120,6 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(snapT); ro?.disconnect() 
           <div class="track" :style="trackStyle">
             <div v-for="(c, i) in track" :key="i" class="cardimg">
               <img :src="c.img" :alt="c.alt" draggable="false">
-              <span class="chip"><b>{{ c.step }}</b>{{ c.title }}</span>
               <div v-for="(b, j) in c.boxes" :key="j" class="box" :style="{ left: b.l + '%', top: b.t + '%', width: b.w + '%', height: b.h + '%' }">
                 <span class="boxlbl" :class="{ below: b.below }">{{ b.label }}</span>
               </div>
@@ -141,8 +140,8 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(snapT); ro?.disconnect() 
       </section>
 
       <section style="padding:22px 20px 0">
-        <h1 class="hero">정비소 가기 전에,<br>수리비부터 알고 가세요</h1>
-        <p class="sub" style="margin-top:8px">사진 한 장이면 손상 부위와 예상 수리비를 확인할 수 있어요.</p>
+        <h1 class="hero">정비소 가기 전,<br>수리 견적 확인해보세요</h1>
+        <p class="sub" style="margin-top:8px">사진 한 장이면 예상 수리 견적을 확인할 수 있어요.</p>
       </section>
 
       <div class="gap a"></div>
@@ -187,10 +186,6 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(snapT); ro?.disconnect() 
 .track { display: flex; gap: 12px; will-change: transform; }
 .cardimg { flex: 0 0 var(--cw, 320px); aspect-ratio: 3 / 2; border-radius: 12px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); position: relative; }
 .cardimg img { width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
-/* 단계 칩 — 사진 위라 반투명 어두운 바탕에 흰 글자. 숫자는 브랜드색 동그라미 */
-.chip { position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 5px; border-radius: 999px;
-  background: rgba(25,31,40,.66); color: #fff; font-size: 12px; font-weight: 600; letter-spacing: -0.01em; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
-.chip b { width: 18px; height: 18px; border-radius: 9px; background: var(--primary); font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
 .box { position: absolute; border: 2px solid var(--primary); background: rgba(78,54,228,.08); border-radius: 4px; }
 .boxlbl { position: absolute; left: -2px; bottom: calc(100% + 6px); white-space: nowrap; background: var(--primary); color: #fff; font-size: 12px; font-weight: 500; padding: 4px 8px; border-radius: 6px; }
 .boxlbl.below { bottom: auto; top: calc(100% + 6px); }
