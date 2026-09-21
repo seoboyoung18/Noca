@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import BottomSheet from '../components/BottomSheet.vue'
+import DetectionOverlay from '../components/DetectionOverlay.vue'
 import { AUTH_GUARD_OFF } from '../router'
 import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetchEstimate, fetchEstimatePdfStatus } from '../lib/api'
 import { imageThumb } from '../data/accidents'
@@ -18,6 +19,7 @@ import {
  *   GET /api/accidents/{id}/images           사진 RESIZED URL — imageId 로 결과와 맞춤
  *   GET /api/accidents/{id}/estimates → GET /api/estimates/{estimateId}   금액·항목·신뢰도
  * 검출 좌표는 AI 분석 축소본 픽셀이고 images[].width/height 도 같은 기준이라, 사진 픽셀을 viewBox 로 쓰는 SVG 한 장을 사진 위에 겹쳐 그린다
+ * (components/DetectionOverlay — 리포트 미리보기와 같은 컴포넌트라 두 화면의 도형이 같다)
  * (preserveAspectRatio=slice 가 img 의 object-fit: cover 와 같은 잘림을 만들어 좌표 환산이 필요 없다).
  * 검출 하나는 폴리곤(geometry.polygons — 세그멘테이션 윤곽)을 반투명하게 칠하고, 바운딩박스는 네 모서리만 꺾쇠로 그린다(코너 하이라이트).
  * 사각형을 다 그리면 선이 손상 부위를 가리고 사진이 답답해진다 — 모서리만 남겨도 범위는 읽힌다. 선은 네온 글로우(겹친 drop-shadow)로 사진 위에서 빛나게 한다.
@@ -123,20 +125,6 @@ const photos = computed(() => (result.value?.images || []).map((im) => ({
     .filter((m) => m.rect || m.polygons.length),
 })))
 const current = computed(() => photos.value[photo.value] || null)
-/**
- * 코너 하이라이트 — 박스의 네 모서리만 꺾쇠(ㄱ 모양)로 그리는 path.
- * 꺾쇠 길이는 짧은 변의 18% — 모서리만 찍어 사진을 덜 가리되 범위는 읽히게.
- */
-function cornerPath(r) {
-  const len = Math.max(3, Math.min(r.w, r.h) * 0.18)
-  const { x, y, w, h } = r
-  return [
-    `M${x} ${y + len}V${y}H${x + len}`,
-    `M${x + w - len} ${y}H${x + w}V${y + len}`,
-    `M${x + w} ${y + h - len}V${y + h}H${x + w - len}`,
-    `M${x + len} ${y + h}H${x}V${y + h - len}`,
-  ].join(' ')
-}
 
 /* ----- 부품 선택 → 그 부품의 도형만 ----- */
 const selected = ref(null) // partCode | null
@@ -288,13 +276,8 @@ function applyMock() {
         <div class="shot" :class="{ noimg: !current?.url }">
           <img v-if="current?.url" :src="current.url" alt="손상 부위 사진">
           <span v-else class="sub">사진을 불러올 수 없어요</span>
-          <!-- 사진 픽셀을 그대로 viewBox 로 쓰고 slice 로 잘라 img 의 cover 와 같은 화면을 만든다 — 좌표 환산 없음 -->
-          <svg v-if="current && current.w && marks.length" class="ovl" :viewBox="`0 0 ${current.w} ${current.h}`" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-            <g v-for="m in marks" :key="m.id">
-              <polygon v-for="(pts, i) in m.polygons" :key="i" class="poly" :points="pts" />
-              <path v-if="m.rect" class="bx" :d="cornerPath(m.rect)" />
-            </g>
-          </svg>
+          <!-- 검출 도형 — 사진 픽셀을 viewBox 로 쓰고 cover 와 같은 잘림(slice)을 만든다. 좌표 환산 없음 -->
+          <DetectionOverlay v-if="current" :width="current.w" :height="current.h" :marks="marks" fit="cover" />
           <!-- 부위명 라벨 — 부품을 고른 뒤에만. 박스 왼쪽 위에 붙이고, 글자 크기를 고정하려고 SVG 밖 HTML 로 얹는다 -->
           <span v-for="m in selected ? marks : []" v-show="markLabel(m)" :key="`l-${m.id}`" class="lbl" :class="{ inside: m.label?.inside }"
             :style="m.label ? { left: m.label.l + '%', top: m.label.t + '%' } : null">{{ markLabel(m) }}</span>
@@ -353,15 +336,7 @@ function applyMock() {
 .lowc { margin: 8px 0 0; font-size: 12px; color: var(--warn); }
 .shot { position: relative; margin-top: 12px; width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--bg-2); display: flex; align-items: center; justify-content: center; }
 .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* 바운딩박스 — 서버 좌표 그대로 푸른색으로. 사진 위에서 잘 보이도록 바깥에 흰 테두리를 한 겹 더 둔다 */
-/* 검출 오버레이 — 폴리곤(채움) + 바운딩박스(테두리). 선 굵기는 사진 크기와 무관하게 일정해야 해서 non-scaling-stroke */
-.ovl { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; animation: fadein .2s ease-out; }
-/* 네온 글로우 — 밝은 하늘색 선에 같은 색 그림자를 겹쳐 빛 번짐을 만든다. 흰 차체 위에서도 읽히도록 가장 안쪽 그림자는 진하게 */
-.poly { fill: rgba(56,189,248,.16); stroke: #7DD3FC; stroke-width: 1.2; stroke-linejoin: round; vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 1px rgba(2,132,199,.9)) drop-shadow(0 0 5px rgba(56,189,248,.65)); }
-/* 코너 하이라이트 — 네 모서리 꺾쇠. 짧은 선이라 조금 두껍게 두고 끝을 둥글린다 */
-.bx { fill: none; stroke: #BAE6FD; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 1px rgba(2,132,199,1)) drop-shadow(0 0 4px rgba(56,189,248,.95)) drop-shadow(0 0 10px rgba(56,189,248,.65)); }
+/* 검출 도형(폴리곤·코너 하이라이트)의 스타일은 components/DetectionOverlay 에 있다 — 리포트 미리보기와 공유 */
 /* 박스 왼쪽 위 부위명 라벨. 박스 선(1.2px)에 맞춰 왼쪽을 정렬하고 위로 올린다 */
 .lbl { position: absolute; transform: translate(-1px, -100%); max-width: 62%; padding: 3px 7px; border-radius: 5px 5px 5px 0; background: #0284C7; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 6px rgba(56,189,248,.85), 0 1px 3px rgba(0,0,0,.35); pointer-events: none; animation: fadein .2s ease-out; }
 .lbl.inside { transform: translate(-1px, 1px); border-radius: 0 5px 5px 5px; }

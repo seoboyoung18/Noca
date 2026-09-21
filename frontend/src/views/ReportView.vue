@@ -5,18 +5,24 @@ import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
 import Toast from '../components/Toast.vue'
 import LogoMark from '../components/LogoMark.vue'
-import { fetchAccidentEstimates, fetchEstimateReport } from '../lib/api'
+import DetectionOverlay from '../components/DetectionOverlay.vue'
+import { fetchAccidentEstimates, fetchAnalysisResult, fetchEstimateReport } from '../lib/api'
 import { useEstimatePdf } from '../lib/estimatePdf'
 import { carClassLabel, vehicleName, vehicleTypeLabel } from '../data/vehicles'
 import { angleLabel } from '../data/accidents'
 import {
-  confidenceLabel, damageTypeLabel, fallbackLabel, formatDateTime, wonComma, wonOne, wonRange,
+  confidenceLabel, damageTypeLabel, detectionMarks, fallbackLabel, formatDateTime, wonComma, wonOne, wonRange,
 } from '../data/estimates'
 
 /* ===== 리포트 미리보기 (S08) — GET /api/estimates/{estimateId}/report =====
  * 견적 기준 경로다. PDF(/api/estimates/{id}/pdf)와 1:1 이라 같은 estimateId 로 본문과 파일을 받는다.
  * 서버가 견적·근거·검증·고지 문구를 조립해 주므로 화면은 새로 계산하지 않고 그대로 그린다 — 화면과 PDF 숫자가 어긋나지 않게.
  * estimateId 는 ?estimateId= 로 받고, ?accidentId= 만 있으면 사고의 최신 견적에서 찾는다. 둘 다 없으면(목업 진입) 서버 없이 목업.
+ *
+ * 파손 사진(S15P21A307-560): images[].imageUrl(PDF 와 같은 사진)을 자르지 않고 원래 비율로 한 장씩 쌓고, 그 위에 <b>견적 화면과 같은</b>
+ * 검출 도형(폴리곤 + 코너 하이라이트, components/DetectionOverlay)을 겹친다. 도형은 분석 결과(GET .../analysis/result)의 detections 로 그린다 —
+ * 리포트 응답의 boxes(퍼센트 사각형)는 PDF 용이라 견적 화면과 모양이 달라 쓰지 않는다.
+ * 분석 결과를 못 받으면 사진만 보인다. 서버가 이미 표시를 그린 오버레이(overlay=true)면 도형을 겹치지 않는다(이중 표시).
  */
 const route = useRoute()
 const router = useRouter()
@@ -27,9 +33,17 @@ const accidentId = Number(route.query.accidentId) || null
 const loading = ref(true)
 const error = ref('')
 const report = ref(null)
+const analysis = ref(null) // AnalysisResultResponse — 사진 위 검출 도형의 출처. 없으면 사진만
+
+/** 검출 도형은 분석 결과에서 — 못 받아도 리포트는 그대로 보인다(사진만) */
+async function loadAnalysis() {
+  const id = report.value?.accident?.accidentId || accidentId
+  if (!id) return
+  try { analysis.value = await fetchAnalysisResult(id) } catch { analysis.value = null }
+}
 
 async function load() {
-  if (!estimateId.value && !accidentId) { report.value = MOCK_REPORT; loading.value = false; return }
+  if (!estimateId.value && !accidentId) { report.value = MOCK_REPORT; analysis.value = MOCK_ANALYSIS; loading.value = false; return }
   loading.value = true
   error.value = ''
   try {
@@ -38,6 +52,7 @@ async function load() {
       if (!estimateId.value) { error.value = '아직 산출된 견적이 없어 리포트를 만들 수 없어요.'; return }
     }
     report.value = await fetchEstimateReport(estimateId.value)
+    await loadAnalysis()
   } catch (e) {
     if (e.status === 401) return
     error.value = e.status === 404 ? '견적을 찾을 수 없어요.' : e.status === 0 ? e.message : '리포트를 불러오지 못했어요.'
@@ -54,6 +69,16 @@ const items = computed(() => est.value?.items || [])
 const naItems = computed(() => items.value.filter((it) => it.itemMedian == null))
 const images = computed(() => report.value?.images || [])
 const angles = computed(() => images.value.map((im) => angleLabel(im.angleCode)).join(' · '))
+/** 그릴 사진 — 리포트의 사진 URL + 분석 결과의 같은 imageId 에서 크기·도형 */
+const photos = computed(() => images.value.map((im) => {
+  const a = (analysis.value?.images || []).find((x) => x.imageId === im.imageId) || null
+  return {
+    imageId: im.imageId, angleCode: im.angleCode, overlay: !!im.overlay,
+    url: im.imageUrl || im.overlayUrl || '',
+    w: a?.width || 0, h: a?.height || 0,
+    marks: im.overlay ? [] : detectionMarks(a),
+  }
+}))
 const basisItems = computed(() => (report.value?.basis?.items || []).filter((b) => b.basisAvailable && b.narrative))
 const fallback = computed(() => fallbackLabel(report.value?.basis?.items?.find((b) => b.fallbackStage)?.fallbackStage))
 const validation = computed(() => report.value?.validation || null)
@@ -87,7 +112,7 @@ function onPdf() {
 const MOCK_REPORT = {
   vehicle: { manufacturer: '현대', modelName: '아반떼', vehicleType: 'SEDAN', carClass: 'Mid-size', modelYear: 2021 },
   accident: { accidentId: 1, createdAt: '2026-09-05T05:31:00Z' },
-  images: [{ imageId: 1, angleCode: 'DAMAGE_CLOSE', overlayUrl: '/assets/avante-damage.png' }],
+  images: [{ imageId: 1, angleCode: 'DAMAGE_CLOSE', overlayUrl: null, imageUrl: '/assets/avante-damage.png', overlay: false, boxes: [] }],
   estimate: {
     estimateId: 1, estimable: true, totalMin: 980000, totalMedian: 1240000, totalMax: 1620000, refCaseTotal: 34, confidenceGrade: 'MEDIUM', notices: [],
     items: [
@@ -105,6 +130,20 @@ const MOCK_REPORT = {
   legalNotice: '본 리포트는 AI가 사진을 바탕으로 추정한 참고 자료이며 법적 효력이 없습니다. 실제 수리비는 정비소 점검 결과에 따라 달라질 수 있습니다.',
   guidanceNotice: null,
   generatedAt: '2026-09-05T05:32:00Z',
+}
+/* 목업 분석 결과 — 견적 화면 목업과 같은 부위. 사진(avante-damage.png)이 정방형이라 1600x1600 기준으로 잡았다 */
+const MOCK_ANALYSIS = {
+  images: [{
+    imageId: 1, width: 1600, height: 1600, excluded: false,
+    detections: [
+      { detectionId: '1:a', partCode: 'FRONT_BUMPER', geometry: { bboxFormat: 'XYWH', bbox: { x: 610, y: 510, width: 640, height: 380 },
+        polygons: [[{ x: 640, y: 530 }, { x: 900, y: 520 }, { x: 1180, y: 560 }, { x: 1240, y: 670 }, { x: 1230, y: 820 }, { x: 1100, y: 880 }, { x: 860, y: 890 }, { x: 700, y: 850 }, { x: 620, y: 740 }, { x: 615, y: 620 }]] } },
+      { detectionId: '1:b', partCode: 'FRONT_FENDER_L', geometry: { bboxFormat: 'XYWH', bbox: { x: 320, y: 910, width: 395, height: 210 },
+        polygons: [[{ x: 340, y: 940 }, { x: 520, y: 920 }, { x: 700, y: 960 }, { x: 705, y: 1060 }, { x: 600, y: 1115 }, { x: 430, y: 1105 }, { x: 325, y: 1040 }]] } },
+      { detectionId: '1:c', partCode: 'HEAD_LAMP_L', geometry: { bboxFormat: 'XYWH', bbox: { x: 120, y: 460, width: 300, height: 200 },
+        polygons: [[{ x: 140, y: 480 }, { x: 330, y: 465 }, { x: 410, y: 530 }, { x: 400, y: 630 }, { x: 300, y: 655 }, { x: 170, y: 640 }, { x: 125, y: 560 }]] } },
+    ],
+  }],
 }
 </script>
 
@@ -154,13 +193,18 @@ const MOCK_REPORT = {
         <div class="rt"><span>사진</span><b>{{ images.length }}장<template v-if="angles"> ({{ angles }})</template></b></div>
 
         <div class="rh">3. 파손 이미지</div>
-        <div v-if="images.length" class="imgs" :class="{ one: images.length === 1 }">
-          <template v-for="im in images" :key="im.imageId">
-            <img v-if="im.overlayUrl" :src="im.overlayUrl" :alt="angleLabel(im.angleCode) + ' 분석 이미지'">
-            <span v-else class="ph-stripe noimg">분석 이미지 없음</span>
-          </template>
+        <!-- 사진은 자르지 않고 원래 비율(폭 100%)로 한 장씩 쌓는다 — 도형은 사진 픽셀 기준이라 잘라 보이면 어긋난다 -->
+        <div v-if="photos.length" class="imgs">
+          <figure v-for="p in photos" :key="p.imageId" class="photo">
+            <div v-if="p.url" class="frame">
+              <img :src="p.url" :alt="angleLabel(p.angleCode) + ' 파손 사진'">
+              <DetectionOverlay :width="p.w" :height="p.h" :marks="p.marks" fit="contain" />
+            </div>
+            <span v-else class="ph-stripe noimg">사진을 불러올 수 없어요</span>
+            <figcaption class="cap">{{ angleLabel(p.angleCode) }}<template v-if="p.overlay || p.marks.length"> · 인식 부위 표시</template></figcaption>
+          </figure>
         </div>
-        <p class="sub" style="margin-top:8px;font-size:11px">{{ angles || '분석에 쓰인 사진이 없어요' }}</p>
+        <p v-else class="sub" style="margin-top:8px;font-size:11px">분석에 쓰인 사진이 없어요</p>
 
         <div class="rh">4. 부품별 파손 및 예상 수리비</div>
         <template v-if="est && est.estimable">
@@ -235,10 +279,13 @@ const MOCK_REPORT = {
 .rt { min-height: 40px; padding: 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px dashed var(--line); font-size: 13px; }
 .rt span { color: var(--text-3); flex: 0 0 auto; }
 .rt b { font-weight: 600; color: var(--text); text-align: right; }
-.imgs { margin-top: 12px; display: flex; gap: 6px; }
-.imgs img, .imgs span { flex: 1 1 0; aspect-ratio: 1; border-radius: 8px; object-fit: cover; display: block; min-width: 0; }
-.imgs.one img, .imgs.one span { aspect-ratio: 4 / 3; }
-.imgs .noimg { display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-3); }
+/* 파손 사진 — 자르지 않는다(폭 100%, 높이 auto). 여러 장이면 세로로 쌓는다 */
+.imgs { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.photo { margin: 0; }
+.frame { position: relative; border-radius: 8px; overflow: hidden; background: var(--bg-2); }
+.frame img { display: block; width: 100%; height: auto; }
+.imgs .noimg { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; border-radius: 8px; font-size: 12px; color: var(--text-3); }
+.cap { margin-top: 5px; font-size: 11px; color: var(--text-3); }
 .tr { min-height: 44px; padding: 6px 0; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
 .total { margin-top: 16px; background: var(--bg-2); border-radius: 8px; padding: 14px; }
 .rp { margin-top: 10px; font-size: 13px; line-height: 1.6; color: var(--text-2); }
