@@ -125,6 +125,8 @@ const photos = computed(() => (result.value?.images || []).map((im) => ({
     .filter((m) => m.rect || m.polygons.length),
 })))
 const current = computed(() => photos.value[photo.value] || null)
+/** 머리의 "N곳 인식" — 사진 위에 그려지는 검출(바운딩박스) 개수. 부품 단위(parts)가 아니라 박스 단위라 사진과 숫자가 맞는다 */
+const detectedCount = computed(() => photos.value.reduce((n, p) => n + p.marks.length, 0))
 
 /* ----- 부품 선택 → 그 부품의 도형만 ----- */
 const selected = ref(null) // partCode | null
@@ -260,7 +262,7 @@ function applyMock() {
         <div class="row between">
           <span class="sec">인식된 손상 부위</span>
           <button v-if="selected" class="sub only" @click="selected = null">{{ selectedName }}만 표시 · 전체 보기</button>
-          <span v-else class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${parts.length}곳 인식` }}</span>
+          <span v-else class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
         </div>
         <div class="shot" :class="{ noimg: !current?.url }">
           <img v-if="current?.url" :src="current.url" alt="손상 부위 사진">
