@@ -305,8 +305,15 @@ function applyMock() {
       <div style="height:20px"></div>
     </div>
 
-    <div v-if="!loading && !error && stage === 'done'" class="foot">
-      <button class="btn" :disabled="!est" @click="openReport">{{ reportMade ? '리포트 보기' : '리포트 만들기' }}</button>
+    <!-- 하단 바 — 리포트 버튼(문서 아이콘 + 문구) | 홈. 리포트 미리보기의 "PDF 다운로드 | 홈" 과 같은 배치라 두 화면이 이어져 보인다 -->
+    <div v-if="!loading && !error && stage === 'done'" class="foot row">
+      <button class="btn" style="flex:1 1 auto" :disabled="!est" @click="openReport">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M5 1.8h5.6l3.4 3.4v9.6a1.4 1.4 0 0 1-1.4 1.4H5a1.4 1.4 0 0 1-1.4-1.4V3.2A1.4 1.4 0 0 1 5 1.8z" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round"/><path d="M10.6 1.8v3.4H14M6.3 9.2h5.4M6.3 12.2h3.6" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {{ reportMade ? '리포트 보기' : '리포트 만들기' }}
+      </button>
+      <button class="btn outline home" aria-label="홈으로" @click="router.replace('/home')">
+        <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 8.5L9 3l6.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 7.5v7h9v-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 14.5v-4h3v4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      </button>
     </div>
 
     <BottomSheet v-model="notice">
@@ -318,6 +325,7 @@ function applyMock() {
 </template>
 
 <style scoped>
+.home { flex: 0 0 52px; width: 52px; padding: 0; color: var(--text-2); } /* 아이콘만 — 이름은 aria-label 로. 리포트 미리보기와 같은 크기 */
 .notice { display: flex; align-items: center; gap: 8px; background: var(--warn-bg); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--warn); }
 .notice .more { font-size: 12px; font-weight: 500; color: var(--warn); text-decoration: underline; }
 .price { margin-top: 14px; background: var(--bg-2); border-radius: 16px; padding: 20px 18px; }
