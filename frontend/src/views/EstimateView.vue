@@ -125,6 +125,8 @@ const photos = computed(() => (result.value?.images || []).map((im) => ({
     .filter((m) => m.rect || m.polygons.length),
 })))
 const current = computed(() => photos.value[photo.value] || null)
+/** 머리의 "N곳 인식" — 사진 위에 그려지는 검출(바운딩박스) 개수. 부품 단위(parts)가 아니라 박스 단위라 사진과 숫자가 맞는다 */
+const detectedCount = computed(() => photos.value.reduce((n, p) => n + p.marks.length, 0))
 
 /* ----- 부품 선택 → 그 부품의 도형만 ----- */
 const selected = ref(null) // partCode | null
@@ -228,7 +230,7 @@ function applyMock() {
     <div v-else class="body scroll" style="padding-top:16px">
       <div class="notice">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:0 0 16px"><circle cx="8" cy="8" r="6.6" stroke="#B7791F" stroke-width="1.5"/><path d="M8 4.6v4" stroke="#B7791F" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.1" r="0.85" fill="#B7791F"/></svg>
-        <span class="flex1">AI 추정치이며 법적 효력이 없습니다</span>
+        <span class="flex1">본 견적은 AI가 추정한 참고용 견적입니다.</span>
         <button class="more" @click="notice = true">자세히</button>
       </div>
 
@@ -260,7 +262,7 @@ function applyMock() {
         <div class="row between">
           <span class="sec">인식된 손상 부위</span>
           <button v-if="selected" class="sub only" @click="selected = null">{{ selectedName }}만 표시 · 전체 보기</button>
-          <span v-else class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${parts.length}곳 인식` }}</span>
+          <span v-else class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
         </div>
         <div class="shot" :class="{ noimg: !current?.url }">
           <img v-if="current?.url" :src="current.url" alt="손상 부위 사진">
@@ -303,8 +305,15 @@ function applyMock() {
       <div style="height:20px"></div>
     </div>
 
-    <div v-if="!loading && !error && stage === 'done'" class="foot">
-      <button class="btn" :disabled="!est" @click="openReport">{{ reportMade ? '리포트 보기' : '리포트 만들기' }}</button>
+    <!-- 하단 바 — 리포트 버튼(문서 아이콘 + 문구) | 홈. 리포트 미리보기의 "PDF 다운로드 | 홈" 과 같은 배치라 두 화면이 이어져 보인다 -->
+    <div v-if="!loading && !error && stage === 'done'" class="foot row">
+      <button class="btn" style="flex:1 1 auto" :disabled="!est" @click="openReport">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M5 1.8h5.6l3.4 3.4v9.6a1.4 1.4 0 0 1-1.4 1.4H5a1.4 1.4 0 0 1-1.4-1.4V3.2A1.4 1.4 0 0 1 5 1.8z" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round"/><path d="M10.6 1.8v3.4H14M6.3 9.2h5.4M6.3 12.2h3.6" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {{ reportMade ? '리포트 보기' : '리포트 만들기' }}
+      </button>
+      <button class="btn outline home" aria-label="홈으로" @click="router.replace('/home')">
+        <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 8.5L9 3l6.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 7.5v7h9v-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 14.5v-4h3v4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      </button>
     </div>
 
     <BottomSheet v-model="notice">
@@ -316,6 +325,7 @@ function applyMock() {
 </template>
 
 <style scoped>
+.home { flex: 0 0 52px; width: 52px; padding: 0; color: var(--text-2); } /* 아이콘만 — 이름은 aria-label 로. 리포트 미리보기와 같은 크기 */
 .notice { display: flex; align-items: center; gap: 8px; background: var(--warn-bg); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--warn); }
 .notice .more { font-size: 12px; font-weight: 500; color: var(--warn); text-decoration: underline; }
 .price { margin-top: 14px; background: var(--bg-2); border-radius: 16px; padding: 20px 18px; }
