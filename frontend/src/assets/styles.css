@@ -193,7 +193,8 @@ a { color: var(--primary); text-decoration: none; }
 
 /* 팝오버 */
 .pop { position: absolute; left: 20px; right: 20px; top: 146px; background: var(--white); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(25,31,40,.14); padding: 16px; z-index: 15; animation: fadein .18s ease-out; }
-.pop::before { content: ""; position: absolute; right: 10px; top: -7px; width: 12px; height: 12px; background: var(--white); border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+/* 꼬리 중심을 AI 버튼(폭 32, 오른쪽 여백 20) 중심에 맞춘다: 테두리 1 + right 9 + 반폭 6 = 16 */
+.pop::before { content: ""; position: absolute; right: 9px; top: -7px; width: 12px; height: 12px; background: var(--white); border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
 
 /* 토스트 */
 .toast { position: absolute; left: 20px; right: 20px; bottom: calc(var(--safe-b) + 10px); background: rgba(25,31,40,.9); color: #fff; font-size: 13px; font-weight: 600; text-align: center; padding: 12px; border-radius: 10px; opacity: 0; transform: translateY(8px); transition: .25s; pointer-events: none; z-index: 40; }
