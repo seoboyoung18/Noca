@@ -114,7 +114,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(snapT); ro?.disconnect() 
 
     <!-- 한 화면 구성(S15P21A307-559): 캐로셀·문구·CTA 만 두고 남는 높이를 CTA 위아래에 3:2 로 나눈다.
          버튼이 아래쪽(엄지 자리)에 앉되 법적 고지 푸터에 붙지는 않는다. 내용이 화면보다 길어지는 아주 짧은 기기에서만 스크롤이 생긴다 -->
-    <div class="body col scroll" style="padding:0">
+    <div class="body col fixed" style="padding:0">
       <section class="carousel">
         <div ref="viewportEl" class="viewport" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="onUp">
           <div class="track" :style="trackStyle">

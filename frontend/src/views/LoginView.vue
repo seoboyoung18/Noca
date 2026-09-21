@@ -25,7 +25,7 @@ function login(provider) { window.location.assign(loginUrl(provider)) }
 <template>
   <Screen>
     <AppHeader back="/landing" />
-    <div class="body col" style="justify-content:center;padding-bottom:120px">
+    <div class="body col fixed" style="justify-content:center;padding-bottom:120px">
       <div class="wrap">
         <LogoMark :size="64" :radius="16" :icon="34" />
         <h1 class="h1 sm" style="margin-top:24px;text-align:center">로그인하고 견적을 확인하세요</h1>

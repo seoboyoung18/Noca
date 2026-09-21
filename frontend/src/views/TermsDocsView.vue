@@ -15,7 +15,7 @@ const docs = [
 <template>
   <Screen>
     <AppHeader title="약관 및 개인정보 처리방침" back="/my" line />
-    <div class="body scroll" style="padding-top:20px">
+    <div class="body fixed" style="padding-top:20px">
       <div class="mlist">
         <button v-for="d in docs" :key="d.key" class="mrow" @click="router.push(d.path)">
           <span class="mi">
