@@ -79,6 +79,33 @@ export function detectionShapes(det) {
 }
 
 /**
+ * 코너 하이라이트 — 박스의 네 모서리만 꺾쇠(ㄱ 모양)로 그리는 SVG path. 꺾쇠 길이는 짧은 변의 18%.
+ * 사각형을 다 그리면 선이 손상 부위를 가리고 사진이 답답해진다 — 모서리만 남겨도 범위는 읽힌다.
+ * 견적 화면과 리포트 미리보기가 같은 모양을 그리도록 여기 한 곳에 둔다(components/DetectionOverlay 가 쓴다).
+ */
+export function cornerPath(r) {
+  const len = Math.max(3, Math.min(r.w, r.h) * 0.18)
+  const { x, y, w, h } = r
+  return [
+    `M${x} ${y + len}V${y}H${x + len}`,
+    `M${x + w - len} ${y}H${x + w}V${y + len}`,
+    `M${x + w} ${y + h - len}V${y + h}H${x + w - len}`,
+    `M${x + len} ${y + h}H${x}V${y + h - len}`,
+  ].join(' ')
+}
+
+/**
+ * 분석 결과의 사진 하나(result.images[i])에서 그릴 도형 목록 — DetectionOverlay 의 marks.
+ * [{ id, partCode, rect, polygons }]. 제외된 사진·크기를 모르는 사진은 빈 배열이고, 도형이 하나도 없는 검출은 뺀다.
+ */
+export function detectionMarks(im) {
+  if (!im || im.excluded || !im.width || !im.height) return []
+  return (Array.isArray(im.detections) ? im.detections : [])
+    .map((d, i) => ({ id: d.detectionId || `${im.imageId}:${i}`, partCode: d.partCode || null, ...detectionShapes(d) }))
+    .filter((m) => m.rect || m.polygons.length)
+}
+
+/**
  * 사진 픽셀의 한 점을 화면에 보이는 사진 영역 대비 퍼센트로. 라벨처럼 <b>크기가 고정돼야 하는 HTML 요소</b>를 얹을 때 쓴다
  * (도형은 SVG viewBox 가 알아서 맞추므로 환산이 필요 없다). 사진 틀은 고정 비율(frame, 기본 4:3) + cover 라 잘려 나간 가장자리를 빼고 센다.
  * 보이는 영역 밖이면 null.

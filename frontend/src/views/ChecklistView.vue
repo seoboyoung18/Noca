@@ -9,7 +9,7 @@ import Toast from '../components/Toast.vue'
 import { useAccidentStore } from '../stores/accidents'
 import { useChecklistStore } from '../stores/checklist'
 import { useAccidentDesc } from '../lib/accidentDesc'
-import { fetchEstimate } from '../lib/api'
+import { fetchAccidentEstimates, fetchEstimate } from '../lib/api'
 import { AUTH_GUARD_OFF } from '../router'
 import { vehicleName } from '../data/vehicles'
 import { accidentDateShort } from '../data/accidents'
@@ -21,6 +21,7 @@ import {
 /* ===== 정비 체크리스트 (S14b) — GET/POST /api/accidents/{id}/repair-checklist =====
  * 사고 id 는 쿼리(accidentId). 상단 날짜·차량명은 사고 스토어, 요약 줄은 견적(부위·수리 방식·중앙값), 항목은 체크리스트 스토어.
  * 서버가 자동 생성하지 않으므로 진입 시 ensureRequested → pending 이면 2초 폴링 → COMPLETED 면 목록, FAILED 면 실패 안내 + 다시 시도.
+ * 단, <b>산정된 견적이 있을 때만</b> 만든다(S15P21A307-559, 견적 화면과 같은 규칙) — 산정 불가 사고는 "아직 견적이 산정되지 않았어요" 로 멈춘다.
  * 탭은 이전 구성(공통 / 부품 / 함께 점검). 서버 항목에 분류가 없어 AI 항목은 견적 부위명이 문장에 있으면 그 부위 그룹, 없으면 "함께 점검" 으로 FE 가 나눈다
  * (data/checklists groupChecklistItems). 직접 추가 항목의 구분은 이 기기에 저장. 심각도는 응답에 없어 두지 않는다.
  * AI 한 줄 요약은 응답에 아직 없어 목업 문구로 유지한다(aiSummary — 서버가 summary 를 주면 자동 전환, 백엔드 요청 3).
@@ -60,13 +61,31 @@ const summary = computed(() => {
   return parts.join(' · ')
 })
 
+const notEstimable = ref(false) // 산정된 견적이 없어 체크리스트를 만들지 않은 상태
+
+/** 산정된 견적이 있는가 — 없으면 체크리스트를 만들지 않는다(견적 화면과 같은 규칙). 목업은 사고 목록의 estimateId 로 가른다 */
+async function estimated() {
+  if (AUTH_GUARD_OFF) return !!accident.value?.estimateId
+  try {
+    const latest = (await fetchAccidentEstimates(accidentId))[0]
+    if (!latest) return false
+    const est = await fetchEstimate(latest.estimateId)
+    if (!estimate.value) estimate.value = est // 요약 줄(수리 방식 개수 · 중앙값)에도 쓴다
+    return !!est.estimable
+  } catch { return false } // 확인이 안 되면 만들지 않는다 — "다시 확인" 으로 재시도할 수 있다
+}
+
 async function init() {
   if (!accidentId) return
+  notEstimable.value = false
   checklists.loadCats()
-  if (!accidents.loaded) accidents.load(true)
+  if (!accidents.loaded) await accidents.load(true)
   const res = await checklists.load(accidentId)
-  // 요청 전(null)이면 여기서 큐에 넣는다 — 견적 화면을 거치지 않고 들어온 경우
-  if (res && res.status === null) await checklists.ensureRequested(accidentId)
+  // 요청 전(null)이면 여기서 큐에 넣는다 — 견적 화면을 거치지 않고 들어온 경우. 산정된 견적이 없으면 만들지 않는다
+  if (res && res.status === null) {
+    if (await estimated()) await checklists.ensureRequested(accidentId)
+    else { notEstimable.value = true; return }
+  }
   if (checklistPending(checklists.get(accidentId)?.status)) checklists.startPolling(accidentId)
 }
 onMounted(init)
@@ -180,6 +199,16 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
       </div>
     </div>
 
+    <!-- 산정 전 — 견적이 나오기 전엔 체크리스트를 만들지 않는다 -->
+    <div v-else-if="notEstimable" class="body col">
+      <div class="empty">
+        <img src="/assets/logo-small.png" alt="">
+        <b>아직 견적이 산정되지 않았어요</b>
+        <p>견적이 산정된 사고에만<br>정비 체크리스트를 만들어 드려요</p>
+        <button class="btn outline" style="margin-top:16px;width:auto;padding:0 20px;height:44px" @click="init">다시 확인</button>
+      </div>
+    </div>
+
     <div v-else-if="cl" class="body scroll" style="padding-top:16px">
       <!-- 머리: 접수일 · 차량명 -->
       <div class="row" style="align-items:baseline;gap:8px">
@@ -254,7 +283,7 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
       <div style="height:20px"></div>
     </div>
 
-    <div v-if="cl" class="foot">
+    <div v-if="cl && !notEstimable" class="foot">
       <button class="btn bold" @click="router.push('/home')">
         <svg width="18" height="18" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M3.5 9.5L11 3.5l7.5 6v8a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1z" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round"/></svg>
         홈으로
