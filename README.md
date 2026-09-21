@@ -49,7 +49,7 @@
 
 | 폴더 | 내용 |
 | --- | --- |
-| `backend/` | Spring Boot 서버. `src/main/java` 516파일 · 컨트롤러 33개 · API 매핑 97개 |
+| `backend/` | Spring Boot 서버. `src/main/java` 519파일 · 컨트롤러 33개 · API 매핑 98개 |
 | `frontend/` | Vue SPA. 화면 25개 · 라우트 31개 · 스토어 5개 |
 | `AI/` | FastAPI 추론 서버(`server/`) · 학습 스크립트(`training/`) · 모델 가중치(`models/`) |
 | `pipeline/` | 오프라인 데이터 파이프라인 (정규화 · 검증 · 적재) |
@@ -66,7 +66,7 @@ docker compose up -d          # a307-db(127.0.0.1:5432) · a307-redis(127.0.0.1:
 ```
 
 `Docs/Erd/A307_ddl_final.sql` 과 시드가 `docker-entrypoint-initdb.d` 로 마운트돼 있어
-**볼륨이 비어 있는 첫 기동에만** 자동 적용된다 (43 테이블).
+**볼륨이 비어 있는 첫 기동에만** 자동 적용된다 (47 테이블).
 
 > [!WARNING]
 > 이미 볼륨이 있고 스키마가 낡았으면 백엔드가 기동하지 않는다. `ddl-auto=validate` 라
@@ -112,7 +112,7 @@ uvicorn app.main:app --app-dir AI/server --port 8000
 ## 테스트
 
 ```bash
-cd backend && ./gradlew build     # 1658건 · 실패 0 (2026-09-18 측정)
+cd backend && ./gradlew build     # 1677건 · 실패 0 (2026-09-21 측정)
 cd frontend && npm run build      # 통과
 ```
 
@@ -127,7 +127,7 @@ cd frontend && npm run build      # 통과
 
 ## 현재 구현 범위
 
-**"구현했다" 와 "돌고 있다" 를 구분해 적는다.** 기능 플래그 8개는 전부 기본 `false` 다
+**"구현했다" 와 "돌고 있다" 를 구분해 적는다.** 기능 플래그 9개는 전부 기본 `false` 다
 (`grep -E '^app\..*enabled=' backend/src/main/resources/application.properties`).
 **배포 파이프라인이 켜는 것은 체크리스트·질문 워커 둘뿐이고**, 같은 자리에서 LLM 벤더를
 OpenAI `gpt-5.4` 로 바꾼다.
@@ -143,7 +143,7 @@ OpenAI `gpt-5.4` 로 바꾼다.
 | AI 손상 인식 (`POST /inference`) | 구현 | YOLO 2모델 → 표준화 결과 |
 | AI 유사 사례 검색 (`POST /search`) | 구현 | ROI 임베딩 + pgvector. `FEATURE_PIPELINE_VERSION_ID` 없으면 503 |
 | AI 수리비 산정 (`POST /estimate`) | 구현 | 수리 사례 DB 조회. 데이터 없으면 503 |
-| AI 분석 오케스트레이션 (`POST /analyze`) | 구현 · **운영에서 실경로로 동작** | 추론 → 검색 → 견적을 이어 실행하고 실제 견적 값(`totals` · `confidenceGrade`)을 콜백한다. 운영 컨테이너가 `ANALYSIS_PROFILE=production` · `FEATURE_PIPELINE_VERSION_ID=1` 이고 `/health` 가 `modelsLoaded` · `embeddingModelLoaded` 를 `true` 로 보고한다. `ANALYSIS_PROFILE=mock` 은 BE 연동 테스트 전용이며 그 경우에만 `estimable: false` 다 |
+| AI 분석 오케스트레이션 (`POST /analyze`) | 구현 · **운영에서 실경로로 동작** | 추론 → 검색 → 견적을 이어 실행하고 실제 견적 값(`totals` · `confidenceGrade`)을 콜백한다. 운영 컨테이너가 `ANALYSIS_PROFILE=production` · `FEATURE_PIPELINE_VERSION_ID=2` 이고 `/health` 가 `modelsLoaded` · `embeddingModelLoaded` 를 `true` 로 보고한다. `ANALYSIS_PROFILE=mock` 은 BE 연동 테스트 전용이며 그 경우에만 `estimable: false` 다 |
 | 견적서 검증 (OCR → 판정 → 리포트) | **구현 완료 · 이번 범위 제외** | 백엔드 101개 파일. OCR 판독(`EstimateOcrPrompt`·`LlmEstimateOcrAdapter`·`OcrExtractionParser`)과 판정·리포트까지 구현돼 있다. 가동하려면 셋이 더 필요하다 — 문서 저장소(`DOCUMENT_STORAGE_PROVIDER`)와 판독 벤더(`ESTIMATE_OCR_PROVIDER`) 선택, 그리고 견적서를 올릴 화면. 사진 기반 견적을 먼저 완성하는 쪽을 택해 제외했다 |
 | 견적 PDF | 구현 · **배포에서 켜짐** | `ESTIMATE_PDF_ENABLED=true` (운영 컨테이너 env) |
 | 검증 결과 PDF | **구현 완료 · 이번 범위 제외** | 생성기·한글 폰트·조립기·워커까지 완성했고 테스트 3건이 덮는다(`ValidationPdfGenerationTest`·`ValidationPdfStorageOrderTest`·`EstimateValidationReportTransitionTest`). 견적서 검증과 함께 제외했다 |
@@ -159,16 +159,17 @@ OpenAI `gpt-5.4` 로 바꾼다.
 | --- | --- |
 | [Docs/README.md](Docs/README.md) | 전체 문서 인덱스 |
 | [기술 아키텍처](Docs/Architecture/technology-architecture.md) | 구성요소 · 통신 · 저장소 경계 |
-| [A307_ddl_final.sql](Docs/Erd/A307_ddl_final.sql) | 스키마 정본 (43 테이블) |
+| [A307_ddl_final.sql](Docs/Erd/A307_ddl_final.sql) | 스키마 정본 (47 테이블) |
 | [AI 연동 계약](<Docs/Api/AI 연동 계약 (백엔드 ↔ AI 서버).md>) | BE ↔ AI 요청·콜백 계약 |
 | [담당 범위](Docs/담당%20범위.md) | 팀 분담 |
 
 ## 알려진 제한사항
 
-- 검색 corpus 는 DEV 표본 1,000 사례만 적재돼 있다. 누수 없이 적재 가능한 전체 대상은
-  39,676 사례(`dataset_split=TRAIN_ONLY`)라 약 1/39 다. 조건에 맞는 유사 사례·유효 비용
-  행이 부족하면 `estimable: false` / `INSUFFICIENT_CASES` 로 응답한다. 검색·임베딩 로직
-  확정 후 전수 적재 예정.
+- 검색 corpus 는 **전수 적재를 마쳤다** (2026-09-21). 누수 없이 적재 가능한 전체 대상
+  39,676 사례(`dataset_split=TRAIN_ONLY`)가 모두 들어갔고, ROI 임베딩 304,114건 ·
+  `repair_case.model_id` 33,379건(84%)이다. 차종이 채워져 검색 완화 단계
+  (`MODEL` → `PRICE_TIER` → `ALL`)가 실제로 동작한다. 조건에 맞는 유사 사례·유효 비용
+  행이 부족하면 `estimable: false` / `INSUFFICIENT_CASES` 로 응답한다.
 - 관리자 API 34개와 정비소 질문 API 는 백엔드만 있고 화면은 이번 범위에서 제외했다.
 - 정비소 검색 화면은 백엔드 API 를 쓰지 않고 카카오 지도 SDK 를 직접 호출한다.
 - 기능 플래그 대부분이 배포에서 꺼져 있다. 위 표의 스위치를 참고한다.
