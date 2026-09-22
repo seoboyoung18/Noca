@@ -793,6 +793,34 @@ class AnalysisCallbackApiTest {
     }
 
     /**
+     * AI 가 S15P21A307-569 부터 실제로 보내는 합친 항목 모양이다. 같은 부위 긁힘 두 곳을 합치면 AI 가
+     * 중복을 걷어 {@code mergedDamageTypes} 가 원소 하나로 남는다 — 원소 수가 아니라 비어 있지 않음이
+     * "합친 항목" 이다. 함께 오는 항목 등급과 {@code repairMethodReason.mergedCandidates}·
+     * {@code uncoveredMethods} 는 아직 저장하지 않는다. 모르는 필드로 콜백이 깨지지 않는 것까지 본다 —
+     * AI 와 계약이 어긋나면 여기서 먼저 깨진다.
+     */
+    @Test
+    @DisplayName("AI 가 보내는 합친 항목 모양 그대로 받는다 — 같은 유형 두 곳이면 원소 하나로도 합친 항목이다 (S15P21A307-569)")
+    void acceptsMergedItemAsAiSendsIt() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replace("\"detectionIds\":[\"501:damage:damage-001\"]",
+                        "\"detectionIds\":[\"501:damage:damage-001\",\"501:damage:damage-002\"]")
+                .replace("\"repairMethodReason\":{\"candidates\":[\"coating\"],\"reasonCode\":\"SINGLE\"}",
+                        "\"repairMethodReason\":{\"candidates\":[\"coating\"],\"reasonCode\":\"SINGLE\","
+                                + "\"mergedCandidates\":[\"coating\"],\"uncoveredMethods\":[]},"
+                                + "\"confidenceGrade\":\"LOW\",\"mergedDamageTypes\":[\"Scratched\"]");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(count("estimate_item ei join estimate e on e.estimate_id = ei.estimate_id"
+                + " where e.job_id = " + JOB_ID)).isEqualTo(1);
+        RefCondition stored = storedRefCondition();
+        assertThat(stored.mergedDamageTypes()).containsExactly("Scratched");
+        assertThat(stored.repairMethodReason().candidates()).containsExactly("coating");
+    }
+
+    /**
      * isEmpty() 는 화면용 계산값이지 근거가 아니다. 게터로 읽혀 스냅샷에 "empty" 가 섞여 저장되던
      * 것을 막는다 — S15P21A307-537 의 요약 JSON 과 같은 누수였다.
      */
