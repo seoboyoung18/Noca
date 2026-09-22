@@ -57,29 +57,19 @@ const nonEstimableText = computed(() => NON_ESTIMABLE_TEXT[est.value?.nonEstimab
 /** 부품 미확정 — 사용자가 부위를 직접 고를 수 있다 */
 const needPart = computed(() => !!est.value && !est.value.estimable && est.value.nonEstimableReason === 'PART_NOT_RESOLVED')
 
-/* ----- 부위 직접 고르기 (S15P21A307-564) -----
- * 고르기는 차 도면(components/CarDiagram)에서 한 번 탭 — 위에서 본 차체 + 운전석·조수석 열, 작은 부품은 아래 칩.
- * 서버에 "사용자가 확정한 부품" 을 보내 견적을 다시 산정하는 API 는 아직 없다(BE 요청 문서 backend-request-resolve-part.md).
- * 지금은 고른 값을 브라우저에만 저장하고 화면에 보여 준다 — API 가 생기면 confirmPart() 에서 부르면 된다.
+/* ----- 부위 직접 고르기 (S15P21A307-564·567) -----
+ * 고르기는 차 도면(components/CarDiagram)에서 한 번 탭 — 위에서 본 차체 + 운전석·조수석 열, 작은 부품은 아래 판.
+ * 따로 확정 단계는 없다: 고르면 하단 버튼이 "○○로 다시 분석하기" 가 되고, 누르면 바로 분석 중 화면으로 간다.
+ * 고른 값은 브라우저에 저장해 두어(data/parts.js 의 저장 키) 돌아왔을 때 도면에 미리 켜 둔다 — 서버 API 가 아직 없어 404 로 돌아오는 경우가 있다.
  */
-const pickedPart = ref('') // 도면에서 고른 부품 — 아직 확정 전
+const pickedPart = ref(accidentId ? readResolvedPart(accidentId) : '') // 도면에서 고른 부품 — 이전에 고른 게 있으면 미리 켜 둔다
 /** 조사 로/으로 — 받침이 있으면(ㄹ 제외) "으로". "보닛으로", "루프로", "헤드램프(우)로" */
 const ro = (w) => { const c = w.replace(/\)$/, '').replace(/\([^()]*$/, '').trimEnd(); const k = c.charCodeAt(c.length - 1) - 0xac00; const j = k >= 0 && k < 11172 ? k % 28 : 0; return j && j !== 8 ? '으로' : '로' }
-const resolvedPart = ref(accidentId ? readResolvedPart(accidentId) : '') // 확정한 것
-function confirmPart() {
-  if (!pickedPart.value) return
-  resolvedPart.value = pickedPart.value
-  if (accidentId) writeResolvedPart(accidentId, pickedPart.value)
-}
-/** 확정한 부품으로 다시 분석 — 분석 중 화면이 부위 확정 재분석 API(resolveAnalysisPart)를 부르고 진행을 그린다 */
+/** 고른 부품으로 바로 다시 분석 — 분석 중 화면이 부위 확정 재분석 API(resolveAnalysisPart)를 부르고 진행을 그린다 */
 function reanalyze() {
-  if (!resolvedPart.value) return
-  router.push({ path: '/claim/analyzing', query: { ...(accidentId ? { accidentId } : {}), ...(estimateId.value ? { estimateId: estimateId.value } : {}), partCode: resolvedPart.value } })
-}
-function repickPart() {
-  pickedPart.value = resolvedPart.value
-  resolvedPart.value = ''
-  if (accidentId) writeResolvedPart(accidentId, '')
+  if (!pickedPart.value) return
+  if (accidentId) writeResolvedPart(accidentId, pickedPart.value)
+  router.push({ path: '/claim/analyzing', query: { ...(accidentId ? { accidentId } : {}), ...(estimateId.value ? { estimateId: estimateId.value } : {}), partCode: pickedPart.value } })
 }
 
 /* ----- 이미 만든 리포트가 있는지 -----
@@ -328,22 +318,10 @@ function applyMock() {
           </button>
         </div>
 
-        <!-- 부위 고르기 — 부품 미확정(PART_NOT_RESOLVED)일 때만. 차 도면에서 한 번 탭, 확정은 하단 버튼 -->
+        <!-- 부위 고르기 — 부품 미확정(PART_NOT_RESOLVED)일 때만. 차 도면에서 한 번 탭하면 하단 버튼으로 바로 다시 분석 -->
         <div v-if="needPart" class="pick">
-          <template v-if="resolvedPart">
-            <div class="picked">
-              <span class="pk-ic"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 9.6L7 13L14.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-              <span class="flex1" style="display:flex;flex-direction:column;gap:3px">
-                <b style="font-size:15px">{{ partName(resolvedPart) }}</b>
-                <span class="sub" style="font-size:12px">이 부위로 다시 분석해 예상 수리비를 계산해요</span>
-              </span>
-              <button class="link" style="flex:0 0 auto;white-space:nowrap" @click="repickPart">다시 고르기</button>
-            </div>
-          </template>
-          <template v-else>
-            <p class="sub" style="font-size:12px;line-height:1.5">도면에서 파손된 부위를 누르세요. 운전석 쪽이 왼쪽입니다</p>
-            <CarDiagram v-model="pickedPart" />
-          </template>
+          <p class="sub" style="font-size:12px;line-height:1.5">도면에서 파손된 부위를 누르세요. 운전석 쪽이 왼쪽입니다</p>
+          <CarDiagram v-model="pickedPart" />
         </div>
       </div>
 
@@ -372,14 +350,11 @@ function applyMock() {
     </div>
 
     <!-- 하단 바 — 리포트 버튼(문서 아이콘 + 문구) | 홈. 리포트 미리보기의 "PDF 다운로드 | 홈" 과 같은 배치라 두 화면이 이어져 보인다 -->
-    <div v-if="!loading && !error && stage === 'done' && needPart && !resolvedPart" class="foot">
-      <button class="btn" :disabled="!pickedPart" @click="confirmPart">{{ pickedPart ? `${partName(pickedPart)}${ro(partName(pickedPart))} 확정` : '사고 부위를 알려주세요' }}</button>
-    </div>
-    <!-- 부위를 확정했으면 그 부품으로 다시 분석 -->
-    <div v-else-if="!loading && !error && stage === 'done' && needPart && resolvedPart" class="foot row">
-      <button class="btn" style="flex:1 1 auto" @click="reanalyze">
+    <!-- 부품 미확정: 고른 부품으로 바로 다시 분석 | 홈. 고르기 전에는 버튼이 잠긴다 -->
+    <div v-if="!loading && !error && stage === 'done' && needPart" class="foot row">
+      <button class="btn" style="flex:1 1 auto" :disabled="!pickedPart" @click="reanalyze">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 9a5.5 5.5 0 1 0 1.6-3.9M3.5 3.5v3h3" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        다시 분석하기
+        {{ pickedPart ? `${partName(pickedPart)}${ro(partName(pickedPart))} 다시 분석하기` : '사고 부위를 알려주세요' }}
       </button>
       <button class="btn outline home" aria-label="홈으로" @click="router.replace('/home')">
         <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 8.5L9 3l6.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 7.5v7h9v-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 14.5v-4h3v4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
@@ -410,8 +385,6 @@ function applyMock() {
 <style scoped>
 /* 부위 고르기 — 사진 대신 차 도면(CarDiagram). 고른 뒤에는 확인 카드 하나로 접는다 */
 .pick { margin-top: 10px; }
-.picked { margin-top: 10px; display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--primary-200); border-radius: 12px; background: var(--primary-50); }
-.pk-ic { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 16px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; }
 .home { flex: 0 0 52px; width: 52px; padding: 0; color: var(--text-2); } /* 아이콘만 — 이름은 aria-label 로. 리포트 미리보기와 같은 크기 */
 .notice { display: flex; align-items: center; gap: 8px; background: var(--warn-bg); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--warn); }
 .notice .more { font-size: 12px; font-weight: 500; color: var(--warn); text-decoration: underline; }
