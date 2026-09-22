@@ -528,3 +528,162 @@ def test_yolo_estimate_reference_selects_only_full_repair_cases():
     selected = service.select_full_repair_reference_candidates(candidates, "PART_A")
     assert [row["caseId"] for row in selected] == [1, 2, 3]
     assert all(row["includedInDistribution"] for row in selected)
+
+
+# ── 같은 부위 병합 (jobId=75: 앞범퍼가 두 줄로 나와 총액이 두 배) ──────────────
+
+
+def _coating_rows(part_code, case_ids, *, amount):
+    return [
+        _row(case_id, part_code, "WORK", work_code="COATING",
+             paint_material_cost=amount // 2, labor_cost=amount - amount // 2)
+        for case_id in case_ids
+    ]
+
+
+def _exchange_rows(part_code, case_ids, *, amount):
+    return [
+        _row(case_id, part_code, "WORK", work_code="EXCHANGE",
+             part_cost=amount - 100000, labor_cost=100000)
+        for case_id in case_ids
+    ]
+
+
+def test_two_damages_on_one_part_become_one_item_and_are_not_double_counted():
+    # 운영 jobId=75 재현: 앞범퍼 한 곳에 긁힘·깨짐이 잡혀 items에 FRONT_BUMPER가
+    # 두 번 들어갔고 총액이 범퍼를 두 번 교체한 값이 됐다.
+    rows = [
+        *_coating_rows("FRONT_BUMPER", [1, 2, 3], amount=120000),
+        *_exchange_rows("FRONT_BUMPER", [11, 12, 13], amount=550000),
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows))
+    scratched = _part(part_code="FRONT_BUMPER", damage_type="Scratched",
+                      referenced_case_ids=[1, 2, 3], detection_ids=["75:damage:d1"])
+    breakage = _part(part_code="FRONT_BUMPER", damage_type="Breakage",
+                     referenced_case_ids=[11, 12, 13], detection_ids=["75:damage:d2"])
+
+    result = service.calculate(_request([scratched, breakage]))
+
+    assert len(result["items"]) == 1
+    item = result["items"][0]
+    # 교환이 긁힘까지 함께 해결하므로 무거운 방식이 대표다.
+    assert item["repairMethod"] == "exchange"
+    assert item["damageType"] == "Breakage"
+    assert item["costDistribution"]["median"] == 550000
+    # 병합 전에는 120000 + 550000 = 670000 이 나갔다.
+    assert result["totals"]["median"] == 550000
+    assert result["refCaseTotal"] == 3
+    # 사진의 박스 두 개는 모두 대표 항목이 가리킨다 — 입력 순서를 지킨다.
+    assert item["detectionIds"] == ["75:damage:d1", "75:damage:d2"]
+    assert item["mergedDamageTypes"] == ["Scratched", "Breakage"]
+
+
+def test_representative_prefers_the_larger_amount_over_the_larger_sample():
+    # repairMethod는 참조 사례 method의 합집합이라 양쪽이 exchange로 동률 나기 쉽다.
+    # 그때 사례 수로 가르면 흔한 쪽(싼 쪽)이 대표가 되어 견적이 낮아진다.
+    rows = [
+        *_exchange_rows("PART_A", [1, 2, 3, 4, 5], amount=200000),
+        *_exchange_rows("PART_A", [11, 12], amount=600000),
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows))
+    common = _part(part_code="PART_A", damage_type="Scratched",
+                   referenced_case_ids=[1, 2, 3, 4, 5])
+    severe = _part(part_code="PART_A", damage_type="Breakage", referenced_case_ids=[11, 12])
+
+    result = service.calculate(_request([common, severe]))
+
+    assert len(result["items"]) == 1
+    item = result["items"][0]
+    assert item["repairMethod"] == "exchange"
+    assert item["costDistribution"]["median"] == 600000
+    assert item["refCaseCount"] == 2  # 사례가 적어도 비싼 쪽이 대표다
+
+
+def test_merged_item_keeps_the_lowest_confidence_grade_of_the_group():
+    # 대표 자체는 표본 20건이라 HIGH지만, 합칠지 말지를 표본 2건짜리 근거로
+    # 판단했으므로 그 얇음이 등급에 남아야 한다.
+    rows = [
+        *_exchange_rows("PART_A", list(range(1, 21)), amount=500000),
+        *_coating_rows("PART_A", [31, 32], amount=100000),
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows))
+    severe = _part(part_code="PART_A", damage_type="Breakage",
+                   referenced_case_ids=list(range(1, 21)))
+    light = _part(part_code="PART_A", damage_type="Scratched", referenced_case_ids=[31, 32])
+
+    result = service.calculate(_request([severe, light]))
+
+    item = result["items"][0]
+    assert item["refCaseCount"] == 20
+    assert item["confidenceGrade"] == "LOW"
+    assert result["confidenceGrade"] == "LOW"
+
+
+def test_unresolved_is_dropped_when_another_damage_on_the_same_part_resolved():
+    # "총액에 있다"와 "총액에서 뺐다"가 같은 부위에 함께 보이면 안 된다.
+    rows = _exchange_rows("PART_A", [1, 2, 3], amount=500000)
+    service = EstimateService(InMemoryCostCaseRepository(rows))
+    resolvable = _part(part_code="PART_A", damage_type="Breakage", referenced_case_ids=[1, 2, 3])
+    starved = _part(part_code="PART_A", damage_type="Scratched", referenced_case_ids=[98, 99])
+
+    result = service.calculate(_request([resolvable, starved]))
+
+    assert len(result["items"]) == 1
+    assert result["unresolvedParts"] == []
+
+
+def test_unresolved_keeps_one_entry_per_part_code_when_nothing_resolved():
+    service = EstimateService(InMemoryCostCaseRepository([]))
+    first = _part(part_code="PART_A", damage_type="Breakage", referenced_case_ids=[1, 2])
+    second = _part(part_code="PART_A", damage_type="Scratched", referenced_case_ids=[3, 4])
+
+    result = service.calculate(_request([first, second]))
+
+    assert result["estimable"] is False
+    assert result["unresolvedParts"] == [
+        {"partCode": "PART_A", "damageType": "Breakage", "reason": "INSUFFICIENT_CASES"},
+    ]
+
+
+def test_part_price_reference_is_emitted_once_per_part_code_from_the_union():
+    # 부품비는 손상 유형과 무관하다 — 두 엔트리의 후보 풀은 같은 모집단이라
+    # 한쪽을 버리지 않고 합집합으로 한 번만 계산한다.
+    rows = [
+        _row(1, "PART_A", "PART_PRICE", part_cost=10000),
+        _row(2, "PART_A", "PART_PRICE", part_cost=20000),
+        _row(3, "PART_A", "PART_PRICE", part_cost=30000),
+        _row(4, "PART_A", "PART_PRICE", part_cost=40000),
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows), enable_part_price_reference=True)
+
+    def _candidate(case_id, similarity):
+        return {"caseId": case_id, "similarity": similarity,
+                "corpusPartMatched": True, "corpusPartCode": "PART_A"}
+
+    scratched = _part(part_code="PART_A", damage_type="Scratched", referenced_case_ids=[])
+    scratched["partPriceCandidateCases"] = [_candidate(1, 0.9), _candidate(2, 0.6)]
+    breakage = _part(part_code="PART_A", damage_type="Breakage", referenced_case_ids=[])
+    breakage["partPriceCandidateCases"] = [_candidate(3, 0.8), _candidate(4, 0.7)]
+
+    references = service.calculate(_request([scratched, breakage]))["partPriceReferences"]
+
+    assert len(references) == 1
+    reference = references[0]
+    assert reference["partCode"] == "PART_A"
+    assert reference["refCaseCount"] == 4
+    assert reference["referencedCaseIds"] == [1, 3, 4, 2]  # 유사도 내림차순
+    amounts = [10000, 30000, 40000, 20000]
+    q1, _median, q3 = statistics.quantiles(amounts, n=4, method="inclusive")
+    assert reference["costDistribution"] == {
+        "p25": round(q1), "median": round(statistics.median(amounts)), "p75": round(q3),
+    }
+
+
+def test_single_damage_part_still_reports_its_one_merged_damage_type():
+    rows = _exchange_rows("PART_A", [1, 2, 3], amount=500000)
+    service = EstimateService(InMemoryCostCaseRepository(rows))
+    part = _part(part_code="PART_A", damage_type="Crushed", referenced_case_ids=[1, 2, 3])
+
+    item = service.calculate(_request([part]))["items"][0]
+
+    assert item["mergedDamageTypes"] == ["Crushed"]

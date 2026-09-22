@@ -181,6 +181,7 @@ REPAIR       → repair
       "paintMaterialCost": 85500,
       "itemTotal": 335500,
       "detectionIds": ["501:damage:damage-001"],
+      "mergedDamageTypes": ["Scratched"],
       "refCaseCount": 2,
       "referencedCaseIds": [121381, 121414],
       "costDistribution": {
@@ -204,12 +205,39 @@ REPAIR       → repair
 | `partCost` | 사례별 부품비의 중앙값. 없으면 `null` |
 | `laborCost` | 사례별 공임의 중앙값 |
 | `paintMaterialCost` | 사례별 도장 재료비의 중앙값. 없으면 `null` |
+| `mergedDamageTypes` | 이 항목 하나로 합쳐진 손상 유형 목록. 원소가 둘 이상이면 화면이 "두 손상을 한 항목으로 합쳤다"를 설명해야 한다 |
 | `unresolvedParts` | 비용 산정에 실패한 부품 목록. 부분 견적이면 `items[]`와 함께 반환 |
 
 `itemTotal`은 사례별 총액의 중앙값이고 각 비용 성분의 중앙값 합과 다를 수 있다.
 리포트에서는 `itemTotal`을 대표 금액으로 사용한다.
 
 여러 부품이 있을 때 `totals.min`·`totals.median`·`totals.max`는 각 항목의 P25·중앙값·P75를 각각 합산한다.
+
+### 5.1 `items[]`의 `partCode`는 한 번만 나온다
+
+같은 부위가 손상 두 곳으로 탐지되면 검색은 `(partCode, damageType)` 단위로 결과를
+내지만, **견적은 부위 단위로 합쳐 항목 하나만 보낸다.** 부위 하나는 한 번 수리하므로
+두 손상의 금액을 더하면 같은 부품을 두 번 교체한 총액이 된다.
+
+합칠 때 남길 항목(대표)은 이 순서로 고른다.
+
+1. 가장 무거운 수리 방식 — `REPAIR_METHOD_PRIORITY` 순서 그대로 (교환 > 판금 > 수리 > 도장).
+   교환하면 긁힘도 함께 해결되므로 방식이 먼저다.
+2. 방식이 같으면 `costDistribution.median`이 큰 것. `repairMethod`는 참조 사례 방식의
+   합집합에서 고른 값이라 동률이 흔한데, 같은 부위 안에서는 금액이 큰 쪽이 곧 무거운
+   수리다. 사례 수는 표본 크기일 뿐 심각도가 아니라서 이 자리에 두지 않는다.
+3. 그래도 같으면 참조 사례 수가 많은 것.
+
+대표 항목이 나머지를 대신하므로 다음이 따라온다.
+
+- `detectionIds`는 묶음 전체를 입력 순서대로 합친다 — 사진의 박스 두 개가 같은 번호를 받는다.
+- `mergedDamageTypes`에 묶음의 손상 유형을 모두 남긴다. `damageType`은 대표의 값이다.
+- `confidenceGrade`는 묶음의 **최저** 등급이다. 합칠지 말지를 얇은 표본으로 판단했다면
+  그 얇음이 등급에 남아야 한다.
+- `totals`·`refCaseTotal`은 대표 항목들만으로 계산한다.
+- 묶음 중 하나라도 산정되면 그 부위는 `unresolvedParts[]`에 넣지 않는다.
+- `partPriceReferences[]`의 `partCode`도 한 번만 나온다. 부품비는 손상 유형과 무관하므로
+  이쪽은 대표를 고르지 않고 후보 사례를 **합집합**으로 묶어 한 번만 계산한다.
 
 `unresolvedParts[]` 원소는 `{ "partCode": "...", "damageType": "...", "reason": "INSUFFICIENT_CASES" }`
 형식이다. `items[]`가 하나 이상이면 산정 가능한 항목만으로 부분 견적을 만들고,
