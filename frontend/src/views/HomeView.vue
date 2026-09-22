@@ -158,11 +158,11 @@ onUnmounted(() => ro?.disconnect())
       <div class="tiles">
         <button class="tile" @click="router.push('/checklists')">
           <svg class="wm" width="118" height="118" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="right:-24px;bottom:-16px"><path d="M4 12.5L9.5 18L20 6.5" stroke="rgba(78,54,228,.08)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <b>정비 체크리스트</b><span>확인 항목 · 질문 목록</span>
+          <b>정비 체크리스트</b><span>공통 · 부품 별 · 함께 점검</span>
         </button>
         <button class="tile" @click="router.push('/shops')">
           <svg class="wm" width="106" height="106" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="right:-20px;bottom:-14px"><path d="M12 21.5c4.6-5.2 6.9-9 6.9-11.5a6.9 6.9 0 1 0-13.8 0c0 2.5 2.3 6.3 6.9 11.5Z" stroke="rgba(78,54,228,.08)" stroke-width="2.4" stroke-linejoin="round"/><circle cx="12" cy="9.7" r="2.6" stroke="rgba(78,54,228,.08)" stroke-width="2.4"/></svg>
-          <b>주변 정비소</b><span>가까운 순 · 지도</span>
+          <b>주변 정비소</b><span>가까운 순 · 지역 검색</span>
         </button>
       </div>
 
