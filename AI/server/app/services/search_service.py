@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 class SearchService:
     def __init__(self, repository: VectorRepository, embedding_service: EmbeddingService,
                  *, pipeline_version_id: int, top_k: int,
+                 referenced_case_limit: int = 10,
                  enable_part_price_reference: bool = False,
                  estimate_service: EstimateService | None = None,
                  enable_yolo_estimate_references: bool = False,
@@ -30,10 +31,15 @@ class SearchService:
             raise ValueError("yolo_estimate_min_cases must be positive")
         if yolo_estimate_max_cases < yolo_estimate_min_cases:
             raise ValueError("yolo_estimate_max_cases must be at least yolo_estimate_min_cases")
+        if referenced_case_limit < 1:
+            raise ValueError("referenced_case_limit must be positive")
+        if referenced_case_limit > top_k:
+            raise ValueError("referenced_case_limit must not exceed top_k")
         self._repository = repository
         self._embedding_service = embedding_service
         self._pipeline_version_id = pipeline_version_id
         self._top_k = top_k
+        self._referenced_case_limit = referenced_case_limit
         self._enable_part_price_reference = enable_part_price_reference
         self._estimate_service = estimate_service
         self._enable_yolo_estimate_references = enable_yolo_estimate_references
@@ -98,12 +104,13 @@ class SearchService:
                             detection, stage, hits,
                             candidate_pool=(hits if pool_enabled else None),
                             include_part_price_candidates=self._enable_part_price_reference,
+                            referenced_case_limit=self._referenced_case_limit,
                         )
                         result.update(self._estimate_reference_fields(
                             detection, image_result, hits, paired_v2,
                         ))
                         if searchability == "STRICT" and part_code:
-                            _merge_strict(strict, result)
+                            _merge_strict(strict, result, case_limit=self._referenced_case_limit)
                         else:
                             vector_only.append(result)
         return {"parts": list(strict.values()), "vectorOnly": vector_only}
@@ -164,7 +171,8 @@ def _damage_code(value: object) -> str:
 
 def _result(detection: Mapping[str, Any], stage: str, hits: list[SearchHit],
             candidate_pool: list[SearchHit] | None = None,
-            include_part_price_candidates: bool = False) -> dict[str, Any]:
+            include_part_price_candidates: bool = False,
+            referenced_case_limit: int = 10) -> dict[str, Any]:
     confidence = (detection.get("confidence") or {}).get("damage")
     result = {
         "detectionId": detection["detectionId"],
@@ -175,7 +183,7 @@ def _result(detection: Mapping[str, Any], stage: str, hits: list[SearchHit],
         "searchability": detection["searchability"],
         "fallbackStage": stage,
         "searchHitCount": len(hits),
-        "referencedCaseIds": [hit.case_id for hit in hits[:10]],
+        "referencedCaseIds": [hit.case_id for hit in hits[:referenced_case_limit]],
         "cases": [
             {"caseId": hit.case_id, "similarity": round(hit.similarity, 4),
              "repairYear": hit.repair_year, "itemTotal": hit.item_total,
@@ -183,7 +191,7 @@ def _result(detection: Mapping[str, Any], stage: str, hits: list[SearchHit],
              "corpusPartConfidence": hit.corpus_part_confidence, "corpusPartOverlap": hit.corpus_part_overlap,
              "vectorSimilarity": hit.vector_similarity, "rerankedSimilarity": hit.reranked_similarity,
              "rankingReason": hit.ranking_reason}
-            for hit in hits[:10]
+            for hit in hits[:referenced_case_limit]
         ],
         **_empty_estimate_reference("FEATURE_DISABLED"),
     }
@@ -225,7 +233,8 @@ def _query_case_id(detection: Mapping[str, Any], image_result: Mapping[str, Any]
 _STAGE_WIDTH = {"MODEL": 0, "PRICE_TIER": 1, "ALL": 2}
 
 
-def _merge_strict(groups: dict[tuple[str, str], dict[str, Any]], result: dict[str, Any]) -> None:
+def _merge_strict(groups: dict[tuple[str, str], dict[str, Any]], result: dict[str, Any],
+                  *, case_limit: int = 10) -> None:
     key = (str(result["partCode"]), str(result["damageType"]))
     current = groups.get(key)
     if current is None:
@@ -247,7 +256,9 @@ def _merge_strict(groups: dict[tuple[str, str], dict[str, Any]], result: dict[st
     for case in result["cases"]:
         if case["caseId"] not in by_case or case["similarity"] > by_case[case["caseId"]]["similarity"]:
             by_case[case["caseId"]] = case
-    merged = sorted(by_case.values(), key=lambda case: (-case["similarity"], case["caseId"]))[:10]
+    merged = sorted(
+        by_case.values(), key=lambda case: (-case["similarity"], case["caseId"]),
+    )[:case_limit]
     current["cases"] = merged
     current["referencedCaseIds"] = [case["caseId"] for case in merged]
     current["searchHitCount"] = len(by_case)
