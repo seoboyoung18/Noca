@@ -54,6 +54,10 @@ import java.util.List;
  *                     비어 있는 것을 서버가 지어내지 않는다
  * @param excludedImages 분석에서 제외된 사진 (S15P21A307-186). 없으면 빈 배열.
  *                       제외 판정은 <b>AI 서버가 한다</b> — 백엔드는 받은 값을 전달만 한다
+ * @param partSelectionAvailable 사용자가 부위를 직접 골라 이어서 분석할 수 있는가 (S15P21A307-568).
+ *                       파손은 검출됐는데 부품을 못 찾아 끝난 분석이면 {@code true} — 화면은
+ *                       "다시 찍기" 대신 "부위 직접 고르기" 를 보여 준다. 재시도와 합친 횟수를
+ *                       다 썼거나 분석 중이면 {@code false}. 판정은 {@code PartSelectionRule}
  */
 public record AnalysisProgressResponse(
         Long jobId,
@@ -66,7 +70,8 @@ public record AnalysisProgressResponse(
         int doneStages,
         AnalysisStageType currentStage,
         List<StageProgress> stages,
-        List<ExcludedImage> excludedImages) {
+        List<ExcludedImage> excludedImages,
+        boolean partSelectionAvailable) {
 
     /**
      * 분석에서 빠진 사진 한 장 (S15P21A307-186).
@@ -117,11 +122,12 @@ public record AnalysisProgressResponse(
     public static AnalysisProgressResponse notRequested() {
         return new AnalysisProgressResponse(
                 null, null, null, 0, null, null, AnalysisStageType.TOTAL, 0, null,
-                List.of(), List.of());
+                List.of(), List.of(), false);
     }
 
     public static AnalysisProgressResponse of(AnalysisJob job, List<AnalysisStage> stages,
-                                              List<AnalysisImageResult> excluded) {
+                                              List<AnalysisImageResult> excluded,
+                                              boolean partSelectionAvailable) {
         List<AnalysisStage> ordered = stages.stream()
                 .sorted(Comparator.comparing(stage -> stage.getStage().ordinal()))
                 .toList();
@@ -146,6 +152,7 @@ public record AnalysisProgressResponse(
                 excluded.stream()
                         .sorted(Comparator.comparing(AnalysisImageResult::getImageId))
                         .map(ExcludedImage::from)
-                        .toList());
+                        .toList(),
+                partSelectionAvailable);
     }
 }

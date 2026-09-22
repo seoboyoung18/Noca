@@ -48,7 +48,8 @@ public class AnalysisCallbackService {
      *
      * <p>한글 문안을 넣지 않는다. 사용자에게 보일 문구는 화면이 이 코드를 보고 정한다.
      */
-    static final String ALL_IMAGES_EXCLUDED = "ALL_IMAGES_EXCLUDED";
+    /** 사진이 전부 제외돼 실패한 작업의 사유. 부위 선택 판정({@code PartSelectionRule})도 이 값을 본다. */
+    public static final String ALL_IMAGES_EXCLUDED = "ALL_IMAGES_EXCLUDED";
 
     private final AnalysisJobRepository jobRepository;
     private final AnalysisResultPersister persister;

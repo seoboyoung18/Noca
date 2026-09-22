@@ -77,7 +77,7 @@ class AnalysisProgressControllerTest {
                 List.of(new AnalysisProgressResponse.StageProgress(
                         AnalysisStageType.MATCH, AnalysisStageStatus.RUNNING, null,
                         Instant.parse("2026-09-05T01:00:10Z"), null)),
-                List.of()));
+                List.of(), false));
 
         mockMvc.perform(get("/api/accidents/7/analysis"))
                 .andExpect(status().isOk())

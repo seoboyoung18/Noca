@@ -66,7 +66,7 @@ class AnalysisRequestControllerTest {
     void acceptedReturnsQueuedProgress() throws Exception {
         given(currentMemberProvider.currentMemberId()).willReturn(1L);
         given(analysisRequestService.request(1L, 7L)).willReturn(new AnalysisProgressResponse(
-                42L, AnalysisJobStatus.QUEUED, null, 0, null, null, 4, 0, null, List.of(), List.of()));
+                42L, AnalysisJobStatus.QUEUED, null, 0, null, null, 4, 0, null, List.of(), List.of(), false));
 
         mockMvc.perform(post("/api/accidents/7/analysis"))
                 .andExpect(status().isAccepted())
@@ -118,7 +118,7 @@ class AnalysisRequestControllerTest {
     void retryAcceptedReturnsQueuedProgress() throws Exception {
         given(currentMemberProvider.currentMemberId()).willReturn(1L);
         given(analysisRequestService.retry(1L, 7L)).willReturn(new AnalysisProgressResponse(
-                43L, AnalysisJobStatus.QUEUED, null, 1, null, null, 4, 0, null, List.of(), List.of()));
+                43L, AnalysisJobStatus.QUEUED, null, 1, null, null, 4, 0, null, List.of(), List.of(), false));
 
         mockMvc.perform(post("/api/accidents/7/analysis/retry"))
                 .andExpect(status().isAccepted())
