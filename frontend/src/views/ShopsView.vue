@@ -24,6 +24,7 @@ const moved = ref(false) // 검색 지점에서 지도를 움직였는지
 
 // 결과 목록 시트: 헤더를 아래로 끌어내리면 접혀서 지도만 보이고, 접힌 헤더를 탭·위로 끌면 다시 펼쳐짐
 const headEl = ref(null)
+const listEl = ref(null) // 시트 전체 — 펼쳐진 높이를 재서 지도의 보이는 영역을 구한다
 const sheetOpen = ref(true)
 const dragging = ref(false)
 const dragY = ref(0)
@@ -39,6 +40,7 @@ let kakao = null
 let map = null
 let center = null
 let overlays = []
+let pinEls = new Map() // 정비소 id → 핀 요소. 고른 핀에만 번호를 보이기 위해 붙잡아 둔다
 let hereOverlay = null
 
 const mode = computed(() => store.shopConsent) // gps | region | map | null
@@ -83,6 +85,7 @@ onBeforeUnmount(clearOverlays)
 function clearOverlays() {
   overlays.forEach((o) => o.setMap(null))
   overlays = []
+  pinEls = new Map()
   if (hereOverlay) { hereOverlay.setMap(null); hereOverlay = null }
 }
 
@@ -168,8 +171,9 @@ function render() {
   shops.value.forEach((s) => {
     const el = document.createElement('button')
     el.type = 'button'
-    el.className = 'kpin'
+    el.className = 'kpin' + (selected.value === s.id ? ' on' : '') // 번호는 고른 핀에만 — 나머지는 점만 찍힌 핀
     el.setAttribute('aria-label', s.name)
+    pinEls.set(s.id, el)
     el.innerHTML = `<svg width="34" height="44" viewBox="0 0 34 44" fill="none" aria-hidden="true"><path d="M17 43.5C17 43.5 33 24.5 33 16.5A16 16 0 1 0 1 16.5C1 24.5 17 43.5 17 43.5Z" fill="#4E36E4"/></svg><b>${s.n}</b>`
     // 핀 클릭이 지도 click 으로 전파되어 시트가 접히지 않도록 차단
     el.addEventListener('click', (e) => { e.stopPropagation(); focus(s) })
@@ -185,12 +189,22 @@ function render() {
   setTimeout(() => { moved.value = false }, 0)
 }
 
+/** 정비소를 고르면(목록 카드·지도 핀) 그 위치를 보이는 지도의 가운데로. 시트는 지금 상태를 그대로 둔다 */
 function focus(s) {
   selected.value = s.id
-  sheetOpen.value = true
-  map.panTo(s.latlng)
+  pinEls.forEach((el, id) => el.classList.toggle('on', id === s.id)) // 고른 핀에만 번호
+  panToVisible(s.latlng)
   setTimeout(() => { moved.value = false }, 400)
   document.getElementById('shop-' + s.id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+/** 시트가 펼쳐져 있으면 시트에 가리지 않는 위쪽 지도의 가운데에, 접혀 있으면 지도 전체의 가운데에 오도록 옮긴다.
+ *  지도 가운데는 화면 높이의 절반이고 보이는 영역의 가운데는 (높이 - 시트 높이)/2 이므로, 목표점을 시트 높이의 절반만큼 아래에 잡아 panTo 하면 된다 */
+function panToVisible(latlng) {
+  const hidden = sheetOpen.value ? (listEl.value?.offsetHeight || 0) : 0
+  if (!hidden) { map.panTo(latlng); return }
+  const proj = map.getProjection()
+  const pt = proj.containerPointFromCoords(latlng)
+  map.panTo(proj.coordsFromContainerPoint(new kakao.maps.Point(pt.x, pt.y + hidden / 2)))
 }
 
 /* ===== 결과 시트 접기/펼치기 ===== */
@@ -289,7 +303,7 @@ function useMap() { ask.value = false; status.value = 'idle'; moved.value = true
     </div>
 
     <!-- 결과 목록 -->
-    <div v-if="status === 'ready' || status === 'empty'" class="list scroll" :class="{ closed: !sheetOpen }" :style="sheetStyle">
+    <div v-if="status === 'ready' || status === 'empty'" ref="listEl" class="list scroll" :class="{ closed: !sheetOpen }" :style="sheetStyle">
       <!-- 헤더를 아래로 끌면 시트가 접혀 지도만 보임 · 접힌 헤더는 탭 또는 위로 끌어 펼침 -->
       <div
         ref="headEl" class="head" role="button" tabindex="0"
@@ -346,7 +360,11 @@ function useMap() { ask.value = false; status.value = 'idle'; moved.value = true
 <!-- 지도 위 커스텀 오버레이는 컴포넌트 밖 DOM에 삽입되므로 전역 스타일로 정의 -->
 <style>
 .kpin { position: relative; width: 34px; height: 44px; display: block; padding: 0; border: 0; background: none; cursor: pointer; filter: drop-shadow(0 2px 4px rgba(25,31,40,.25)); }
+.kpin:not(.on)::before { content: ""; position: absolute; left: 11px; top: 11px; width: 12px; height: 12px; border-radius: 50%; background: #fff; } /* 안 고른 핀은 번호 대신 점 */
+.kpin.on { transform: scale(1.12); transform-origin: 50% 100%; } /* 고른 핀은 살짝 크게 */
 .kpin b { position: absolute; left: 0; top: 0; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; color: #fff; font-family: var(--font); }
+.kpin b { display: none; } /* 번호는 고른 핀(.on)에만 */
+.kpin.on b { display: flex; }
 .khere { position: relative; width: 72px; height: 72px; }
 .khere i { position: absolute; inset: 0; border-radius: 36px; background: rgba(78,54,228,.15); }
 .khere b { position: absolute; left: 24px; top: 24px; width: 24px; height: 24px; border-radius: 12px; background: #4E36E4; box-shadow: 0 0 0 3px #fff; }
