@@ -54,6 +54,7 @@
 | **기술 아키텍처 (기준 문서)** | [Architecture/technology-architecture.md](<Architecture/technology-architecture.md>) — 편집 원본 [technology-architecture.svg](<Architecture/technology-architecture.svg>) · 렌더링 [technology-architecture.png](<Architecture/technology-architecture.png>) |
 | 이전 시스템 구성도 (**구버전**) | [Architecture/system-architecture.svg](<Architecture/system-architecture.svg>) — 위 기술 아키텍처로 대체됐다 |
 | 서버·컨테이너를 실제로 띄우는 절차 | [Architecture/인프라 실행 교본.md](<Architecture/인프라 실행 교본.md>) |
+| **`develop` 머지 뒤 무슨 일이 일어나나 · 파이프라인이 멈췄을 때** | [통합_기술문서/08_배포_CICD/CICD_파이프라인.md](<../통합_기술문서/08_배포_CICD/CICD_파이프라인.md>) — 롤백·검증은 같은 폴더의 [롤백_절차.md](<../통합_기술문서/08_배포_CICD/롤백_절차.md>) · [배포_검증.md](<../통합_기술문서/08_배포_CICD/배포_검증.md>) |
 | 배포 전 점검 항목 | [Architecture/배포 준비 체크리스트.md](<Architecture/배포 준비 체크리스트.md>) |
 | 운영 DB 에 마이그레이션 적용하는 순서 | [Architecture/운영 DB 마이그레이션 적용 절차.md](<Architecture/운영 DB 마이그레이션 적용 절차.md>) |
 
