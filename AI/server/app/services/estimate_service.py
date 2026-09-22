@@ -450,9 +450,16 @@ def _merge_items_by_part(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         representative["detectionIds"] = _merged_detection_ids(group)
         # 한 줄로 합쳤다는 사실 자체를 화면이 말할 수 있어야 한다. 이 필드가
         # 없으면 "박스는 둘인데 항목은 하나" 를 설명할 방법이 없다.
-        representative["mergedDamageTypes"] = list(dict.fromkeys(
-            item["damageType"] for item in group
-        ))
+        #
+        # 합쳤을 때만 싣는다. 백엔드는 이 필드가 비어 있지 않은 것 자체를 "합친 항목"
+        # 으로 읽는다(EstimateItemResponse·EstimateBasisItemResponse·RefCondition 주석,
+        # S15P21A307-566). 손상이 하나뿐인 부위에도 실으면 모든 항목이 합쳐진 것으로
+        # 표시된다. 원소 수로 가르지 않는 이유는, 같은 유형 두 곳을 합치면 중복을 걷어
+        # 원소가 하나로 남을 수 있어서다 — 그때도 합친 것은 맞다.
+        if len(group) > 1:
+            representative["mergedDamageTypes"] = list(dict.fromkeys(
+                item["damageType"] for item in group
+            ))
         # 대표의 등급이 아니라 묶음의 최저 등급을 쓴다. 합칠지 말지를 표본 2건짜리
         # 근거로 판단했다면 그 얇음이 결과에 남아야 한다 — 버린 쪽이 LOW 였는데
         # 등급만 조용히 올라가면 신뢰도 표시가 실제보다 후해진다.
@@ -460,8 +467,43 @@ def _merge_items_by_part(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             (item["confidenceGrade"] for item in group),
             key=lambda grade: _GRADE_RANK[grade],
         )
+        representative["repairMethodReason"] = _merged_method_reason(representative, group)
         merged.append(representative)
     return merged
+
+
+def _merged_method_reason(
+    representative: dict[str, Any], group: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Record which of the group's repair methods the representative does not price.
+
+    대표의 사례 총액은 그 사례에서 이 부위에 든 모든 작업의 합이다(`_aggregate_case`).
+    부품명 매핑이 "후드판금"·"후드교환" 같은 도장 행까지 같은 part_code 로 접기 때문에
+    판금 사례의 총액에는 보통 도장까지 들어 있다 — 그래서 묶음의 다른 항목을 더하면
+    도장을 두 번 내게 되고, 대표 하나를 고르는 쪽이 맞다.
+
+    맞지 않는 구간이 하나 있다: 대표의 참조 사례들이 그 작업을 아예 갖고 있지 않은
+    경우다. 그때는 그 작업이 값에서 통째로 빠진다. `candidates` 가 그 항목 사례 method
+    의 합집합이므로, 묶음 합집합에서 대표의 것을 빼면 "값에 안 들어간 작업" 이 그대로
+    나온다. 금액은 건드리지 않고 사실만 남긴다 — 얼마를 더해야 하는지는 아직 근거가
+    없다(`Docs/CostNotes/WORK_COMBINATION_BY_PART_CODE.sql` 로 측정한다).
+    """
+    reason = dict(representative.get("repairMethodReason") or {})
+    own = list(reason.get("candidates") or [])
+    group_methods: set[str] = set()
+    for item in group:
+        group_methods |= set((item.get("repairMethodReason") or {}).get("candidates") or [])
+    merged_candidates = [method for method in REPAIR_METHOD_PRIORITY if method in group_methods]
+    uncovered = [method for method in merged_candidates if method not in own]
+    reason["mergedCandidates"] = merged_candidates
+    reason["uncoveredMethods"] = uncovered
+    if uncovered:
+        logger.warning(
+            "merged part priced without some of the group's repair methods: "
+            "part_code=%s representative_candidates=%s uncovered=%s",
+            representative.get("partCode"), own, uncovered,
+        )
+    return reason
 
 
 def _representative_rank(item: dict[str, Any]) -> tuple[int, int, int]:

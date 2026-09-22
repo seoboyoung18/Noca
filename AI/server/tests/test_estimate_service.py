@@ -206,7 +206,11 @@ def test_mixed_repair_methods_in_one_case_are_summed_not_majority_voted():
     assert item["refCaseCount"] == 3
     assert item["itemTotal"] == round(statistics.median(case_totals))
     assert item["repairMethod"] == "sheet_metal"  # exchange 없음 → sheet_metal 우선
-    assert item["repairMethodReason"] == {"candidates": ["sheet_metal", "coating"]}
+    assert item["repairMethodReason"] == {
+        "candidates": ["sheet_metal", "coating"],
+        "mergedCandidates": ["sheet_metal", "coating"],
+        "uncoveredMethods": [],
+    }
     assert item["laborCost"] == round(statistics.median([80000, 50000, 50000]))
     assert item["paintMaterialCost"] == round(statistics.median([60000, 0, 0]))
 
@@ -227,7 +231,11 @@ def test_repair_method_priority_prefers_exchange_over_others_present():
 
     item = result["items"][0]
     assert item["repairMethod"] == "exchange"
-    assert item["repairMethodReason"] == {"candidates": ["exchange", "sheet_metal", "repair"]}
+    assert item["repairMethodReason"] == {
+        "candidates": ["exchange", "sheet_metal", "repair"],
+        "mergedCandidates": ["exchange", "sheet_metal", "repair"],
+        "uncoveredMethods": [],
+    }
     # case 1 total = 50000(exchange labor) + 200000(part_price) + 30000+20000(sheet_metal) = 300000
     assert item["refCaseCount"] == 3
 
@@ -679,11 +687,53 @@ def test_part_price_reference_is_emitted_once_per_part_code_from_the_union():
     }
 
 
-def test_single_damage_part_still_reports_its_one_merged_damage_type():
+def test_single_damage_part_does_not_carry_merged_damage_types():
+    # 백엔드는 이 필드가 있는 것 자체를 "합쳤다" 로 읽는다. 합치지 않았으면 보내지 않는다.
     rows = _exchange_rows("PART_A", [1, 2, 3], amount=500000)
     service = EstimateService(InMemoryCostCaseRepository(rows))
     part = _part(part_code="PART_A", damage_type="Crushed", referenced_case_ids=[1, 2, 3])
 
     item = service.calculate(_request([part]))["items"][0]
 
-    assert item["mergedDamageTypes"] == ["Crushed"]
+    assert "mergedDamageTypes" not in item
+
+
+def test_merged_reason_flags_a_method_the_representative_does_not_price(caplog):
+    # 대표(교환) 사례에 도장 행이 하나도 없으면 도장은 값에서 통째로 빠진다.
+    rows = [
+        *_exchange_rows("PART_A", [1, 2, 3], amount=500000),
+        *_coating_rows("PART_A", [11, 12], amount=100000),
+    ]
+    service = EstimateService(InMemoryCostCaseRepository(rows))
+    severe = _part(part_code="PART_A", damage_type="Breakage", referenced_case_ids=[1, 2, 3])
+    light = _part(part_code="PART_A", damage_type="Scratched", referenced_case_ids=[11, 12])
+
+    with caplog.at_level(logging.WARNING):
+        item = service.calculate(_request([severe, light]))["items"][0]
+
+    reason = item["repairMethodReason"]
+    assert reason["candidates"] == ["exchange"]
+    assert reason["mergedCandidates"] == ["exchange", "coating"]
+    assert reason["uncoveredMethods"] == ["coating"]
+    assert "uncovered=['coating']" in caplog.text
+
+
+def test_merged_reason_is_clean_when_the_representatives_cases_already_include_coating():
+    # 실제 판금 사례는 도장까지 한 줄로 들어온다(부품명 매핑이 "후드판금" 을 같은 코드로
+    # 접는다). 그러면 도장은 이미 대표의 총액 안에 있으므로 빠진 작업이 없다.
+    rows = []
+    for case_id in (1, 2, 3):
+        rows.append(_row(case_id, "PART_A", "WORK", work_code="SHEET_METAL",
+                         part_cost=100000, labor_cost=80000))
+        rows.append(_row(case_id, "PART_A", "WORK", work_code="COATING",
+                         paint_material_cost=60000, labor_cost=200000))
+    rows.extend(_coating_rows("PART_A", [11, 12], amount=100000))
+    service = EstimateService(InMemoryCostCaseRepository(rows))
+    dented = _part(part_code="PART_A", damage_type="Crushed", referenced_case_ids=[1, 2, 3])
+    light = _part(part_code="PART_A", damage_type="Scratched", referenced_case_ids=[11, 12])
+
+    reason = service.calculate(_request([dented, light]))["items"][0]["repairMethodReason"]
+
+    assert reason["candidates"] == ["sheet_metal", "coating"]
+    assert reason["mergedCandidates"] == ["sheet_metal", "coating"]
+    assert reason["uncoveredMethods"] == []
