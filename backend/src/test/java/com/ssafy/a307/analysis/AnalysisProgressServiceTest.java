@@ -171,11 +171,15 @@ class AnalysisProgressServiceTest {
             // 전달할 뿐 서버가 만들어 낸 수치가 아니기 때문이다.
             // retryCount 는 S15P21A307-161 에서 더했다. 같은 이유로 저장된 analysis_job.retry_count 를
             // 그대로 전달한다 — 화면이 "다시 시도" 버튼을 보일지 정하는 데 쓴다.
+            // partSelectionAvailable 은 S15P21A307-568 에서 더했다. 수치가 아니라 판정이고, 판정의
+            // 재료가 전부 저장된 값이다(작업 상태·실패 사유·견적 사유·검출 원문) — 화면이 "부위 직접
+            // 고르기" 를 보일지 정하는 데 쓴다.
             // 퍼센트와 남은 시간은 여전히 없고, 앞으로도 없어야 한다.
             assertThat(AnalysisProgressResponse.class.getRecordComponents())
                     .extracting(java.lang.reflect.RecordComponent::getName)
                     .containsExactly("jobId", "status", "failureReason", "retryCount", "startedAt", "finishedAt",
-                            "totalStages", "doneStages", "currentStage", "stages", "excludedImages");
+                            "totalStages", "doneStages", "currentStage", "stages", "excludedImages",
+                            "partSelectionAvailable");
         }
 
         @Test

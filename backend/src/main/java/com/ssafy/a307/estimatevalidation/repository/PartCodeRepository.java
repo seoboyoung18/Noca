@@ -1,5 +1,7 @@
 package com.ssafy.a307.estimatevalidation.repository;
 
+import java.util.List;
+
 import com.ssafy.a307.estimatevalidation.entity.PartCode;
 import com.ssafy.a307.estimatevalidation.entity.PartCodeScope;
 import org.springframework.data.domain.Page;
@@ -33,4 +35,10 @@ public interface PartCodeRepository extends JpaRepository<PartCode, String> {
                                   Pageable pageable);
 
     long countByCodeScope(PartCodeScope codeScope);
+
+    /**
+     * 사용자가 고를 수 있는 부위 (S15P21A307-568). 활성 부위 중 한 범위만, 표시 순서대로.
+     * 순서가 같으면 코드 순이다 — 요청마다 목록 순서가 흔들리지 않게.
+     */
+    List<PartCode> findByActiveTrueAndCodeScopeOrderByDisplayOrderAscPartCodeAsc(PartCodeScope codeScope);
 }

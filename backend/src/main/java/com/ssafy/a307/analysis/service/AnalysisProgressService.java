@@ -44,6 +44,7 @@ public class AnalysisProgressService {
     private final AnalysisJobRepository analysisJobRepository;
     private final AnalysisStageRepository analysisStageRepository;
     private final AnalysisImageResultRepository analysisImageResultRepository;
+    private final PartSelectionRule partSelectionRule;
 
     @Transactional(readOnly = true)
     public AnalysisProgressResponse progress(Long memberId, Long accidentId) {
@@ -61,7 +62,8 @@ public class AnalysisProgressService {
                 .map(job -> AnalysisProgressResponse.of(
                         job,
                         analysisStageRepository.findByJobId(job.getJobId()),
-                        analysisImageResultRepository.findByJobIdAndExcludedTrue(job.getJobId())))
+                        analysisImageResultRepository.findByJobIdAndExcludedTrue(job.getJobId()),
+                        partSelectionRule.isAvailable(job)))
                 .orElseGet(AnalysisProgressResponse::notRequested);
     }
 }
