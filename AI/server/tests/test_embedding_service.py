@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from app.infrastructure.vector_repository import VectorSearchError, vector_literal
+from app.infrastructure.vector_repository import SearchHit, VectorSearchError, vector_literal
 from app.services.embedding_service import EmbeddingService
-from app.services.search_service import _merge_strict
+from app.services.search_service import _merge_strict, _result
 
 
 class _FakeEmbedder:
@@ -117,6 +117,21 @@ class EmbeddingServiceTest(unittest.TestCase):
         _merge_strict(groups, narrow)
 
         self.assertEqual(groups[("REAR_BUMPER", "Scratched")]["fallbackStage"], "ALL")
+
+    def test_configured_reference_limit_is_kept_in_response_and_merge(self):
+        hits = [SearchHit(case_id=index, similarity=1 - index / 1000,
+                          repair_year=2020, item_total=100_000)
+                for index in range(1, 36)]
+        result = _result(_detection(), "MODEL", hits, referenced_case_limit=30)
+
+        self.assertEqual(len(result["cases"]), 30)
+        self.assertEqual(len(result["referencedCaseIds"]), 30)
+
+        groups = {}
+        _merge_strict(groups, result, case_limit=30)
+        actual = groups[("REAR_BUMPER", "Scratched")]
+        self.assertEqual(len(actual["cases"]), 30)
+        self.assertEqual(len(actual["referencedCaseIds"]), 30)
 
     def test_merged_group_preserves_configured_thirty_estimate_references(self):
         groups = {}

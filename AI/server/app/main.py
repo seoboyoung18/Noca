@@ -40,6 +40,7 @@ search_service = SearchService(
     vector_repository, embedding_service,
     pipeline_version_id=settings.pipeline_version_id,
     top_k=settings.search_top_k,
+    referenced_case_limit=settings.referenced_case_limit,
     enable_part_price_reference=settings.enable_part_price_reference,
     estimate_service=estimate_service,
     enable_yolo_estimate_references=settings.enable_yolo_estimate_references,

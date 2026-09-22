@@ -24,6 +24,7 @@ class Settings:
     embedding_model_revision: str
     embedding_model_version: str
     search_top_k: int
+    referenced_case_limit: int
     yolo_corpus_part_boost: float
     enable_part_price_reference: bool = False
     enable_yolo_estimate_references: bool = False
@@ -56,6 +57,7 @@ def load_settings() -> Settings:
         embedding_model_version=os.getenv(
             "EMBEDDING_MODEL_VERSION", "f9e44c8-pooler-pad20-lb224gray"),
         search_top_k=int(os.getenv("SEARCH_TOP_K", "20")),
+        referenced_case_limit=int(os.getenv("REFERENCED_CASE_LIMIT", "10")),
         yolo_corpus_part_boost=float(os.getenv("YOLO_CORPUS_PART_BOOST", "0.03")),
         enable_part_price_reference=os.getenv("ENABLE_PART_PRICE_REFERENCE", "false").strip().lower()
         in {"1", "true", "yes", "on"},
