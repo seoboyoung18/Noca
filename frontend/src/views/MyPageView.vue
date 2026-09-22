@@ -23,7 +23,9 @@ const auth = useAuthStore()
 const sh = reactive({ avatar: false, logout: false, notice: false, nick: false })
 
 /* ===== 통계 카드 — 서버 값과 동기화 =====
- * 내 차량·사고 이력: GET /api/members/me 의 vehicleCount·accidentCount
+ * 내 차량: GET /api/members/me 의 vehicleCount
+ * 사고 이력: 화면 목록과 같은 기준으로 센다(accidents.countVisible — 분석 실패·산정 불가 제외, S15P21A307-564).
+ *           서버 accidentCount 는 그 건들까지 세서 목록과 어긋난다. 못 세면 서버 값으로
  * 체크리스트: 건수 API 가 없어 사고 목록(GET /api/accidents/me)을 받아 사고별 체크리스트 상태를 조회하고
  *             COMPLETED 인 건수를 센다. 사고 수만큼 요청이 나가므로 동시 5건으로 제한한다.
  * null 은 아직 모름(로딩 중·조회 실패) → '–' 로 표시
@@ -52,13 +54,16 @@ async function countCompletedChecklists() {
 }
 
 async function loadStats() {
-  if (AUTH_GUARD_OFF) { // 백엔드 없는 화면 확인 모드 — 기존 목업 수치
-    counts.vehicles = store.vehicles.length; counts.accidents = store.history.length; counts.checklists = store.checklists.length
+  if (AUTH_GUARD_OFF) { // 백엔드 없는 화면 확인 모드 — 기존 목업 수치. 사고는 목록 목업과 같은 기준
+    counts.vehicles = store.vehicles.length; counts.checklists = store.checklists.length
+    counts.accidents = await useAccidentStore().countVisible()
     return
   }
   // 프로필 이미지 URL(10분 presigned)도 여기서 함께 갱신된다
   const profile = await auth.loadProfile()
   if (profile) { counts.vehicles = profile.vehicleCount ?? null; counts.accidents = profile.accidentCount ?? null }
+  // 사고 건수는 목록에 보이는 기준으로 다시 센다 — 실패하면 위의 서버 값이 남는다
+  try { counts.accidents = await useAccidentStore().countVisible() } catch (e) { /* 서버 값 유지 */ }
   try { counts.checklists = await countCompletedChecklists() } catch (e) { counts.checklists = null }
 }
 
