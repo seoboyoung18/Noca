@@ -70,11 +70,29 @@ class AiAnalysisClientTest {
                 .andExpect(jsonPath("$.images[0].expiresAt").value("2026-09-10T16:20:00Z"))
                 .andExpect(jsonPath("$.callbackUrl")
                         .value("http://backend.test/internal/analysis-jobs/12/result"))
+                // 부위를 고르지 않은 분석의 본문은 이 필드가 생기기 전과 같다 (S15P21A307-570)
+                .andExpect(jsonPath("$.selectedPartCode").doesNotExist())
                 .andRespond(withStatus(HttpStatus.ACCEPTED)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"accepted\":true,\"jobId\":12,\"requestId\":\"a1b2c3d4e5f6\"}"));
 
         client.analyze(payload());
+
+        server.verify();
+    }
+
+    /** 필드 이름은 AI 담당 확인 전이다. 바뀌면 {@link AnalysisRequestPayload} 와 이 테스트만 고친다. */
+    @Test
+    @DisplayName("사용자가 고른 부위가 있으면 selectedPartCode 로 싣는다 (S15P21A307-570)")
+    void sendsSelectedPartCode() {
+        server.expect(once(), requestTo(ANALYZE_URL))
+                .andExpect(jsonPath("$.jobId").value(12))
+                .andExpect(jsonPath("$.selectedPartCode").value("FRONT_FENDER_L"))
+                .andRespond(withStatus(HttpStatus.ACCEPTED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"accepted\":true,\"jobId\":12,\"requestId\":\"a1b2c3d4e5f6\"}"));
+
+        client.analyze(payload("FRONT_FENDER_L"));
 
         server.verify();
     }
@@ -130,10 +148,14 @@ class AiAnalysisClientTest {
     }
 
     private static AnalysisRequestPayload payload() {
+        return payload(null);
+    }
+
+    private static AnalysisRequestPayload payload(String selectedPartCode) {
         return new AnalysisRequestPayload(12L, "a1b2c3d4e5f6",
                 new AnalysisRequestPayload.Vehicle(41L, "현대", "아반떼", "Compact", 2021),
                 List.of(new AnalysisRequestPayload.Image(501L, "REAR_LEFT",
                         "https://s3.test/resized-501.jpg", "2026-09-10T16:20:00Z")),
-                "http://backend.test/internal/analysis-jobs/12/result");
+                "http://backend.test/internal/analysis-jobs/12/result", selectedPartCode);
     }
 }

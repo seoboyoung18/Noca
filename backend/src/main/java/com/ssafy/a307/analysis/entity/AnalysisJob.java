@@ -83,6 +83,14 @@ public class AnalysisJob {
     @Column(name = "pipeline_version_id")
     private Long pipelineVersionId;
 
+    /**
+     * 사용자가 고른 부위 (S15P21A307-570). 부품을 찾지 못해 산정하지 못한 분석을 부위를 골라
+     * 다시 분석할 때 채운다. 워커가 AI 요청에 싣는다 — 접수와 AI 호출 사이에 이 값을 들고 있을
+     * 곳이 작업뿐이다. 부위를 고르지 않은 분석(처음 분석과 그 재시도)은 {@code null} 이다.
+     */
+    @Column(name = "selected_part_code", length = 50)
+    private String selectedPartCode;
+
     @Column(name = "started_at")
     private Instant startedAt;
 
@@ -122,6 +130,10 @@ public class AnalysisJob {
      * 부딪혀 새 결과가 저장되지 않는다. 실패 사유도 덮인다. 새 작업이면 둘 다 생기지 않고,
      * 화면은 이미 사고의 최신 작업을 읽는다.
      *
+     * <p><b>고른 부위는 이어받는다</b> (S15P21A307-570). 부위를 골라 다시 분석한 작업이 AI 시간
+     * 초과 같은 일로 실패했다면, 다시 시도는 같은 요청을 한 번 더 하는 것이다. 부위를 떨어뜨리면
+     * 부품을 못 찾은 처음 결과가 그대로 다시 나오고, 사용자는 부위를 또 고르면서 횟수를 하나 더 쓴다.
+     *
      * @throws IllegalStateException 실패한 작업이 아니거나 이미 {@link #MAX_RETRY_COUNT} 번 재시도했다.
      *                               부르는 쪽이 {@link #retriable()} 로 먼저 거른다
      */
@@ -131,7 +143,31 @@ public class AnalysisJob {
         }
         AnalysisJob retry = queued(failed.getAccident(), now);
         retry.retryCount = (short) (failed.retryCount + 1);
+        retry.selectedPartCode = failed.selectedPartCode;
         return retry;
+    }
+
+    /**
+     * 사용자가 고른 부위로 다시 분석할 작업 (S15P21A307-570). {@link #retryOf} 처럼 같은 사고에
+     * {@code QUEUED} 로 새로 만들고 횟수를 이어받아 하나 올린다 — 재시도와 횟수를 함께 쓴다.
+     *
+     * <p>재시도와 달리 <b>완료된 작업에서도</b> 만들 수 있다. 부품을 못 찾아 산정하지 못한 분석은
+     * {@code COMPLETED} 로 끝난다. 그 분석이 부위 선택 대상인지는 이 엔티티가 알 수 없어
+     * ({@code PartSelectionRule} 이 사진별 결과와 견적을 읽는다) 부르는 쪽이 먼저 거른다.
+     *
+     * @throws IllegalStateException 아직 끝나지 않았거나 이미 {@link #MAX_RETRY_COUNT} 번 다시 했다
+     */
+    public static AnalysisJob partSelectionOf(AnalysisJob latest, String partCode, Instant now) {
+        if (latest == null || !latest.finished() || latest.retryCount >= MAX_RETRY_COUNT) {
+            throw new IllegalStateException("부위를 골라 다시 분석할 수 없는 작업입니다.");
+        }
+        if (partCode == null || partCode.isBlank()) {
+            throw new IllegalArgumentException("partCode 는 필수입니다.");
+        }
+        AnalysisJob next = queued(latest.getAccident(), now);
+        next.retryCount = (short) (latest.retryCount + 1);
+        next.selectedPartCode = partCode.strip();
+        return next;
     }
 
     /** 다시 시도할 수 있는가 — 실패했고 재시도 횟수가 남았다. */

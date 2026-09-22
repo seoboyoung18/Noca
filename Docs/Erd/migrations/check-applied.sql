@@ -121,7 +121,13 @@ WITH probe(seq, migration, object_kind, detail, applied) AS (
         'accident.hidden_at (사고 이력 숨기기)',
         EXISTS (SELECT 1 FROM information_schema.columns
                  WHERE table_schema = 'public'
-                   AND table_name = 'accident' AND column_name = 'hidden_at'))
+                   AND table_name = 'accident' AND column_name = 'hidden_at')),
+
+    (14, '2026-09-22-analysis-job-selected-part.sql', '컬럼 1',
+        'analysis_job.selected_part_code (고른 부위로 다시 분석)',
+        EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'analysis_job' AND column_name = 'selected_part_code'))
 )
 SELECT seq                                AS "#",
        CASE WHEN applied THEN 'O' ELSE 'X' END AS "적용",

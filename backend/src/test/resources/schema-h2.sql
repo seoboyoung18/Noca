@@ -219,6 +219,7 @@ CREATE TABLE analysis_job (
     model_version  VARCHAR(50),
     request_id     VARCHAR(64),
     pipeline_version_id BIGINT,
+    selected_part_code VARCHAR(50) REFERENCES part_code(part_code) ON DELETE RESTRICT,
     started_at     TIMESTAMP WITH TIME ZONE,
     finished_at    TIMESTAMP WITH TIME ZONE,
     created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),

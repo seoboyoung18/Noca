@@ -52,6 +52,7 @@ class AnalysisRequestWorkerTest {
     private static final long JOB = 97_821L;
     private static final String RESIZED_KEY = "accidents/97804/images/97811/resized.jpg";
     private static final String ORIGINAL_KEY = "accidents/97804/images/97811/original.jpg";
+    private static final String SELECTED_PART = "ZZ570_WORKER";
 
     @Autowired private AnalysisJobRepository jobRepository;
     @Autowired private AnalysisRequestProcessor processor;
@@ -94,6 +95,8 @@ class AnalysisRequestWorkerTest {
         jdbc.update("delete from vehicle where vehicle_id=?", VEHICLE);
         jdbc.update("delete from vehicle_model where model_id=?", MODEL);
         jdbc.update("delete from member where member_id=?", MEMBER);
+        // 작업이 참조하므로 작업을 지운 뒤에 지운다
+        jdbc.update("delete from part_code where part_code=?", SELECTED_PART);
     }
 
     @Test
@@ -121,9 +124,28 @@ class AnalysisRequestWorkerTest {
                 UPLOADED_IMAGE, "FRONT", "https://s3.test/resized-97811.jpg", "2026-09-15T10:10:00Z"));
         assertThat(payload.callbackUrl())
                 .isEqualTo("http://backend.test/internal/analysis-jobs/" + JOB + "/result");
+        // 부위를 고르지 않은 작업이다 (S15P21A307-570)
+        assertThat(payload.selectedPartCode()).isNull();
 
         then(storagePort).should().createPresignedDownloadUrl(eq(RESIZED_KEY), any());
         then(storagePort).should(never()).createPresignedDownloadUrl(eq(ORIGINAL_KEY), any());
+    }
+
+    /** 접수와 AI 호출 사이에 고른 부위를 들고 있는 곳은 작업뿐이다 (S15P21A307-570). */
+    @Test
+    @DisplayName("사용자가 고른 부위가 적힌 작업은 AI 요청에 그 부위를 싣는다")
+    void sendsSelectedPartCode() {
+        uploadedImage();
+        queuedJob();
+        jdbc.update("insert into part_code(part_code,name_ko,layout_zone,display_order,is_active,code_scope)"
+                + " values(?,'시험 부위','SIDE_L',99,true,'AI_LABEL')", SELECTED_PART);
+        jdbc.update("update analysis_job set selected_part_code=? where job_id=?", SELECTED_PART, JOB);
+
+        worker.pollOnce();
+
+        ArgumentCaptor<AnalysisRequestPayload> sent = ArgumentCaptor.forClass(AnalysisRequestPayload.class);
+        then(aiClient).should().analyze(sent.capture());
+        assertThat(sent.getValue().selectedPartCode()).isEqualTo(SELECTED_PART);
     }
 
     /**
