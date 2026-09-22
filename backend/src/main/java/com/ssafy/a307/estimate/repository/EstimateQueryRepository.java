@@ -55,7 +55,8 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
                    ei.part_cost_median AS partCostMedian, ei.labor_cost_median AS laborCostMedian,
                    ei.paint_material_cost AS paintMaterialCost,
                    ei.item_min AS itemMin, ei.item_median AS itemMedian, ei.item_max AS itemMax,
-                   ei.ref_case_count AS refCaseCount, ei.is_low_confidence AS lowConfidence
+                   ei.ref_case_count AS refCaseCount, ei.is_low_confidence AS lowConfidence,
+                   CAST(ei.ref_condition AS VARCHAR) AS refCondition
               FROM estimate_item ei
               JOIN damaged_part dp ON dp.damaged_part_id = ei.damaged_part_id
               JOIN part_code pc ON pc.part_code = dp.part_code
@@ -188,6 +189,12 @@ public interface EstimateQueryRepository extends JpaRepository<Estimate, Long> {
         Integer getRefCaseCount();
 
         Boolean getLowConfidence();
+
+        /**
+         * 근거 스냅샷 원문 (S15P21A307-566). 항목 표가 합친 손상 유형을 보여 주려고 읽는다.
+         * 문자열로 꺼내는 이유는 근거 조회와 같다 — JSONB 를 그대로 받으면 드라이버마다 타입이 다르다.
+         */
+        String getRefCondition();
     }
 
     interface EstimateSummaryView {

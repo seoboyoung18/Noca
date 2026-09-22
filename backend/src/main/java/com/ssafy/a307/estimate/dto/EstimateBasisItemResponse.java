@@ -7,6 +7,8 @@ import com.ssafy.a307.estimate.domain.RefCondition;
 import com.ssafy.a307.estimate.domain.RepairMethodDisplay;
 import com.ssafy.a307.estimate.repository.EstimateQueryRepository.EstimateBasisItemView;
 
+import java.util.List;
+
 /**
  * 견적 항목 하나의 산정 근거.
  *
@@ -48,7 +50,13 @@ public record EstimateBasisItemResponse(
         RefCondition.CostDistribution costDistribution,
         Integer refYearFrom,
         Integer refYearTo,
-        RefCondition.RepairMethodReason repairMethodReason) {
+        RefCondition.RepairMethodReason repairMethodReason,
+
+        /**
+         * 같은 부위의 손상 여러 곳을 이 항목 하나로 합쳤다면 그 유형들 (S15P21A307-566).
+         * 비어 있지 않으면 합친 항목이다. 견적 항목 응답과 같은 값이다.
+         */
+        List<String> mergedDamageTypes) {
 
     /**
      * 다듬어진 근거 문장으로 바꾼 사본 (S15P21A307-537).
@@ -65,7 +73,8 @@ public record EstimateBasisItemResponse(
         }
         return new EstimateBasisItemResponse(estimateItemId, partCode, partNameKo, repairMethod,
                 repairMethodDisplayName, refCaseCount, basisAvailable, polished, fallbackStage,
-                fallbackStageDisplayName, costDistribution, refYearFrom, refYearTo, repairMethodReason);
+                fallbackStageDisplayName, costDistribution, refYearFrom, refYearTo, repairMethodReason,
+                mergedDamageTypes);
     }
 
     public static EstimateBasisItemResponse of(EstimateBasisItemView view, RefCondition basis) {
@@ -85,6 +94,7 @@ public record EstimateBasisItemResponse(
                 basis.costDistribution(),
                 basis.refYearFrom(),
                 basis.refYearTo(),
-                basis.repairMethodReason());
+                basis.repairMethodReason(),
+                basis.mergedDamageTypes());
     }
 }

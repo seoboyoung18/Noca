@@ -1,5 +1,6 @@
 package com.ssafy.a307.estimate.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
@@ -31,6 +32,11 @@ import java.util.List;
  * 남은 것이 <b>다른 어디에도 남지 않는 값</b>들이다. 조건을 어디까지 넓혔는지, 그때 통계가
  * 얼마였는지, 참조한 사례가 몇 년 것이었는지, 수리 방식을 왜 그렇게 골랐는지.
  *
+ * <p><b>합친 손상 유형도 여기 담는다</b>(S15P21A307-566). AI 가 같은 부위의 여러 엔트리를
+ * 대표 하나로 합치면 묶음의 손상 유형을 보낸다. 이것도 <b>다른 어디에도 남지 않는 값</b>이다 —
+ * {@code damaged_part} 는 부위마다 한 행이라 대표의 손상 유형 하나만 남는다. 열을 새로 만들지
+ * 않고 이 JSONB 에 둔 것은 마이그레이션 없이 받기 위해서다. 예전 행에는 없다.
+ *
  * <p><b>모든 필드가 {@code null} 일 수 있다.</b> AI 가 항목마다 근거를 보내지만 전부 선택
  * 필드이고, 산정하지 못한 견적에는 항목 자체가 없다. 요구사항이 "근거가 부족한 항목은
  * 그 사실이 명시된다"(명세서 51행)고 했으므로, 비어 있음은 오류가 아니라
@@ -46,7 +52,16 @@ public record RefCondition(
         Integer refYearFrom,
         Integer refYearTo,
         RepairMethodReason repairMethodReason,
-        List<Long> referencedCaseIds) {
+        List<Long> referencedCaseIds,
+        List<String> mergedDamageTypes) {
+
+    /** 합친 손상 유형이 없던 때의 모양. 예전 호출과 스냅샷이 이 형태다. */
+    public RefCondition(FallbackStage fallbackStage, CostDistribution costDistribution,
+                        Integer refYearFrom, Integer refYearTo,
+                        RepairMethodReason repairMethodReason, List<Long> referencedCaseIds) {
+        this(fallbackStage, costDistribution, refYearFrom, refYearTo, repairMethodReason,
+                referencedCaseIds, null);
+    }
 
     /** 근거가 하나도 없는 상태. {@code '{}'} 로 저장된 행과 읽지 못한 행이 여기로 온다. */
     public static final RefCondition EMPTY =
@@ -60,7 +75,25 @@ public record RefCondition(
         return referencedCaseIds == null ? List.of() : referencedCaseIds;
     }
 
-    /** 화면에 "근거 없음"을 띄울지 가른다. 하나라도 있으면 보여 줄 것이 있다. */
+    /**
+     * 합친 손상 유형은 <b>{@code null} 대신 빈 목록</b>으로 둔다 (S15P21A307-566). 비어 있지 않으면
+     * 합친 항목이다. 생성 시점에 맞추는 이유는 동등 비교 때문이다 — 접근자에서만 바꾸면 스냅샷으로
+     * 쓴 뒤 읽은 값([])과 쓰기 전 값(null)이 달라진다.
+     */
+    public RefCondition {
+        mergedDamageTypes = mergedDamageTypes == null ? List.of() : List.copyOf(mergedDamageTypes);
+    }
+
+    /**
+     * 화면에 "근거 없음"을 띄울지 가른다. 하나라도 있으면 보여 줄 것이 있다.
+     *
+     * <p>합친 손상 유형은 보지 않는다 — 비용 근거가 아니라 항목이 어떻게 만들어졌는지다.
+     *
+     * <p><b>{@code @JsonIgnore} 가 필요하다</b>(S15P21A307-566). 없으면 게터로 읽혀 스냅샷에
+     * {@code "empty"} 가 함께 저장된다 — 근거가 아닌 계산값이 JSONB 에 섞인다. S15P21A307-537 의
+     * {@code EstimateNarrativeContent} 와 같은 누수다.
+     */
+    @JsonIgnore
     public boolean isEmpty() {
         return fallbackStage == null
                 && costDistribution == null
