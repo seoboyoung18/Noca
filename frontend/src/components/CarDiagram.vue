@@ -8,10 +8,13 @@ import { AI_PARTS, partName } from '../data/parts'
 const props = defineProps({ modelValue: { type: String, default: '' } })
 const emit = defineEmits(['update:modelValue'])
 function pick(code) { emit('update:modelValue', props.modelValue === code ? '' : code) }
+/** 도면 부위를 누르면 아래 "사이드미러/유리/휠/라이트" 판은 접는다 — 둘 중 한 곳에서만 고른 것으로 보이게 */
+function pickDrawn(code) { othersOpen.value = false; pick(code) }
 const on = (code) => props.modelValue === code
 const short = (code) => partName(code).replace(/\((좌|우)\)$/, '')
 
-/* 누를 수 있는 부위 — 목업 SVG(viewBox 21 19 278 313)의 path 와 라벨 좌표 그대로. rot 는 스텝(로커 패널)처럼 세로로 쓰는 라벨 */
+/* 누를 수 있는 부위 — 목업 SVG(viewBox 21 19 278 313)의 path 와 라벨 좌표 그대로. rot 는 로커 패널처럼 세로로 쓰는 라벨.
+ * 로커 패널만 목업과 다르다: 앞바퀴 위에서 뒷바퀴 아래까지 길게 늘려 휠 뒤에 깔고, 라벨은 칸 세로 중앙에 둔다 */
 const PARTS = [
   { code: 'FRONT_BUMPER', x: 158.9, y: 47.3, d: 'M123.6 26.2 Q158.9 21.1 194.2 26.2 Q201.5 27.6 201.5 34.9 L201.5 64.7 Q201.5 69.1 197.1 69.1 L120.7 69.1 Q116.4 69.1 116.4 64.7 L116.4 34.9 Q116.4 27.6 123.6 26.2 Z' },
   { code: 'BONNET', x: 158.9, y: 102.9, d: 'M129.1 87.3 Q158.9 72.7 188.7 87.3 Q194.9 109.1 193.5 129.1 Q158.9 123.6 124.4 129.1 Q122.9 109.1 129.1 87.3 Z' },
@@ -22,12 +25,12 @@ const PARTS = [
   { code: 'FRONT_DOOR_L', x: 75.6, y: 155.6, d: 'M48 139.6 L103.3 139.6 Q104 160 104 182.5 L48 182.5 Z' },
   { code: 'REAR_DOOR_L', x: 75.6, y: 200, d: 'M48 184 L104 184 Q104 203.6 102.5 225.5 L48 225.5 Z' },
   { code: 'REAR_FENDER_L', x: 75.6, y: 241.8, d: 'M48 226.9 L102.5 226.9 Q98.9 252.4 83.6 264.7 Q72 274.2 54.5 272 Q48 271.3 48 265.5 Z' },
-  { code: 'ROCKER_PANEL_L', x: 40, y: 174.5, rot: true, d: 'M33.5 139.6 L46.5 139.6 L46.5 225.5 L33.5 225.5 Z' },
+  { code: 'ROCKER_PANEL_L', x: 40, y: 175.5, rot: true, d: 'M33.5 94.5 L46.5 94.5 L46.5 256.4 L33.5 256.4 Z' },
   { code: 'FRONT_FENDER_R', x: 242.2, y: 113.5, d: 'M269.8 92.7 Q269.8 89.1 266.2 89.1 L246.5 87.3 L234.2 89.5 Q216 112.7 214.5 138.2 L269.8 138.2 Z' },
   { code: 'FRONT_DOOR_R', x: 242.2, y: 155.6, d: 'M269.8 139.6 L214.5 139.6 Q213.8 160 213.8 182.5 L269.8 182.5 Z' },
   { code: 'REAR_DOOR_R', x: 242.2, y: 200, d: 'M269.8 184 L213.8 184 Q213.8 203.6 215.3 225.5 L269.8 225.5 Z' },
   { code: 'REAR_FENDER_R', x: 242.2, y: 241.8, d: 'M269.8 226.9 L215.3 226.9 Q218.9 252.4 234.2 264.7 Q245.8 274.2 263.3 272 Q269.8 271.3 269.8 265.5 Z' },
-  { code: 'ROCKER_PANEL_R', x: 277.8, y: 174.5, rot: true, d: 'M271.3 139.6 L284.4 139.6 L284.4 225.5 L271.3 225.5 Z' },
+  { code: 'ROCKER_PANEL_R', x: 277.8, y: 175.5, rot: true, d: 'M271.3 94.5 L284.4 94.5 L284.4 256.4 L271.3 256.4 Z' },
 ]
 /* 도면에 없는 부품 — 아래 버튼을 누르면 ① 좌·우를 먼저 고르고 ② 그 쪽의 부품을 카테고리 토글에서 고른다.
  * 유리·차량 하부처럼 좌우가 없는 부품은 어느 쪽을 골라도 나온다. */
@@ -58,6 +61,7 @@ function toggleGroup(code) { openGroup.value = openGroup.value === code ? '' : c
 function toggleOthers() {
   othersOpen.value = !othersOpen.value
   if (!othersOpen.value) return
+  if (props.modelValue && !otherPicked.value) emit('update:modelValue', '') // 도면에서 고른 게 있으면 푼다 — 여기서 고르기로 바꾼 것
   if (otherPicked.value && sideOf(props.modelValue)) side.value = sideOf(props.modelValue) // 고른 게 있으면 그쪽을 펼쳐 둔다
   if (side.value && !openGroup.value) openGroup.value = GROUPS.find((g) => pickedIn(g))?.code || GROUPS[0].code
 }
@@ -70,6 +74,11 @@ if (import.meta.env.DEV) { // 32종이 빠짐없이 놓였는지 — 개발 중�
   <div class="cd">
     <div class="hd"><span style="left:14%">[운전석]</span><span style="left:85.3%">[조수석]</span></div>
     <svg viewBox="21 19 278 313" width="100%" aria-label="차 도면에서 부위 고르기">
+      <!-- 로커 패널 — 앞·뒷바퀴에 걸쳐 길게. 휠 원이 위에 얹히도록 바탕보다 먼저 그린다 -->
+      <g v-for="p in PARTS.filter((q) => q.rot)" :key="p.code" class="pt" :class="{ on: on(p.code) }" role="button" :aria-label="partName(p.code)" :aria-pressed="on(p.code)" tabindex="0" @click="pickDrawn(p.code)" @keydown.enter="pickDrawn(p.code)">
+        <path :d="p.d" stroke-width="1" stroke-linejoin="round" />
+        <text :x="p.x" :y="p.y" text-anchor="middle" dominant-baseline="middle" font-size="10" :transform="`rotate(-90 ${p.x} ${p.y})`">{{ short(p.code) }}</text>
+      </g>
       <!-- 바탕(누를 수 없음): 휠·차체·유리·필러·사이드미러·도어 손잡이 -->
       <circle cx="39.3" cy="110.9" r="16.4" fill="#D3D5DA"></circle><circle cx="39.3" cy="240" r="16.4" fill="#D3D5DA"></circle><circle cx="279.3" cy="110.9" r="16.4" fill="#D3D5DA"></circle><circle cx="279.3" cy="240" r="16.4" fill="#D3D5DA"></circle>
       <path d="M123.6 83.6 Q158.9 69.1 194.2 83.6 Q199.3 145.5 199.3 203.6 Q199.3 254.5 194.2 280 Q158.9 285.8 123.6 280 Q118.5 254.5 118.5 203.6 Q118.5 145.5 123.6 83.6 Z" fill="#E8E9EC"></path>
@@ -83,10 +92,10 @@ if (import.meta.env.DEV) { // 32종이 빠짐없이 놓였는지 — 개발 중�
       <path d="M199.3 145.5 L206.5 149.1 Q208.7 156.4 202.9 158.5 L198.5 158.5 Z" fill="#D3D5DA"></path>
       <rect x="95.3" y="166.5" width="3.6" height="9.5" rx="1.5" fill="#D3D5DA"></rect><rect x="95.3" y="214.5" width="3.6" height="9.5" rx="1.5" fill="#D3D5DA"></rect>
       <rect x="221.1" y="166.5" width="3.6" height="9.5" rx="1.5" fill="#D3D5DA"></rect><rect x="221.1" y="214.5" width="3.6" height="9.5" rx="1.5" fill="#D3D5DA"></rect>
-      <!-- 부위 버튼 -->
-      <g v-for="p in PARTS" :key="p.code" class="pt" :class="{ on: on(p.code) }" role="button" :aria-label="partName(p.code)" :aria-pressed="on(p.code)" tabindex="0" @click="pick(p.code)" @keydown.enter="pick(p.code)">
+      <!-- 부위 버튼 (로커 패널 제외) -->
+      <g v-for="p in PARTS.filter((q) => !q.rot)" :key="p.code" class="pt" :class="{ on: on(p.code) }" role="button" :aria-label="partName(p.code)" :aria-pressed="on(p.code)" tabindex="0" @click="pickDrawn(p.code)" @keydown.enter="pickDrawn(p.code)">
         <path :d="p.d" stroke-width="1" stroke-linejoin="round" />
-        <text :x="p.x" :y="p.y" text-anchor="middle" dominant-baseline="middle" :font-size="p.rot ? 10 : 12" :transform="p.rot ? `rotate(-90 ${p.x} ${p.y})` : undefined">{{ short(p.code) }}</text>
+        <text :x="p.x" :y="p.y" text-anchor="middle" dominant-baseline="middle" font-size="12">{{ short(p.code) }}</text>
       </g>
     </svg>
 
@@ -125,7 +134,7 @@ if (import.meta.env.DEV) { // 32종이 빠짐없이 놓였는지 — 개발 중�
 
 <style scoped>
 .cd { margin-top: 10px; }
-.hd { position: relative; height: 16px; font-size: 12px; color: var(--text-3); }
+.hd { position: relative; height: 20px; font-size: 14px; font-weight: 600; color: var(--text-2); letter-spacing: -0.02em; } /* 열 머리 — 12px 이 작아 잘 안 보여 키웠다 */
 .hd span { position: absolute; top: 0; transform: translateX(-50%); }
 svg { display: block; margin-top: 2px; }
 .pt { cursor: pointer; }

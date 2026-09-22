@@ -63,6 +63,8 @@ const needPart = computed(() => !!est.value && !est.value.estimable && est.value
  * 지금은 고른 값을 브라우저에만 저장하고 화면에 보여 준다 — API 가 생기면 confirmPart() 에서 부르면 된다.
  */
 const pickedPart = ref('') // 도면에서 고른 부품 — 아직 확정 전
+/** 조사 로/으로 — 받침이 있으면(ㄹ 제외) "으로". "보닛으로", "루프로", "헤드램프(우)로" */
+const ro = (w) => { const c = w.replace(/\)$/, '').replace(/\([^()]*$/, '').trimEnd(); const k = c.charCodeAt(c.length - 1) - 0xac00; const j = k >= 0 && k < 11172 ? k % 28 : 0; return j && j !== 8 ? '으로' : '로' }
 const resolvedPart = ref(accidentId ? readResolvedPart(accidentId) : '') // 확정한 것
 function confirmPart() {
   if (!pickedPart.value) return
@@ -302,12 +304,12 @@ function applyMock() {
         </template>
       </div>
 
-      <!-- 인식된 손상 부위 — 사진 위 폴리곤 + 바운딩박스 -->
+      <!-- 인식된 손상 부위 — 사진 위 폴리곤 + 바운딩박스. 부품 미확정이면 사용자가 고르는 자리라 "손상 부위 선택" 으로 부르고 인식 개수는 숨긴다 -->
       <div v-if="photos.length" style="margin-top:24px">
         <div class="row between">
-          <span class="sec">인식된 손상 부위</span>
+          <span class="sec">{{ needPart ? '손상 부위 선택' : '인식된 손상 부위' }}</span>
           <button v-if="selected" class="sub only" @click="selected = null">{{ selectedName }}만 표시 · 전체 보기</button>
-          <span v-else class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
+          <span v-else-if="!needPart" class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
         </div>
         <!-- 부품 미확정 상태에서는 사진 없이 고르기만 — 사진은 접수 때 본 것이고, 여기서는 부위를 정하는 데 집중한다 -->
         <div v-if="!needPart" class="shot" :class="{ noimg: !current?.url }">
@@ -371,7 +373,7 @@ function applyMock() {
 
     <!-- 하단 바 — 리포트 버튼(문서 아이콘 + 문구) | 홈. 리포트 미리보기의 "PDF 다운로드 | 홈" 과 같은 배치라 두 화면이 이어져 보인다 -->
     <div v-if="!loading && !error && stage === 'done' && needPart && !resolvedPart" class="foot">
-      <button class="btn" :disabled="!pickedPart" @click="confirmPart">{{ pickedPart ? `${partName(pickedPart)}로 확정` : '부위를 골라 주세요' }}</button>
+      <button class="btn" :disabled="!pickedPart" @click="confirmPart">{{ pickedPart ? `${partName(pickedPart)}${ro(partName(pickedPart))} 확정` : '사고 부위를 알려주세요' }}</button>
     </div>
     <!-- 부위를 확정했으면 그 부품으로 다시 분석 -->
     <div v-else-if="!loading && !error && stage === 'done' && needPart && resolvedPart" class="foot row">
