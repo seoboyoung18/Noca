@@ -137,7 +137,8 @@ if (import.meta.env.DEV) { // 32종이 빠짐없이 놓였는지 — 개발 중�
 .hd { position: relative; height: 20px; font-size: 14px; font-weight: 600; color: var(--text-2); letter-spacing: -0.02em; } /* 열 머리 — 12px 이 작아 잘 안 보여 키웠다 */
 .hd span { position: absolute; top: 0; transform: translateX(-50%); }
 svg { display: block; margin-top: 2px; }
-.pt { cursor: pointer; }
+.pt { cursor: pointer; outline: none; } /* 누른 뒤 남는 검은 포커스 테두리를 없앤다 — 선택 표시는 채움색으로 충분하다 */
+.pt:focus-visible path { stroke: var(--primary); stroke-width: 2; } /* 키보드로 옮길 때만 테두리로 위치를 보여 준다 */
 .pt path { fill: #fff; stroke: #DADCE1; transition: fill .15s, stroke .15s; }
 .pt text { font-size: 12px; font-weight: 500; fill: #4E5968; pointer-events: none; user-select: none; }
 .pt:hover path { stroke: #5B6EF5; }
