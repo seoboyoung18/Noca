@@ -47,6 +47,9 @@ class AnalyzeRequest(InferenceRequest):
     request_id: str = Field(alias="requestId", min_length=1)
     vehicle: Vehicle
     callback_url: str = Field(alias="callbackUrl")
+    # S15P21A307-570: a user can resolve damage that YOLO could not attach to
+    # a part.  The backend validates that this is an active AI-label part code.
+    selected_part_code: str | None = Field(default=None, alias="selectedPartCode", min_length=1)
 
     model_config = {"populate_by_name": True}
 

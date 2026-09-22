@@ -70,6 +70,14 @@ class AnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         })
         analysis_service.run_mock.assert_awaited_once()
 
+    def test_analyze_accepts_user_selected_part_code(self):
+        analysis_service = SimpleNamespace(run_mock=AsyncMock())
+        response = self._post(self._route_app("mock", analysis_service), selected_part_code="FRONT_BUMPER")
+
+        self.assertEqual(response.status_code, 202)
+        request = analysis_service.run_mock.await_args.args[0]
+        self.assertEqual(request.selected_part_code, "FRONT_BUMPER")
+
     def _route_app(self, profile, analysis_service):
         settings = SimpleNamespace(
             internal_token="shared-token",
@@ -87,18 +95,21 @@ class AnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         ))
         return app
 
-    def _post(self, app):
+    def _post(self, app, *, selected_part_code=None):
+        payload = {
+            "jobId": 12,
+            "requestId": "req-12",
+            "vehicle": {"modelId": 41, "carClass": "Compact"},
+            "images": [{"imageId": 501, "url": "https://example.test/image.jpg"}],
+            "callbackUrl": "http://backend.test/internal/analysis-jobs/12/result",
+        }
+        if selected_part_code is not None:
+            payload["selectedPartCode"] = selected_part_code
         with TestClient(app) as client:
             return client.post(
                 "/analyze",
                 headers={"X-Internal-Token": "shared-token"},
-                json={
-                    "jobId": 12,
-                    "requestId": "req-12",
-                    "vehicle": {"modelId": 41, "carClass": "Compact"},
-                    "images": [{"imageId": 501, "url": "https://example.test/image.jpg"}],
-                    "callbackUrl": "http://backend.test/internal/analysis-jobs/12/result",
-                },
+                json=payload,
             )
 
     def test_analyze_runs_the_real_path_on_the_production_profile(self):
@@ -194,22 +205,39 @@ class AnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         })
 
     async def test_run_mock_infers_then_delivers_callback(self):
-        inference = AsyncMock(return_value={
+        inference = SimpleNamespace(infer=AsyncMock(return_value={
             "normalization": {"pipelineVersionId": 3},
             "imageResults": [],
-        })
+        }))
         settings = SimpleNamespace(internal_token="shared-token", pipeline_version_id=3)
         service = AnalysisService(settings, inference)
         service._deliver_callback = AsyncMock()
+        request = _request()
 
-        await service.run_mock(_request())
+        await service.run_mock(request)
 
-        inference.infer.assert_awaited_once()
+        inference.infer.assert_awaited_once_with(request.images)
         service._deliver_callback.assert_awaited_once()
         callback_url, request_id, payload = service._deliver_callback.await_args.args
         self.assertEqual(callback_url, "http://backend.test/internal/analysis-jobs/12/result")
         self.assertEqual(request_id, "req-12")
         self.assertFalse(payload["estimable"])
+
+    async def test_run_mock_passes_user_selected_part_to_inference(self):
+        inference = SimpleNamespace(infer=AsyncMock(return_value={
+            "normalization": {"pipelineVersionId": 3},
+            "imageResults": [],
+        }))
+        settings = SimpleNamespace(internal_token="shared-token", pipeline_version_id=3)
+        service = AnalysisService(settings, inference)
+        service._deliver_callback = AsyncMock()
+        request = _request().model_copy(update={"selected_part_code": "FRONT_BUMPER"})
+
+        await service.run_mock(request)
+
+        inference.infer.assert_awaited_once_with(
+            request.images, selected_part_code="FRONT_BUMPER",
+        )
 
 
 class RealAnalysisPathTest(unittest.IsolatedAsyncioTestCase):

@@ -70,7 +70,7 @@ class AnalysisService:
             if not self.can_orchestrate:
                 raise RuntimeError("real analysis path requires search and estimate services")
 
-            inference = await self._inference_service.infer(request.images)
+            inference = await _infer_with_selected_part(self._inference_service, request)
             image_results = inference.get("imageResults") or []
             pipeline_version_id = inference["normalization"]["pipelineVersionId"]
             model_version = _model_version(inference)
@@ -161,7 +161,7 @@ class AnalysisService:
 
     async def run_mock(self, request: AnalyzeRequest) -> None:
         try:
-            inference = await self._inference_service.infer(request.images)
+            inference = await _infer_with_selected_part(self._inference_service, request)
             callback = _mock_success_callback(request, inference)
         except ImageFetchError as exc:
             log.exception("mock analysis image fetch failed. jobId=%s", request.job_id)
@@ -214,6 +214,16 @@ class AnalysisService:
                     request_id, attempt, len(CALLBACK_RETRY_DELAYS),
                 )
         log.error("analysis callback abandoned after retries. requestId=%s error=%s", request_id, last_error)
+
+
+async def _infer_with_selected_part(inference_service: InferenceService,
+                                    request: AnalyzeRequest) -> dict[str, Any]:
+    """Keep ordinary analyze requests byte-for-byte on the existing call path."""
+    if request.selected_part_code is None:
+        return await inference_service.infer(request.images)
+    return await inference_service.infer(
+        request.images, selected_part_code=request.selected_part_code,
+    )
 
 
 def _result_callback(request: AnalyzeRequest, model_version: str, pipeline_version_id: int,

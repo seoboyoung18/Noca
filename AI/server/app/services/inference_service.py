@@ -36,7 +36,7 @@ class InferenceService:
         """Both YOLO artifacts required by /inference are present in the process cache."""
         return self._runner.is_loaded(self._part) and self._runner.is_loaded(self._damage)
 
-    async def infer(self, images: list[InputImage]) -> dict[str, Any]:
+    async def infer(self, images: list[InputImage], *, selected_part_code: str | None = None) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         with tempfile.TemporaryDirectory(prefix="a307-ai-") as directory:
             target_dir = Path(directory)
@@ -56,11 +56,13 @@ class InferenceService:
                 # photo is expected to contain at least one detectable part;
                 # the existing backend/FE contract already handles this reason.
                 part_predictions = part_raw.get("predictions") or []
-                results.append(_to_api_image_result(
+                image_result = _to_api_image_result(
                     normalized,
                     image.image_id,
                     excluded=not bool(part_predictions),
-                ))
+                )
+                _apply_selected_part_code(image_result, selected_part_code)
+                results.append(image_result)
         return {
             "models": self.models,
             "normalization": {
@@ -109,3 +111,37 @@ def _to_api_image_result(
         "detections": detections,
         "normalizationStats": {"detectionCount": len(detections), "droppedCount": 0, "dropReasons": []},
     }
+
+
+def _apply_selected_part_code(image_result: dict[str, Any], selected_part_code: str | None) -> None:
+    """Resolve only damage detections whose part could not be paired by YOLO.
+
+    ``selectedPartCode`` is sent only by the user-driven retry flow.  It must
+    not replace a part already paired by the model, nor turn a no-damage image
+    into a searchable image.  When it resolves at least one detection, an
+    otherwise excluded image becomes usable for the retry's search and estimate.
+    """
+    if selected_part_code is None:
+        return
+    part_code = selected_part_code.strip()
+    if not part_code:
+        return
+
+    resolved = False
+    for detection in image_result["detections"]:
+        if detection.get("partCode"):
+            continue
+        detection.update({
+            "partCode": part_code,
+            "partRawLabel": None,
+            "pairStatus": "PAIRED",
+            "searchability": "STRICT",
+            # The backend keeps detections as raw JSON, so this remains visible
+            # to clients without changing the existing callback schema.
+            "partSelectionSource": "USER",
+        })
+        resolved = True
+
+    if resolved:
+        image_result["excluded"] = False
+        image_result["exclusionReason"] = None
