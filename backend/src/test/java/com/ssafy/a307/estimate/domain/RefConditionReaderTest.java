@@ -39,6 +39,18 @@ class RefConditionReaderTest {
         assertThat(read.isEmpty()).isFalse();
     }
 
+    /** 합친 손상 유형(S15P21A307-566)도 왕복하고, 그 필드가 없던 예전 스냅샷은 빈 목록으로 읽힌다. */
+    @Test
+    @DisplayName("합친 손상 유형이 왕복하고 예전 스냅샷은 빈 목록이다")
+    void mergedDamageTypesRoundTrip() {
+        RefCondition written = new RefCondition(FallbackStage.MODEL, null, null, null, null,
+                List.of(121381L), List.of("Scratched", "Breakage"));
+
+        assertThat(reader.read(objectMapper.writeValueAsString(written)).mergedDamageTypes())
+                .containsExactly("Scratched", "Breakage");
+        assertThat(reader.read("{\"fallbackStage\":\"MODEL\"}").mergedDamageTypes()).isEmpty();
+    }
+
     /**
      * 조건을 어디까지 넓혔는지가 근거의 핵심이다. "동일 차종 37건"과 "전체 37건"은
      * 사용자가 견적을 믿을지 판단하는 근거가 전혀 다르다.

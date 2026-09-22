@@ -8,6 +8,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 견적 항목 하나. 계약 {@code items[]} 의 원소이며 <b>부품 단위</b>다.
@@ -28,6 +29,9 @@ import java.util.List;
  * @param detectionIds  {@code "501:damage:damage-001"} 형식(2차 수정본에서 바뀜)
  * @param fallbackStage {@code MODEL}·{@code PRICE_TIER}·{@code ALL}. DEV corpus 는 모델 매핑
  *                      전이라 {@code PRICE_TIER} 부터 온다
+ * @param mergedDamageTypes 같은 부위의 여러 엔트리를 대표 하나로 합쳤을 때 묶음 전체의 손상 유형
+ *                      (S15P21A307-566). <b>합쳤을 때만 온다</b> — 긁힘 두 곳처럼 유형이 같아도
+ *                      합쳤다면 온다. 사진엔 박스가 둘인데 표는 한 줄일 때 그 이유를 말해 준다
  */
 public record CallbackItem(
 
@@ -71,9 +75,15 @@ public record CallbackItem(
 
         String fallbackStage,
 
-        CallbackRepairMethodReason repairMethodReason) {
+        CallbackRepairMethodReason repairMethodReason,
+
+        List<String> mergedDamageTypes) {
 
     public CallbackItem {
+        // 새 선택 필드라 null 원소 하나로 콜백 전체가 깨지지 않게 걸러 둔다
+        mergedDamageTypes = mergedDamageTypes == null
+                ? List.of()
+                : mergedDamageTypes.stream().filter(Objects::nonNull).toList();
         detectionIds = detectionIds == null ? List.of() : List.copyOf(detectionIds);
         referencedCaseIds = referencedCaseIds == null ? List.of() : List.copyOf(referencedCaseIds);
     }

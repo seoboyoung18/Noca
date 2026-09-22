@@ -57,8 +57,11 @@ public class EstimateQueryService {
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.NOT_FOUND, "존재하지 않는 견적입니다."));
 
+        // 합친 손상 유형은 근거 스냅샷에 있다 (S15P21A307-566). 항목 표가 "긁힘·깨짐" 을 보여 주려면
+        // 근거 응답까지 가지 않고 항목에서 바로 읽을 수 있어야 한다.
         List<EstimateItemResponse> items = estimateQueryRepository.findItems(estimateId).stream()
-                .map(EstimateItemResponse::from)
+                .map(item -> EstimateItemResponse.from(item,
+                        refConditionReader.read(item.getRefCondition()).mergedDamageTypes()))
                 .toList();
 
         return EstimateResponse.of(view, items, unresolvedParts(view.getUnresolvedParts()), notices());

@@ -28,6 +28,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -235,10 +236,23 @@ public class AnalysisResultPersister {
     private void saveItems(Estimate estimate, AnalysisCallbackRequest request,
                            Map<String, DamagedPart> parts) {
         List<EstimateItem> rows = new ArrayList<>();
+        // 같은 부위 항목은 먼저 온 것만 받는다 (S15P21A307-566). parts 는 부위 코드마다 첫 부품만
+        // 들고 있어 두 번째 항목도 get 이 null 이 아니다 — 여기서 따로 걸러야 한다. 이 검사가 없던
+        // 때는 "뒤엣것을 버린다" 는 로그와 달리 항목이 둘 다 저장됐다(jobId=75, items=2).
+        //
+        // 대표를 고르는 규칙(방식 > 금액 > 사례 수)은 AI 한 곳에만 둔다. 여기서 다시 고르면
+        // 두 곳의 규칙이 언젠가 어긋난다 — 백엔드는 AI 가 병합해 보낸다는 계약을 지킬 뿐이다.
+        Set<String> savedPartCodes = new HashSet<>();
         for (CallbackItem item : request.items()) {
-            DamagedPart part = parts.get(item.partCode().strip());
+            String partCode = item.partCode().strip();
+            DamagedPart part = parts.get(partCode);
             if (part == null) {
-                continue;   // 위에서 중복으로 버린 항목이다. 이미 로그를 남겼다
+                continue;   // saveDamagedParts 가 받지 않은 부품이다
+            }
+            if (!savedPartCodes.add(partCode)) {
+                log.warn("같은 부품의 견적 항목이 두 번 왔다 — 뒤엣것을 버린다. jobId={} partCode={}",
+                        request.jobId(), partCode);
+                continue;
             }
             // 완화 단계는 근거 스냅샷과 신뢰도 판정이 같은 값을 봐야 한다. 두 번 파싱하면
             // 한쪽만 고쳤을 때 화면의 근거와 경고가 어긋난다.
@@ -324,13 +338,39 @@ public class AnalysisResultPersister {
                 item.repairMethodReason() == null ? null : new RefCondition.RepairMethodReason(
                         item.repairMethodReason().candidates(),
                         item.repairMethodReason().reasonCode()),
-                item.referencedCaseIds());
+                item.referencedCaseIds(),
+                mergedDamageTypes(item, request.jobId()));
         try {
             return objectMapper.writeValueAsString(condition);
         } catch (RuntimeException e) {
             log.warn("산정 근거를 직렬화하지 못해 비운다. partCode={}", item.partCode(), e);
             return EstimateItem.EMPTY_REF_CONDITION;
         }
+    }
+
+    /**
+     * 대표로 합친 손상 유형 (S15P21A307-566). AI 가 같은 부위의 여러 엔트리를 합쳤을 때만 온다.
+     *
+     * <p>{@code damaged_part} 와 같은 어휘({@code Scratched} …)로 맞춘다. <b>모르는 값은 버리고
+     * 기록한다</b> — 이 값이 없다고 견적이 틀리지는 않으니 콜백 전체를 거절하지 않는다. 중복은
+     * 걷어 내고 순서는 지킨다.
+     *
+     * @return 합치지 않았으면 빈 목록
+     */
+    private List<String> mergedDamageTypes(CallbackItem item, Long jobId) {
+        if (item.mergedDamageTypes().isEmpty()) {
+            return List.of();
+        }
+        Set<String> types = new LinkedHashSet<>();
+        for (String raw : item.mergedDamageTypes()) {
+            try {
+                types.add(AnalysisDamageType.from(raw).columnValue());
+            } catch (IllegalArgumentException e) {
+                log.warn("알 수 없는 합친 손상 유형을 버린다. jobId={} partCode={} value={}",
+                        jobId, item.partCode(), raw);
+            }
+        }
+        return List.copyOf(types);
     }
 
     private FallbackStage fallbackStage(String value) {

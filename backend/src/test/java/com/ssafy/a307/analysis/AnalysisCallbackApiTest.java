@@ -4,6 +4,8 @@ import com.ssafy.a307.analysis.callback.AnalysisCallbackController;
 import com.ssafy.a307.analysis.dto.AnalysisProgressResponse;
 import com.ssafy.a307.analysis.entity.AnalysisStageType;
 import com.ssafy.a307.analysis.service.AnalysisProgressService;
+import com.ssafy.a307.estimate.domain.RefCondition;
+import com.ssafy.a307.estimate.domain.RefConditionReader;
 import com.ssafy.a307.estimate.domain.UnresolvedPart;
 import com.ssafy.a307.estimate.domain.UnresolvedPartsReader;
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +47,16 @@ class AnalysisCallbackApiTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private AnalysisProgressService analysisProgressService;
     @Autowired private UnresolvedPartsReader unresolvedPartsReader;
+    @Autowired private RefConditionReader refConditionReader;
+
+    /**
+     * 같은 부위(REAR_BUMPER)의 다른 손상. AI 가 병합하지 않고 보낸 경우를 흉내 낸다 (S15P21A307-566).
+     * 성공 본문의 항목보다 <b>먼저</b> 끼워 넣어, 어느 쪽이 남는지 금액으로 가를 수 있게 했다.
+     */
+    private static final String SAME_PART_FIRST = """
+            {"partCode":"REAR_BUMPER","damageType":"Breakage","confidence":0.88,
+             "repairMethod":"exchange","itemTotal":900000,"refCaseCount":7,
+             "referencedCaseIds":[121500]}""";
 
     @BeforeEach
     void setUp() {
@@ -732,7 +744,107 @@ class AnalysisCallbackApiTest {
                 String.class, JOB_ID);
     }
 
-    /** 계약 ⑥ 의 성공 본문. 저장은 다음 커밋이라 여기서는 구조가 통과하는지만 본다. */
+    /**
+     * S15P21A307-566. AI 가 같은 부위를 두 번 보내면 "뒤엣것을 버린다" 고 로그를 남기면서 항목은
+     * 둘 다 저장했다(운영 jobId=75, items=2). 화면에 같은 부위가 두 줄로 나오고, 부위 번호와 근거
+     * 문장이 첫 항목의 것을 빌려 썼다.
+     */
+    @Test
+    @DisplayName("같은 부위 항목이 두 번 오면 먼저 온 것 하나만 저장한다 (S15P21A307-566)")
+    void duplicatePartKeepsFirstItemOnly() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replace("\"items\":[{", "\"items\":[" + SAME_PART_FIRST + ",{");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(count("estimate_item ei join estimate e on e.estimate_id = ei.estimate_id"
+                + " where e.job_id = " + JOB_ID)).isEqualTo(1);
+        assertThat(count("damaged_part where job_id = " + JOB_ID)).isEqualTo(1);
+        // 먼저 온 항목이 남는다. 대표는 AI 가 이미 골랐다 — 백엔드는 다시 고르지 않는다
+        assertThat(itemColumn("item_median", Integer.class)).isEqualTo(900_000);
+    }
+
+    /**
+     * 합친 손상 유형은 damaged_part 와 같은 어휘로 맞춘다. 대소문자가 달라도 받고, 같은 값은
+     * 한 번만, 모르는 값은 버린다 — 이 값이 틀렸다고 견적 전체를 거절하지 않는다.
+     */
+    @Test
+    @DisplayName("합친 손상 유형은 어휘를 맞추고 중복·모르는 값을 걷어 근거 스냅샷에 남는다")
+    void mergedDamageTypesAreNormalized() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID).replace(
+                "\"repairMethodReason\":{\"candidates\":[\"coating\"],\"reasonCode\":\"SINGLE\"}",
+                "\"repairMethodReason\":{\"candidates\":[\"coating\"],\"reasonCode\":\"SINGLE\"},"
+                        + "\"mergedDamageTypes\":[\"Scratched\",\"breakage\",\"Scratched\",\"Dented\"]");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(storedRefCondition().mergedDamageTypes()).containsExactly("Scratched", "Breakage");
+    }
+
+    @Test
+    @DisplayName("합치지 않은 항목은 합친 손상 유형이 비어 있다")
+    void noMergedDamageTypesWhenNotMerged() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        assertThat(storedRefCondition().mergedDamageTypes()).isEmpty();
+    }
+
+    /**
+     * AI 가 S15P21A307-569 부터 실제로 보내는 합친 항목 모양이다. 같은 부위 긁힘 두 곳을 합치면 AI 가
+     * 중복을 걷어 {@code mergedDamageTypes} 가 원소 하나로 남는다 — 원소 수가 아니라 비어 있지 않음이
+     * "합친 항목" 이다. 함께 오는 항목 등급과 {@code repairMethodReason.mergedCandidates}·
+     * {@code uncoveredMethods} 는 아직 저장하지 않는다. 모르는 필드로 콜백이 깨지지 않는 것까지 본다 —
+     * AI 와 계약이 어긋나면 여기서 먼저 깨진다.
+     */
+    @Test
+    @DisplayName("AI 가 보내는 합친 항목 모양 그대로 받는다 — 같은 유형 두 곳이면 원소 하나로도 합친 항목이다 (S15P21A307-569)")
+    void acceptsMergedItemAsAiSendsIt() throws Exception {
+        String body = successBody(JOB_ID, REQUEST_ID)
+                .replace("\"detectionIds\":[\"501:damage:damage-001\"]",
+                        "\"detectionIds\":[\"501:damage:damage-001\",\"501:damage:damage-002\"]")
+                .replace("\"repairMethodReason\":{\"candidates\":[\"coating\"],\"reasonCode\":\"SINGLE\"}",
+                        "\"repairMethodReason\":{\"candidates\":[\"coating\"],\"reasonCode\":\"SINGLE\","
+                                + "\"mergedCandidates\":[\"coating\"],\"uncoveredMethods\":[]},"
+                                + "\"confidenceGrade\":\"LOW\",\"mergedDamageTypes\":[\"Scratched\"]");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(count("estimate_item ei join estimate e on e.estimate_id = ei.estimate_id"
+                + " where e.job_id = " + JOB_ID)).isEqualTo(1);
+        RefCondition stored = storedRefCondition();
+        assertThat(stored.mergedDamageTypes()).containsExactly("Scratched");
+        assertThat(stored.repairMethodReason().candidates()).containsExactly("coating");
+    }
+
+    /**
+     * isEmpty() 는 화면용 계산값이지 근거가 아니다. 게터로 읽혀 스냅샷에 "empty" 가 섞여 저장되던
+     * 것을 막는다 — S15P21A307-537 의 요약 JSON 과 같은 누수였다.
+     */
+    @Test
+    @DisplayName("근거 스냅샷에 계산값 empty 가 섞이지 않는다")
+    void refConditionDoesNotLeakEmpty() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, successBody(JOB_ID, REQUEST_ID))))
+                .andExpect(status().isOk());
+
+        assertThat(storedRefConditionRaw()).doesNotContain("empty");
+    }
+
+    private RefCondition storedRefCondition() {
+        return refConditionReader.read(storedRefConditionRaw());
+    }
+
+    private String storedRefConditionRaw() {
+        return jdbcTemplate.queryForObject("""
+                select cast(ei.ref_condition as varchar) from estimate_item ei
+                 join estimate e on e.estimate_id = ei.estimate_id
+                where e.job_id = ?
+                """, String.class, JOB_ID);
+    }
+
     /**
      * S15P21A307-568. 부품이 안 보일 만큼 가깝게 찍은 사진은 부품 모델이 아무것도 못 찾아 전부
      * 제외된다. 손상은 찾았으니 부위만 알려 주면 이어서 분석할 수 있다 — 화면이 "다시 찍기"
@@ -768,6 +880,7 @@ class AnalysisCallbackApiTest {
                 "\"excluded\":true,\"exclusionReason\":\"NOT_VEHICLE\"");
     }
 
+    /** 계약 ⑥ 의 성공 본문. 저장은 다음 커밋이라 여기서는 구조가 통과하는지만 본다. */
     private String successBody(long jobId, String requestId) {
         return """
                 {
