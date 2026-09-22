@@ -9,6 +9,8 @@ import { AUTH_GUARD_OFF } from '../router'
 import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetchEstimate, fetchEstimatePdfStatus } from '../lib/api'
 import { imageThumb } from '../data/accidents'
 import { useChecklistStore } from '../stores/checklist'
+import CarDiagram from '../components/CarDiagram.vue'
+import { partName, readResolvedPart, writeResolvedPart } from '../data/parts'
 import {
   detectionShapes, exclusionText, numberParts, pointToPercent, wonOne, wonRange, wonShort,
 } from '../data/estimates'
@@ -44,6 +46,31 @@ const estimate = ref(null) // EstimateResponse
 const imageUrls = ref({}) // imageId → RESIZED URL
 const notice = ref(false)
 const photo = ref(0)
+
+/* ----- 산정 불가 사유 → 문구. 서버는 코드만 준다(AI 연동 계약 nonEstimableReason) ----- */
+const NON_ESTIMABLE_TEXT = {
+  NO_DAMAGE_DETECTED: '사진에서 손상 부위를 찾지 못했어요. 파손 부위가 잘 보이게 가까이서 다시 찍어 주세요.',
+  PART_NOT_RESOLVED: '손상은 찾았지만 어느 부품인지 확정하지 못했어요. 파손된 부위를 아래에서 직접 골라 주세요.',
+  INSUFFICIENT_CASES: '이 부위·손상의 참조 수리 사례가 부족해 금액을 계산하지 못했어요.',
+}
+const nonEstimableText = computed(() => NON_ESTIMABLE_TEXT[est.value?.nonEstimableReason] || '참조할 수리 사례가 부족해 금액을 계산하지 못했어요.')
+/** 부품 미확정 — 사용자가 부위를 직접 고를 수 있다 */
+const needPart = computed(() => !!est.value && !est.value.estimable && est.value.nonEstimableReason === 'PART_NOT_RESOLVED')
+
+/* ----- 부위 직접 고르기 (S15P21A307-564·567) -----
+ * 고르기는 차 도면(components/CarDiagram)에서 한 번 탭 — 위에서 본 차체 + 운전석·조수석 열, 작은 부품은 아래 판.
+ * 따로 확정 단계는 없다: 고르면 하단 버튼이 "○○로 다시 분석하기" 가 되고, 누르면 바로 분석 중 화면으로 간다.
+ * 고른 값은 브라우저에 저장해 두어(data/parts.js 의 저장 키) 돌아왔을 때 도면에 미리 켜 둔다 — 서버 API 가 아직 없어 404 로 돌아오는 경우가 있다.
+ */
+const pickedPart = ref(accidentId ? readResolvedPart(accidentId) : '') // 도면에서 고른 부품 — 이전에 고른 게 있으면 미리 켜 둔다
+/** 조사 로/으로 — 받침이 있으면(ㄹ 제외) "으로". "보닛으로", "루프로", "헤드램프(우)로" */
+const ro = (w) => { const c = w.replace(/\)$/, '').replace(/\([^()]*$/, '').trimEnd(); const k = c.charCodeAt(c.length - 1) - 0xac00; const j = k >= 0 && k < 11172 ? k % 28 : 0; return j && j !== 8 ? '으로' : '로' }
+/** 고른 부품으로 바로 다시 분석 — 분석 중 화면이 부위 확정 재분석 API(resolveAnalysisPart)를 부르고 진행을 그린다 */
+function reanalyze() {
+  if (!pickedPart.value) return
+  if (accidentId) writeResolvedPart(accidentId, pickedPart.value)
+  router.push({ path: '/claim/analyzing', query: { ...(accidentId ? { accidentId } : {}), ...(estimateId.value ? { estimateId: estimateId.value } : {}), partCode: pickedPart.value } })
+}
 
 /* ----- 이미 만든 리포트가 있는지 -----
  * 리포트(PDF)는 견적 하나당 한 건이고, 요청한 적이 없으면 상태 API 가 data: null 을 준다.
@@ -194,6 +221,11 @@ function applyMock() {
     ],
   }
   estimateId.value = AUTH_GUARD_OFF ? 1 : null
+  // ?mock=part — 부품 미확정(산정 불가) 상태로 화면 확인. 검출 도형은 남고 견적 항목만 없다
+  if (route.query.mock === 'part') {
+    estimate.value = { ...estimate.value, estimable: false, nonEstimableReason: 'PART_NOT_RESOLVED', totalMin: null, totalMedian: null, totalMax: null, items: [] }
+    result.value = { ...result.value, parts: [] }
+  }
 }
 </script>
 
@@ -234,8 +266,13 @@ function applyMock() {
         <button class="more" @click="notice = true">자세히</button>
       </div>
 
+      <!-- 부품 미확정 — 금액 얘기는 하지 않고 무엇을 해야 하는지만. 고르기는 아래 사진 밑에 있다 -->
+      <div v-if="needPart" class="price">
+        <div style="font-size:18px;font-weight:700;line-height:1.4">어느 부품인지 확정하지 못했어요</div>
+        <p class="sub" style="margin-top:6px;line-height:1.5">파손된 부위를 아래에서 선택해 주세요</p>
+      </div>
       <!-- 예상 수리비 — 견적 유무·산정 가능 여부로 3분기 -->
-      <div class="price">
+      <div v-else class="price">
         <div class="sub">예상 수리비</div>
         <template v-if="est && est.estimable">
           <div class="big">{{ priceRange }}</div>
@@ -249,7 +286,7 @@ function applyMock() {
         </template>
         <template v-else-if="est">
           <div class="big" style="font-size:20px">산정할 수 없어요</div>
-          <p class="sub" style="margin-top:8px;line-height:1.5">{{ est.nonEstimableReason || '참조할 수리 사례가 부족해 금액을 계산하지 못했어요.' }}</p>
+          <p class="sub" style="margin-top:8px;line-height:1.5">{{ nonEstimableText }}</p>
         </template>
         <template v-else>
           <div class="big" style="font-size:20px">견적을 산정하고 있어요</div>
@@ -257,14 +294,15 @@ function applyMock() {
         </template>
       </div>
 
-      <!-- 인식된 손상 부위 — 사진 위 폴리곤 + 바운딩박스 -->
+      <!-- 인식된 손상 부위 — 사진 위 폴리곤 + 바운딩박스. 부품 미확정이면 사용자가 고르는 자리라 "손상 부위 선택" 으로 부르고 인식 개수는 숨긴다 -->
       <div v-if="photos.length" style="margin-top:24px">
         <div class="row between">
-          <span class="sec">인식된 손상 부위</span>
+          <span class="sec">{{ needPart ? '손상 부위 선택' : '인식된 손상 부위' }}</span>
           <button v-if="selected" class="sub only" @click="selected = null">{{ selectedName }}만 표시 · 전체 보기</button>
-          <span v-else class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
+          <span v-else-if="!needPart" class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
         </div>
-        <div class="shot" :class="{ noimg: !current?.url }">
+        <!-- 부품 미확정 상태에서는 사진 없이 고르기만 — 사진은 접수 때 본 것이고, 여기서는 부위를 정하는 데 집중한다 -->
+        <div v-if="!needPart" class="shot" :class="{ noimg: !current?.url }">
           <img v-if="current?.url" :src="current.url" alt="손상 부위 사진">
           <span v-else class="sub">사진을 불러올 수 없어요</span>
           <!-- 검출 도형 — 사진 픽셀을 viewBox 로 쓰고 cover 와 같은 잘림(slice)을 만든다. 좌표 환산 없음 -->
@@ -274,15 +312,21 @@ function applyMock() {
             :style="m.label ? { left: m.label.l + '%', top: m.label.t + '%' } : null">{{ markLabel(m) }}</span>
           <span v-if="current?.excluded" class="excl">분석 제외 · {{ current.reason }}</span>
         </div>
-        <div v-if="photos.length > 1" class="thumbs">
+        <div v-if="photos.length > 1 && !needPart" class="thumbs">
           <button v-for="(p, k) in photos" :key="p.imageId" class="th" :class="{ on: k === photo }" :aria-label="`사진 ${k + 1}`" @click="photo = k">
             <img v-if="p.url" :src="p.url" alt="">
           </button>
         </div>
+
+        <!-- 부위 고르기 — 부품 미확정(PART_NOT_RESOLVED)일 때만. 차 도면에서 한 번 탭하면 하단 버튼으로 바로 다시 분석 -->
+        <div v-if="needPart" class="pick">
+          <p class="sub" style="font-size:12px;line-height:1.5">도면에서 파손된 부위를 누르세요. 운전석 쪽이 왼쪽입니다</p>
+          <CarDiagram v-model="pickedPart" />
+        </div>
       </div>
 
-      <!-- 부품별 내역 -->
-      <div style="margin-top:24px">
+      <!-- 부품별 내역 — 부품 미확정 상태에서는 확정된 부품이 없어 목록이 비므로 그리지 않는다(위 고르기 섹션이 대신한다) -->
+      <div v-if="!needPart" style="margin-top:24px">
         <div class="sec">부품별 내역</div>
         <div v-if="parts.length" class="stack" style="margin-top:12px;gap:8px">
           <button v-for="p in parts" :key="p.partCode" type="button" class="part" :class="{ on: selected === p.partCode, static: !hasMark(p.partCode) }"
@@ -306,7 +350,21 @@ function applyMock() {
     </div>
 
     <!-- 하단 바 — 리포트 버튼(문서 아이콘 + 문구) | 홈. 리포트 미리보기의 "PDF 다운로드 | 홈" 과 같은 배치라 두 화면이 이어져 보인다 -->
-    <div v-if="!loading && !error && stage === 'done'" class="foot row">
+    <!-- 부품 미확정: 고른 부품으로 바로 다시 분석 | 홈. 고르기 전에는 버튼이 잠긴다 -->
+    <div v-if="!loading && !error && stage === 'done' && needPart" class="foot row">
+      <button class="btn" style="flex:1 1 auto" :disabled="!pickedPart" @click="reanalyze">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 9a5.5 5.5 0 1 0 1.6-3.9M3.5 3.5v3h3" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {{ pickedPart ? `${partName(pickedPart)}${ro(partName(pickedPart))} 다시 분석하기` : '사고 부위를 알려주세요' }}
+      </button>
+      <button class="btn outline home" aria-label="홈으로" @click="router.replace('/home')">
+        <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 8.5L9 3l6.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 7.5v7h9v-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 14.5v-4h3v4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <!-- 견적이 없으면(산정 불가·산정 중) 리포트도 없다 — 홈으로만 -->
+    <div v-else-if="!loading && !error && stage === 'done' && !est?.estimable" class="foot">
+      <button class="btn outline" @click="router.replace('/home')">홈으로</button>
+    </div>
+    <div v-else-if="!loading && !error && stage === 'done'" class="foot row">
       <button class="btn" style="flex:1 1 auto" :disabled="!est" @click="openReport">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M5 1.8h5.6l3.4 3.4v9.6a1.4 1.4 0 0 1-1.4 1.4H5a1.4 1.4 0 0 1-1.4-1.4V3.2A1.4 1.4 0 0 1 5 1.8z" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round"/><path d="M10.6 1.8v3.4H14M6.3 9.2h5.4M6.3 12.2h3.6" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         {{ reportMade ? '리포트 보기' : '리포트 만들기' }}
@@ -325,6 +383,8 @@ function applyMock() {
 </template>
 
 <style scoped>
+/* 부위 고르기 — 사진 대신 차 도면(CarDiagram). 고른 뒤에는 확인 카드 하나로 접는다 */
+.pick { margin-top: 10px; }
 .home { flex: 0 0 52px; width: 52px; padding: 0; color: var(--text-2); } /* 아이콘만 — 이름은 aria-label 로. 리포트 미리보기와 같은 크기 */
 .notice { display: flex; align-items: center; gap: 8px; background: var(--warn-bg); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--warn); }
 .notice .more { font-size: 12px; font-weight: 500; color: var(--warn); text-decoration: underline; }

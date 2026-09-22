@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
-import { fetchAnalysisProgress, requestAnalysis } from '../lib/api'
+import { fetchAnalysisProgress, requestAnalysis, resolveAnalysisPart } from '../lib/api'
 import { ANALYSIS_STAGES } from '../data/accidents'
 
 /*
@@ -24,6 +24,9 @@ import { ANALYSIS_STAGES } from '../data/accidents'
 const router = useRouter()
 const route = useRoute()
 const accidentId = Number(route.query.accidentId) || null
+// 부위 확정 재분석(S15P21A307-564): 견적 화면에서 사용자가 고른 부품으로 다시 산정할 때 estimateId·partCode 가 함께 온다
+const resolveEstimateId = Number(route.query.estimateId) || null
+const resolvePartCode = typeof route.query.partCode === 'string' ? route.query.partCode : ''
 
 // 서버 단계 코드(AnalysisStageType 선언 순서) → 화면 문구
 // 단계 문구는 홈 "진행 중" 카드와 공유한다 (data/accidents.js)
@@ -163,11 +166,16 @@ async function start() {
   busy = true
   fatal.value = ''
   try {
-    const p = await requestAnalysis(accidentId) // 202 — 응답이 진행 상태와 같은 모양이라 바로 그린다
+    // 부위 확정 재분석이면 그 API 로, 아니면 일반 분석 요청. 둘 다 202 — 응답이 진행 상태와 같은 모양이라 바로 그린다
+    const p = resolvePartCode && resolveEstimateId
+      ? await resolveAnalysisPart(resolveEstimateId, resolvePartCode)
+      : await requestAnalysis(accidentId)
     apply(p)
   } catch (e) {
     if (e.status !== 409) { // 409 = 이미 진행 중 → 조회로 이어 간다
-      fatal.value = e.status === 400 ? '분석할 사진이 없어요. 사진을 먼저 올려 주세요.'
+      fatal.value = resolvePartCode && e.status === 404 ? '부위 확정 재분석은 서버 준비 중이에요. 준비되면 여기서 바로 이어집니다.'
+        : resolvePartCode && e.status === 400 ? '고를 수 없는 부위예요. 다른 부위를 골라 주세요.'
+        : e.status === 400 ? '분석할 사진이 없어요. 사진을 먼저 올려 주세요.'
         : e.status === 404 ? '사고 정보를 찾을 수 없어요.'
         : e.status === 503 ? '지금은 AI 분석을 사용할 수 없어요. 잠시 후 다시 시도해 주세요.'
         : e.message || '분석을 시작하지 못했어요.'

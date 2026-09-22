@@ -68,7 +68,7 @@ public class AnalysisRequestService {
 
         AnalysisJob job = enqueue(AnalysisJob.queued(accident, Instant.now()));
         log.info("분석 요청 접수: accidentId={}, jobId={}", accidentId, job.getJobId());
-        return AnalysisProgressResponse.of(job, List.of(), List.of());
+        return AnalysisProgressResponse.of(job, List.of(), List.of(), false);
     }
 
     /**
@@ -104,7 +104,7 @@ public class AnalysisRequestService {
         AnalysisJob job = enqueue(AnalysisJob.retryOf(latest, Instant.now()));
         log.info("분석 재시도 접수: accidentId={}, failedJobId={}, jobId={}, retryCount={}",
                 accidentId, latest.getJobId(), job.getJobId(), job.getRetryCount());
-        return AnalysisProgressResponse.of(job, List.of(), List.of());
+        return AnalysisProgressResponse.of(job, List.of(), List.of(), false);
     }
 
     private Accident ownedAvailableAccident(Long memberId, Long accidentId) {

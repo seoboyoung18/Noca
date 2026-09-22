@@ -744,7 +744,6 @@ class AnalysisCallbackApiTest {
                 String.class, JOB_ID);
     }
 
-    /** 계약 ⑥ 의 성공 본문. 저장은 다음 커밋이라 여기서는 구조가 통과하는지만 본다. */
     /**
      * S15P21A307-566. AI 가 같은 부위를 두 번 보내면 "뒤엣것을 버린다" 고 로그를 남기면서 항목은
      * 둘 다 저장했다(운영 jobId=75, items=2). 화면에 같은 부위가 두 줄로 나오고, 부위 번호와 근거
@@ -818,6 +817,42 @@ class AnalysisCallbackApiTest {
                 """, String.class, JOB_ID);
     }
 
+    /**
+     * S15P21A307-568. 부품이 안 보일 만큼 가깝게 찍은 사진은 부품 모델이 아무것도 못 찾아 전부
+     * 제외된다. 손상은 찾았으니 부위만 알려 주면 이어서 분석할 수 있다 — 화면이 "다시 찍기"
+     * 대신 "부위 직접 고르기" 를 보여 주도록 진행 응답이 알려 준다.
+     */
+    @Test
+    @DisplayName("사진이 전부 제외됐어도 손상을 찾았으면 부위 선택이 열린다 (S15P21A307-568)")
+    void allExcludedWithUnpairedDamageOpensPartSelection() throws Exception {
+        String body = excludedBody().replace(
+                "\"detectionId\":\"501:damage:damage-001\",\"partCode\":\"REAR_BUMPER\"",
+                "\"detectionId\":\"501:damage:damage-001\",\"partCode\":null");
+
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, body)))
+                .andExpect(status().isOk());
+
+        assertThat(analysisProgressService.progress(MEMBER_ID, 98_301L).partSelectionAvailable()).isTrue();
+    }
+
+    /** 제외됐지만 검출이 부품과 짝지어져 있다면 "부품을 못 찾은" 경우가 아니다. */
+    @Test
+    @DisplayName("손상이 부품과 짝지어져 있으면 부위 선택이 열리지 않는다")
+    void allExcludedWithPairedDamageStaysClosed() throws Exception {
+        mockMvc.perform(withToken(callback(JOB_ID, REQUEST_ID, excludedBody())))
+                .andExpect(status().isOk());
+
+        assertThat(analysisProgressService.progress(MEMBER_ID, 98_301L).partSelectionAvailable()).isFalse();
+    }
+
+    /** 성공 본문에서 사진만 제외로 바꾼다. */
+    private String excludedBody() {
+        return successBody(JOB_ID, REQUEST_ID).replace(
+                "\"excluded\":false,\"exclusionReason\":null",
+                "\"excluded\":true,\"exclusionReason\":\"NOT_VEHICLE\"");
+    }
+
+    /** 계약 ⑥ 의 성공 본문. 저장은 다음 커밋이라 여기서는 구조가 통과하는지만 본다. */
     private String successBody(long jobId, String requestId) {
         return """
                 {
