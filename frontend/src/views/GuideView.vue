@@ -31,7 +31,7 @@ function toUpload() { router.push('/claim/upload') }
 
     <div class="body scroll" style="padding-top:20px">
       <p class="step">2 / 4 · 촬영 가이드</p>
-      <h1 class="h1 sm" style="margin-top:6px">파손 부위가 잘 보이게<br>사진을 찍어주세요</h1>
+      <h1 class="h1" style="margin-top:6px">파손 부위가 잘 보이게<br>사진을 찍어주세요</h1>
 
       <!-- 올바른 예시 -->
       <div class="shot">

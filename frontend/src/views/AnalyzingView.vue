@@ -234,7 +234,7 @@ onUnmounted(() => { stopped = true; clearTimeout(timer); stopTicker() }) // 화�
           <span class="failic">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8v5M12 16.5h.01" stroke="#C0392B" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9.25" stroke="#C0392B" stroke-width="1.5"/></svg>
           </span>
-          <h1 class="h1 sm" style="margin-top:28px">{{ fatal ? '분석을 시작할 수 없어요' : photoProblem ? '사진을 다시 올려 주세요' : '분석을 완료하지 못했어요' }}</h1>
+          <h1 class="h1" style="margin-top:28px">{{ fatal ? '분석을 시작할 수 없어요' : photoProblem ? '사진을 다시 올려 주세요' : '분석을 완료하지 못했어요' }}</h1>
           <p style="margin-top:8px;font-size:14px;color:var(--text-3);line-height:1.55;padding:0 32px">{{ failText }}</p>
           <p v-if="failCode" class="sub" style="margin-top:6px;font-size:11px;color:var(--text-4)">오류 코드 {{ failCode }}</p>
         </div>
@@ -253,7 +253,7 @@ onUnmounted(() => { stopped = true; clearTimeout(timer); stopTicker() }) // 화�
             <circle cx="36" cy="36" r="33" stroke="#EEEBFD" stroke-width="6"/>
             <circle cx="36" cy="36" r="33" stroke="#4E36E4" stroke-width="6" stroke-linecap="round" stroke-dasharray="207.3" :stroke-dashoffset="status === 'COMPLETED' ? 0 : 62.2" transform="rotate(-90 36 36)"/>
           </svg>
-          <h1 class="h1 sm" style="margin-top:28px">{{ status === 'COMPLETED' ? '분석이 끝났어요' : '손상을 분석하고 있어요' }}</h1>
+          <h1 class="h1" style="margin-top:28px">{{ status === 'COMPLETED' ? '분석이 끝났어요' : '손상을 분석하고 있어요' }}</h1>
           <p style="margin-top:8px;font-size:14px;color:var(--text-3)">{{ stageText }}</p>
         </div>
 

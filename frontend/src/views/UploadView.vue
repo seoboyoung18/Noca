@@ -230,7 +230,7 @@ async function mockUpload() {
 
     <div v-else class="body scroll" style="padding-top:20px">
       <p class="step">3 / 4 · 사진 업로드</p>
-      <h1 class="h1 sm" style="margin-top:6px">파손 부위 사진을<br>올려주세요</h1>
+      <h1 class="h1" style="margin-top:6px">파손 부위 사진을<br>올려주세요</h1>
 
       <AccidentCard style="margin-top:14px" :vehicle="card.vehicle" :created-at="card.createdAt" :status="card.status"
         :thumbnail-url="card.thumbnailUrl" :caption="card.caption" :loading="accidentLoading" />
