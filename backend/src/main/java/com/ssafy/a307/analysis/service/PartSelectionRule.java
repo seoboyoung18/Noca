@@ -54,7 +54,16 @@ public class PartSelectionRule {
      * 결과를 읽을 이유가 없다 — 상태부터 보고 끝나지 않았으면 조회 없이 {@code false} 다.
      */
     public boolean isAvailable(AnalysisJob job) {
-        if (!endedWithoutPart(job) || job.getRetryCount() >= AnalysisJob.MAX_RETRY_COUNT) {
+        return job.getRetryCount() < AnalysisJob.MAX_RETRY_COUNT && isEligible(job);
+    }
+
+    /**
+     * 횟수를 빼고 대상인지만 본다. 부위 확정 재분석(S15P21A307-570)이 "대상이 아님" 과 "횟수를
+     * 다 씀" 을 다른 문구로 알리려고 {@link #isAvailable} 에서 떼어 냈다. 두 판정이 이 클래스에
+     * 함께 있어야 화면의 {@code partSelectionAvailable} 과 그 API 의 409 가 어긋나지 않는다.
+     */
+    public boolean isEligible(AnalysisJob job) {
+        if (!endedWithoutPart(job)) {
             return false;
         }
         return imageResultRepository.findByJobId(job.getJobId()).stream()

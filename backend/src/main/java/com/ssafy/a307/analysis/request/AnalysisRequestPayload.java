@@ -1,5 +1,6 @@
 package com.ssafy.a307.analysis.request;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.ssafy.a307.accident.entity.Accident;
 import com.ssafy.a307.accident.entity.AccidentImage;
 import com.ssafy.a307.accident.entity.ImageVariant;
@@ -19,14 +20,18 @@ import java.util.List;
  * 않아 800x600 사진은 원본과 해상도가 같다. 원본은 EXIF(GPS)를 달고 staging 에서 7일 뒤
  * 사라지며, 저장소 어댑터가 조회 URL 발급을 거절한다.
  *
- * @param callbackUrl AI 가 결과를 보낼 주소. 계약 ⑥ 경로다
+ * @param callbackUrl      AI 가 결과를 보낼 주소. 계약 ⑥ 경로다
+ * @param selectedPartCode 사용자가 고른 부위 (S15P21A307-570). 부품을 찾지 못한 손상에 이 부위를
+ *                         붙여 달라는 뜻이다. <b>값이 있을 때만 싣는다</b> — 부위를 고르지 않은
+ *                         분석의 본문은 이 필드가 생기기 전과 같다. 필드 이름은 AI 담당 확인 전이다
  */
 public record AnalysisRequestPayload(
         Long jobId,
         String requestId,
         Vehicle vehicle,
         List<Image> images,
-        String callbackUrl) {
+        String callbackUrl,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String selectedPartCode) {
 
     /** 분석에 보내는 사진 종류. {@code AccidentImageProperties} 주석의 "분석용 리사이즈본" 이다. */
     public static final ImageVariant ANALYSIS_VARIANT = ImageVariant.RESIZED;
@@ -70,6 +75,7 @@ public record AnalysisRequestPayload(
     static AnalysisRequestPayload of(AnalysisJob job, Accident accident, List<Image> images,
                                      String callbackUrl) {
         return new AnalysisRequestPayload(
-                job.getJobId(), job.getRequestId(), Vehicle.from(accident), List.copyOf(images), callbackUrl);
+                job.getJobId(), job.getRequestId(), Vehicle.from(accident), List.copyOf(images), callbackUrl,
+                job.getSelectedPartCode());
     }
 }

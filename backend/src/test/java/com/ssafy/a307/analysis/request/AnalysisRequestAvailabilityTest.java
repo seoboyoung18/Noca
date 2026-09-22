@@ -6,8 +6,11 @@ import com.ssafy.a307.accident.repository.AccidentImageRepository;
 import com.ssafy.a307.accident.repository.AccidentRepository;
 import com.ssafy.a307.analysis.callback.InternalApiProperties;
 import com.ssafy.a307.analysis.repository.AnalysisJobRepository;
+import com.ssafy.a307.analysis.service.PartSelectionRule;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
+import com.ssafy.a307.estimate.repository.EstimateQueryRepository;
+import com.ssafy.a307.estimatevalidation.repository.PartCodeRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +36,9 @@ class AnalysisRequestAvailabilityTest {
     private final AccidentRepository accidentRepository = mock(AccidentRepository.class);
     private final AccidentImageRepository imageRepository = mock(AccidentImageRepository.class);
     private final AnalysisJobRepository jobRepository = mock(AnalysisJobRepository.class);
+    private final EstimateQueryRepository estimateQueryRepository = mock(EstimateQueryRepository.class);
+    private final PartCodeRepository partCodeRepository = mock(PartCodeRepository.class);
+    private final PartSelectionRule partSelectionRule = mock(PartSelectionRule.class);
 
     @Test
     @DisplayName("사진 저장소가 없으면 503 이고 작업을 만들지 않는다")
@@ -99,6 +105,40 @@ class AnalysisRequestAvailabilityTest {
         then(jobRepository).should(never()).saveAndFlush(any());
     }
 
+    @Test
+    @DisplayName("부위 확정 재분석도 설정이 없으면 503 이고, 부위를 보거나 작업을 만들지 않는다 (S15P21A307-570)")
+    void resolvePartWithoutConfigurationIsUnavailable() {
+        ownedEstimate();
+        AnalysisRequestService service = service(properties("http://ai.test", "http://backend.test"),
+                "token", Optional.empty());
+
+        assertThatThrownBy(() -> service.resolvePart(1L, 30L, "FRONT_FENDER_L"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+        then(partCodeRepository).should(never()).findById(any());
+        then(jobRepository).should(never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("부위 확정 재분석도 남의 견적은 설정 확인보다 404 가 먼저다")
+    void resolvePartNotFoundComesFirst() {
+        given(estimateQueryRepository.findDetail(30L, 1L)).willReturn(Optional.empty());
+        AnalysisRequestService service = service(properties("", ""), "", Optional.empty());
+
+        assertThatThrownBy(() -> service.resolvePart(1L, 30L, "FRONT_FENDER_L"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+    }
+
+    /** 목을 먼저 만든다 — given(...) 안에서 다른 목을 stub 하면 UnfinishedStubbingException 이다. */
+    private void ownedEstimate() {
+        EstimateQueryRepository.EstimateDetailView estimate = mock(EstimateQueryRepository.EstimateDetailView.class);
+        given(estimate.getJobId()).willReturn(20L);
+        given(estimateQueryRepository.findDetail(30L, 1L)).willReturn(Optional.of(estimate));
+    }
+
     private void ownedAccident() {
         given(accidentRepository.findByAccidentIdAndMemberId(7L, 1L))
                 .willReturn(Optional.of(mock(Accident.class)));
@@ -107,7 +147,8 @@ class AnalysisRequestAvailabilityTest {
     private AnalysisRequestService service(AnalysisRequestProperties properties, String token,
                                            Optional<AccidentImageStoragePort> storage) {
         return new AnalysisRequestService(accidentRepository, imageRepository, jobRepository,
-                properties, new InternalApiProperties(token), storage);
+                properties, new InternalApiProperties(token), storage,
+                estimateQueryRepository, partCodeRepository, partSelectionRule);
     }
 
     private static AnalysisRequestProperties properties(String aiBaseUrl, String callbackBaseUrl) {

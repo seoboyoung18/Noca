@@ -114,6 +114,20 @@ class PartSelectionRuleTest {
         assertThat(rule.isAvailable(job)).isFalse();
     }
 
+    /**
+     * 부위 확정 재분석(S15P21A307-570)은 "대상이 아님" 과 "횟수를 다 씀" 을 다른 문구로 알린다.
+     * 그래서 대상 여부는 횟수와 따로 답해야 한다 — 화면이 보는 판정은 그대로 닫혀 있다.
+     */
+    @Test
+    @DisplayName("횟수를 다 써도 대상인지는 따로 답한다 — 열지는 않는다")
+    void eligibilityIgnoresRetryCount() {
+        AnalysisJob job = failed(AnalysisCallbackService.ALL_IMAGES_EXCLUDED, AnalysisJob.MAX_RETRY_COUNT);
+        detections(UNPAIRED);
+
+        assertThat(rule.isEligible(job)).isTrue();
+        assertThat(rule.isAvailable(job)).isFalse();
+    }
+
     @Test
     @DisplayName("다른 이유로 실패했으면 열지 않는다")
     void otherFailureStaysClosed() {

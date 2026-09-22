@@ -3,6 +3,8 @@ package com.ssafy.a307.repairchecklist.service;
 import com.ssafy.a307.accident.entity.Accident;
 import com.ssafy.a307.analysis.entity.AnalysisJob;
 import com.ssafy.a307.analysis.repository.AnalysisJobRepository;
+import com.ssafy.a307.repairchecklist.entity.RepairChecklistStatus;
+import com.ssafy.a307.repairchecklist.repository.RepairChecklistRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,6 +35,15 @@ import org.springframework.transaction.annotation.Transactional;
  * <b>"사고 주인만 요청할 수 있다" 는 규칙이 두 벌</b>이 된다. 작업 → 사고 → 차량으로 주인을
  * 되찾아 {@link RepairChecklistRequestService#request} 라는 <b>같은 문</b>으로 들어간다.
  * 재시도·409·503 처리를 여기서 베끼지 않는 것도 같은 이유다.
+ *
+ * <h2>부위를 골라 다시 분석했으면 다시 만든다 (S15P21A307-570)</h2>
+ *
+ * <p>부품을 찾지 못해 산정하지 못한 분석도 {@code COMPLETED} 라 체크리스트가 이미 만들어져 있다 —
+ * 부위가 빈 분석으로 만든 것이다. 그 사고에 사용자가 부위를 골라 다시 분석하면 완성된 체크리스트를
+ * 재생성({@code S15P21A307-486})으로 다시 만든다. 사용자가 적은 항목은 재생성이 남긴다.
+ *
+ * <p><b>409 를 잡아 재생성으로 넘기지 않고 상태를 먼저 본다.</b> {@code request()} 가 던지는 순간
+ * 이 트랜잭션은 rollback-only 가 되어, 뒤이어 부른 재생성도 커밋되지 않는다.
  */
 @Slf4j
 @Service
@@ -41,6 +52,8 @@ public class RepairChecklistAutoRequestService {
 
     private final AnalysisJobRepository jobRepository;
     private final RepairChecklistRequestService requestService;
+    private final RepairChecklistRegenerateService regenerateService;
+    private final RepairChecklistRepository checklistRepository;
 
     /**
      * 작업이 속한 사고의 체크리스트를 큐에 올린다.
@@ -60,7 +73,23 @@ public class RepairChecklistAutoRequestService {
         }
 
         Accident accident = job.getAccident();
-        requestService.request(accident.getVehicle().getMemberId(), accident.getAccidentId());
-        log.info("체크리스트 자동 요청 접수. jobId={} accidentId={}", jobId, accident.getAccidentId());
+        Long memberId = accident.getVehicle().getMemberId();
+        Long accidentId = accident.getAccidentId();
+
+        if (job.getSelectedPartCode() != null && hasCompletedChecklist(accidentId, memberId)) {
+            regenerateService.regenerate(memberId, accidentId);
+            log.info("부위를 골라 다시 분석해 체크리스트를 다시 만든다. jobId={} accidentId={} partCode={}",
+                    jobId, accidentId, job.getSelectedPartCode());
+            return;
+        }
+
+        requestService.request(memberId, accidentId);
+        log.info("체크리스트 자동 요청 접수. jobId={} accidentId={}", jobId, accidentId);
+    }
+
+    private boolean hasCompletedChecklist(Long accidentId, Long memberId) {
+        return checklistRepository.findByAccidentIdAndMemberId(accidentId, memberId)
+                .filter(checklist -> checklist.getStatus() == RepairChecklistStatus.COMPLETED)
+                .isPresent();
     }
 }

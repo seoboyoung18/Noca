@@ -178,6 +178,26 @@ class RepairChecklistAutoRequestTest {
         assertThat(checklistCount()).isEqualTo(1);
     }
 
+    /**
+     * 부위를 골라 다시 분석한 작업(S15P21A307-570)은 완성된 체크리스트를 다시 만든다. 앞 체크리스트는
+     * 부품을 못 찾은 분석으로 만든 것이라 부위가 비어 있다. 재생성은 세대를 올리고 {@code QUEUED} 로
+     * 되돌린다 — 항목은 워커가 새로 만든다.
+     */
+    @Test
+    @DisplayName("부위를 골라 다시 분석한 결과가 오면 완성된 체크리스트를 다시 만든다")
+    void partSelectionRegeneratesCompletedChecklist() throws Exception {
+        jdbc.update("update analysis_job set selected_part_code = 'FRONT_BUMPER' where job_id = ?", JOB_ID);
+        jdbc.update("insert into repair_checklist(checklist_id,accident_id,status,generation_no,completed_at)"
+                + " values(?,?,'COMPLETED',1,current_timestamp)", 96_409L, ACCIDENT_ID);
+
+        mockMvc.perform(callback(successBody())).andExpect(status().isOk());
+
+        assertThat(checklistStatus()).isEqualTo(RepairChecklistStatus.QUEUED.name());
+        assertThat(jdbc.queryForObject("select generation_no from repair_checklist where accident_id = ?",
+                Integer.class, ACCIDENT_ID)).isEqualTo(2);
+        assertThat(checklistCount()).isEqualTo(1);
+    }
+
     /** 한 번 실패한 체크리스트는 다시 큐에 올린다 — {@code request()} 가 이미 그렇게 한다. */
     @Test
     @DisplayName("실패했던 체크리스트는 다시 큐에 올린다")

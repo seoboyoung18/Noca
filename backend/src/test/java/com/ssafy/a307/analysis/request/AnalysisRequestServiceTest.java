@@ -2,6 +2,7 @@ package com.ssafy.a307.analysis.request;
 
 import com.ssafy.a307.accident.image.AccidentImageStoragePort;
 import com.ssafy.a307.analysis.dto.AnalysisProgressResponse;
+import com.ssafy.a307.analysis.entity.AnalysisJob;
 import com.ssafy.a307.analysis.entity.AnalysisJobStatus;
 import com.ssafy.a307.common.exception.BusinessException;
 import com.ssafy.a307.common.exception.ErrorCode;
@@ -37,6 +38,15 @@ class AnalysisRequestServiceTest {
     private static final long MY_ACCIDENT = 97_606L;
     private static final long OTHER_ACCIDENT = 97_607L;
     private static final long MISSING_ACCIDENT = 97_999L;
+
+    /** 부위 확정 재분석(S15P21A307-570)이 고르는 부위. 시드에 없는 이름이라 다른 테스트와 겹치지 않는다. */
+    private static final String FENDER = "ZZ570_FENDER";
+    private static final String EXTENDED = "ZZ570_EXT";
+    private static final String INACTIVE = "ZZ570_OFF";
+
+    /** 부품과 짝이 안 된 손상. 부품을 못 찾으면 AI 가 이렇게 보낸다. */
+    private static final String UNPAIRED = """
+            [{"detectionId":"1:damage:001","partCode":null,"damageType":"Scratched","pairStatus":"UNPAIRED"}]""";
 
     @Autowired private AnalysisRequestService requestService;
     @Autowired private JdbcTemplate jdbc;
@@ -280,6 +290,187 @@ class AnalysisRequestServiceTest {
             assertError(() -> requestService.retry(ME, MISSING_ACCIDENT), ErrorCode.NOT_FOUND);
             assertThat(jobCount(OTHER_ACCIDENT)).isEqualTo(1);
         }
+
+        /**
+         * 부위를 골라 다시 분석한 작업이 AI 시간 초과 같은 일로 실패했다면, 다시 시도는 같은 요청을 한 번
+         * 더 하는 것이다. 부위를 떨어뜨리면 부품을 못 찾은 처음 결과가 그대로 다시 나온다.
+         */
+        @Test
+        @DisplayName("고른 부위로 다시 분석한 작업을 재시도하면 같은 부위로 보낸다 (S15P21A307-570)")
+        void retryKeepsSelectedPart() {
+            uploadedImage(97_810L, MY_ACCIDENT);
+            insertPartCode(FENDER, true, "AI_LABEL");
+            long failedJobId = insertJob(MY_ACCIDENT, "FAILED", 1, "AI_UNREACHABLE", "2026-09-17T01:00:00Z");
+            jdbc.update("update analysis_job set selected_part_code=? where job_id=?", FENDER, failedJobId);
+
+            assertThat(selectedPartCode(requestService.retry(ME, MY_ACCIDENT).jobId())).isEqualTo(FENDER);
+        }
+
+        @Test
+        @DisplayName("부위를 고르지 않은 분석의 재시도는 부위가 비어 있다")
+        void plainRetryHasNoSelectedPart() {
+            uploadedImage(97_811L, MY_ACCIDENT);
+            insertJob(MY_ACCIDENT, "FAILED", 0, "MODEL_ERROR", "2026-09-17T01:00:00Z");
+
+            assertThat(selectedPartCode(requestService.retry(ME, MY_ACCIDENT).jobId())).isNull();
+        }
+    }
+
+    /**
+     * 부위 확정 재분석 (S15P21A307-570).
+     *
+     * <p>부품을 찾지 못해 산정하지 못한 견적에 사용자가 부위를 골라 준다. 대상은 두 경우다 — 산정 불가
+     * {@code PART_NOT_RESOLVED}(작업 완료)와 사진 전부 제외(작업 실패). 둘 다 AI 가
+     * {@code PART_NOT_RESOLVED} 견적을 보내고 부품이 빈 손상 검출을 남긴다.
+     *
+     * <p>409 는 문구까지 본다. 화면은 409 를 모두 "진행 조회로 이어 가기" 로 처리하지만, 서버 로그와
+     * 응답 문구로 어느 조건에 걸렸는지는 구분돼야 한다.
+     */
+    @Nested
+    @DisplayName("부위 확정 재분석 (S15P21A307-570)")
+    class ResolvePart {
+
+        @BeforeEach
+        void partCodes() {
+            insertPartCode(FENDER, true, "AI_LABEL");
+            insertPartCode(EXTENDED, true, "EXTENDED");
+            insertPartCode(INACTIVE, false, "AI_LABEL");
+        }
+
+        @Test
+        @DisplayName("산정 불가 PART_NOT_RESOLVED 견적에 부위를 고르면 그 부위를 적은 작업을 새로 만들고 횟수를 하나 올린다")
+        void partNotResolvedIsAccepted() {
+            long estimateId = partNotResolved(97_901L, "COMPLETED", null, 1);
+
+            AnalysisProgressResponse response = requestService.resolvePart(ME, estimateId, FENDER);
+
+            assertThat(response.status()).isEqualTo(AnalysisJobStatus.QUEUED);
+            assertThat(response.retryCount()).isEqualTo(2);
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(2);
+            assertThat(selectedPartCode(response.jobId())).isEqualTo(FENDER);
+            // 멱등 키는 워커가 AI 에 보내기 직전에 심는다
+            assertThat(jdbc.queryForObject("select request_id from analysis_job where job_id=?",
+                    String.class, response.jobId())).isNull();
+        }
+
+        @Test
+        @DisplayName("사진이 전부 제외돼 실패한 분석도 받는다 — 그 견적도 PART_NOT_RESOLVED 다")
+        void allImagesExcludedIsAccepted() {
+            long estimateId = partNotResolved(97_902L, "FAILED", "ALL_IMAGES_EXCLUDED", 0);
+
+            AnalysisProgressResponse response = requestService.resolvePart(ME, estimateId, FENDER);
+
+            assertThat(response.status()).isEqualTo(AnalysisJobStatus.QUEUED);
+            assertThat(selectedPartCode(response.jobId())).isEqualTo(FENDER);
+        }
+
+        @Test
+        @DisplayName("없는 견적·남의 견적은 404 다")
+        void notOwnedIsNotFound() {
+            long otherJobId = insertJob(OTHER_ACCIDENT, "COMPLETED", 0, null, "2026-09-17T01:00:00Z");
+            long otherEstimateId = insertEstimate(otherJobId, false, "PART_NOT_RESOLVED");
+
+            assertError(() -> requestService.resolvePart(ME, otherEstimateId, FENDER), ErrorCode.NOT_FOUND);
+            assertError(() -> requestService.resolvePart(ME, 97_998L, FENDER), ErrorCode.NOT_FOUND);
+            assertThat(jobCount(OTHER_ACCIDENT)).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("고를 수 없는 부위는 400 이고 작업을 만들지 않는다 — 모르는 코드·확장 코드·비활성·빈 값")
+        void unselectablePartIsBadRequest() {
+            long estimateId = partNotResolved(97_903L, "COMPLETED", null, 0);
+
+            for (String partCode : new String[]{"FOO", EXTENDED, INACTIVE, " "}) {
+                assertError(() -> requestService.resolvePart(ME, estimateId, partCode), ErrorCode.INVALID_REQUEST);
+            }
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("진행 중인 작업이 있으면 409 다 — 두 번 눌러도 작업은 하나만 더 생긴다")
+        void inFlightIsConflict() {
+            long estimateId = partNotResolved(97_904L, "COMPLETED", null, 0);
+            requestService.resolvePart(ME, estimateId, FENDER);
+
+            assertConflict(() -> requestService.resolvePart(ME, estimateId, FENDER), "진행 중");
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("사고의 최신 작업의 견적이 아니면 409 다 — 옛 견적 id 로 새 결과를 덮지 않는다")
+        void olderEstimateIsConflict() {
+            long estimateId = partNotResolved(97_905L, "COMPLETED", null, 0);
+            insertJob(MY_ACCIDENT, "COMPLETED", 1, null, "2026-09-17T02:00:00Z");
+
+            assertConflict(() -> requestService.resolvePart(ME, estimateId, FENDER), "이미 다시 분석한");
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("산정된 견적은 409 다")
+        void estimableIsConflict() {
+            uploadedImage(97_906L, MY_ACCIDENT);
+            long jobId = insertJob(MY_ACCIDENT, "COMPLETED", 0, null, "2026-09-17T01:00:00Z");
+            insertImageResult(jobId, 97_906L, false, UNPAIRED);
+            long estimateId = insertEstimate(jobId, true, null);
+
+            assertConflict(() -> requestService.resolvePart(ME, estimateId, FENDER), "고를 수 있는 견적이 아닙니다");
+        }
+
+        /** 사례가 모자란 건 부위를 골라도 해결되지 않는다. */
+        @Test
+        @DisplayName("사례 부족으로 산정하지 못한 견적은 409 다")
+        void insufficientCasesIsConflict() {
+            uploadedImage(97_907L, MY_ACCIDENT);
+            long jobId = insertJob(MY_ACCIDENT, "COMPLETED", 0, null, "2026-09-17T01:00:00Z");
+            insertImageResult(jobId, 97_907L, false, UNPAIRED);
+            long estimateId = insertEstimate(jobId, false, "INSUFFICIENT_CASES");
+
+            assertConflict(() -> requestService.resolvePart(ME, estimateId, FENDER), "고를 수 있는 견적이 아닙니다");
+        }
+
+        /** 손상조차 못 찾은 사진은 차가 아니거나 손상이 안 보이는 것이다. 지금처럼 다시 찍게 둔다. */
+        @Test
+        @DisplayName("부품이 빈 손상 검출이 없으면 409 다")
+        void noDamageWithoutPartIsConflict() {
+            uploadedImage(97_908L, MY_ACCIDENT);
+            long jobId = insertJob(MY_ACCIDENT, "FAILED", 0, "ALL_IMAGES_EXCLUDED", "2026-09-17T01:00:00Z");
+            insertImageResult(jobId, 97_908L, true, "[]");
+            long estimateId = insertEstimate(jobId, false, "PART_NOT_RESOLVED");
+
+            assertConflict(() -> requestService.resolvePart(ME, estimateId, FENDER), "고를 수 있는 견적이 아닙니다");
+        }
+
+        @Test
+        @DisplayName("재시도와 합친 횟수를 다 썼으면 409 이고 작업을 만들지 않는다")
+        void exhaustedIsConflict() {
+            long estimateId = partNotResolved(97_909L, "COMPLETED", null, AnalysisJob.MAX_RETRY_COUNT);
+
+            assertConflict(() -> requestService.resolvePart(ME, estimateId, FENDER), "재시도 횟수");
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("보낼 사진이 없으면 400 이고 작업을 만들지 않는다")
+        void noImageIsBadRequest() {
+            // 업로드 URL 만 받고 완료 통보가 없는 사진 — 축소본이 없어 AI 에 보낼 수 없다
+            jdbc.update("insert into accident_image(image_id,accident_id,original_filename) values(?,?,?)",
+                    97_910L, MY_ACCIDENT, "reserved.jpg");
+            long jobId = insertJob(MY_ACCIDENT, "COMPLETED", 0, null, "2026-09-17T01:00:00Z");
+            insertImageResult(jobId, 97_910L, false, UNPAIRED);
+            long estimateId = insertEstimate(jobId, false, "PART_NOT_RESOLVED");
+
+            assertError(() -> requestService.resolvePart(ME, estimateId, FENDER), ErrorCode.INVALID_REQUEST);
+            assertThat(jobCount(MY_ACCIDENT)).isEqualTo(1);
+        }
+
+        /** 부품을 찾지 못해 산정하지 못한 분석 — 업로드한 사진, 부품이 빈 손상, PART_NOT_RESOLVED 견적. */
+        private long partNotResolved(long imageId, String status, String failureReason, int retryCount) {
+            uploadedImage(imageId, MY_ACCIDENT);
+            long jobId = insertJob(MY_ACCIDENT, status, retryCount, failureReason, "2026-09-17T01:00:00Z");
+            insertImageResult(jobId, imageId, "FAILED".equals(status), UNPAIRED);
+            return insertEstimate(jobId, false, "PART_NOT_RESOLVED");
+        }
     }
 
     // ── 픽스처 ──────────────────────────────────────────────────────────────
@@ -300,6 +491,41 @@ class AnalysisRequestServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(code);
+    }
+
+    private void assertConflict(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, String messagePart) {
+        assertThatThrownBy(call)
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining(messagePart)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.CONFLICT);
+    }
+
+    private void insertPartCode(String partCode, boolean active, String scope) {
+        jdbc.update("""
+                insert into part_code (part_code, name_ko, layout_zone, display_order, is_active, code_scope)
+                values (?, '시험 부위', 'SIDE_L', 99, ?, ?)
+                """, partCode, active, scope);
+    }
+
+    private long insertEstimate(long jobId, boolean estimable, String nonEstimableReason) {
+        jdbc.update("insert into estimate(job_id,version,is_estimable,non_estimable_reason) values(?,1,?,?)",
+                jobId, estimable, nonEstimableReason);
+        Long id = jdbc.queryForObject("select estimate_id from estimate where job_id=? and version=1",
+                Long.class, jobId);
+        return id == null ? 0 : id;
+    }
+
+    /** H2 는 JSON 컬럼에 문자열을 넣을 때 {@code FORMAT JSON} 이 필요하다({@code AnalysisResultApiTest} 와 같다). */
+    private void insertImageResult(long jobId, long imageId, boolean excluded, String detections) {
+        jdbc.update("insert into analysis_image_result(job_id,image_id,detections,is_excluded,exclusion_reason)"
+                        + " values(?,?,? FORMAT JSON,?,?)",
+                jobId, imageId, detections, excluded, excluded ? "NOT_VEHICLE" : null);
+    }
+
+    private String selectedPartCode(long jobId) {
+        return jdbc.queryForObject("select selected_part_code from analysis_job where job_id=?",
+                String.class, jobId);
     }
 
     private int jobCount(long accidentId) {

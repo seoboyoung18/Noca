@@ -184,6 +184,9 @@ CREATE TABLE analysis_job (
     -- AI 가 분석에 쓴 버전 조합 식별자. model_version 문자열만으로는 되짚을 수 없다.
     -- FK 를 걸지 않는다 — feature_pipeline_version 은 파이프라인이 따로 적재한다.
     pipeline_version_id BIGINT,
+    -- 사용자가 고른 부위 (S15P21A307-570). 부품을 찾지 못해 산정하지 못한 분석을 부위를 골라
+    -- 다시 분석할 때 채우고, 워커가 AI 요청에 싣는다. 재시도는 이어받는다. 처음 분석은 NULL.
+    selected_part_code VARCHAR(50) REFERENCES part_code(part_code) ON DELETE RESTRICT,
     started_at     TIMESTAMPTZ,
     finished_at    TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
