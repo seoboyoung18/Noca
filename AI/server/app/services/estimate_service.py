@@ -105,16 +105,12 @@ class EstimateService:
         for row in rows:
             rows_by_key[(row.case_id, row.part_code)].append(row)
 
-        part_price_references = [
-            reference
-            for part in strict_parts
-            for reference in (
-                _part_price_reference(part, rows_by_key)
-                if self._enable_part_price_reference else []
-            )
-        ]
+        part_price_references = (
+            _part_price_references(strict_parts, rows_by_key)
+            if self._enable_part_price_reference else []
+        )
 
-        items: list[dict[str, Any]] = []
+        resolved_items: list[dict[str, Any]] = []
         unresolved: list[UnresolvedPart] = []
         for part in strict_parts:
             resolved = _resolve_item(
@@ -124,7 +120,18 @@ class EstimateService:
             if isinstance(resolved, UnresolvedPart):
                 unresolved.append(resolved)
             else:
-                items.append(resolved)
+                resolved_items.append(resolved)
+
+        # 같은 부위가 손상 두 곳으로 탐지되면 여기까지 항목이 둘 온다 — 검색이
+        # (partCode, damageType)로 묶으므로 앞범퍼 긁힘·깨짐은 끝까지 따로 남는다.
+        # 병합은 항목을 만든 "뒤"여야 한다: 대표 선정 기준인 repairMethod·
+        # refCaseCount·금액이 모두 _resolve_item의 출력이라 입력 단계에서는 알 수
+        # 없다. 사례 행은 위에서 이미 한 번에 조회했으므로 전부 산정한 뒤 버려도
+        # DB 조회가 늘지 않는다.
+        items = _merge_items_by_part(resolved_items)
+        unresolved = _dedupe_unresolved(
+            unresolved, resolved_part_codes={item["partCode"] for item in items},
+        )
 
         if not items:
             reason = unresolved[0].reason if unresolved else "INSUFFICIENT_CASES"
@@ -230,6 +237,68 @@ def _source_aware_part_price(row: CostCaseRow) -> int:
     """Return the source-specific PART_PRICE amount used by the reference path."""
     value = row.post_adjustment_part_cost if row.source == "AIHUB_SC" else row.part_cost
     return int(value or 0)
+
+
+def _part_price_references(
+    parts: list[dict[str, Any]], rows_by_key: dict[tuple[int, str], list[CostCaseRow]],
+) -> list[dict[str, Any]]:
+    """One PART_PRICE_ONLY reference per partCode.
+
+    Built per input part, a twice-detected panel produced two reference blocks
+    with the same partCode — the same duplicate as ``items``. Unlike the cost
+    distribution the two pools are merged rather than one being dropped: a
+    part's price does not depend on the damage type, so both entries searched
+    the same corpus part and their candidates are one population.
+    """
+    by_part: dict[str, dict[str, Any]] = {}
+    for part in parts:
+        if part.get("searchability") != "STRICT" or not part.get("partCode"):
+            continue
+        part_code = str(part["partCode"])
+        candidates = list(part.get("partPriceCandidateCases") or [])
+        referenced = list(part.get("referencedCaseIds") or [])
+        merged = by_part.get(part_code)
+        if merged is None:
+            by_part[part_code] = {
+                "searchability": "STRICT", "partCode": part_code,
+                "partPriceCandidateCases": candidates, "referencedCaseIds": referenced,
+            }
+            continue
+        merged["partPriceCandidateCases"] = _merge_candidate_cases(
+            merged["partPriceCandidateCases"], candidates,
+        )
+        merged["referencedCaseIds"] = list(dict.fromkeys(
+            merged["referencedCaseIds"] + referenced,
+        ))
+    return [
+        reference
+        for merged in by_part.values()
+        for reference in _part_price_reference(merged, rows_by_key)
+    ]
+
+
+def _merge_candidate_cases(
+    current: list[dict[str, Any]], incoming: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Union two candidate pools by caseId, keeping the higher similarity."""
+    by_case: dict[int, dict[str, Any]] = {}
+    for candidate in [*current, *incoming]:
+        try:
+            case_id = int(candidate["caseId"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        previous = by_case.get(case_id)
+        if previous is None or _similarity(candidate) > _similarity(previous):
+            by_case[case_id] = candidate
+    return sorted(
+        by_case.values(),
+        key=lambda candidate: (-_similarity(candidate), int(candidate["caseId"])),
+    )
+
+
+def _similarity(candidate: dict[str, Any]) -> float:
+    value = candidate.get("similarity")
+    return float(value) if value is not None else float("-inf")
 
 
 def _part_price_reference(
@@ -355,6 +424,134 @@ def _resolve_item(
         "fallbackStage": part.get("fallbackStage"),
         "confidenceGrade": _item_confidence_grade(ref_case_count, part.get("confidence")),
     }
+
+
+def _merge_items_by_part(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse items sharing a partCode into one representative row.
+
+    A part is replaced or repaired once, so two damages on the same panel are
+    one line of cost, not two — summing both totals charged jobId=75 for two
+    front bumpers. The group keeps exactly one item and the others are dropped
+    from ``items``/``totals`` entirely.
+
+    Which one survives (`_representative_rank`): heaviest repair method first,
+    then the larger median, then the larger sample. 교환이 긁힘까지 함께
+    해결하므로 방식이 먼저다.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        groups.setdefault(str(item["partCode"]), []).append(item)
+
+    merged: list[dict[str, Any]] = []
+    for group in groups.values():
+        representative = dict(min(group, key=_representative_rank))
+        # 사진의 박스는 둘 다 남아야 한다 — 표가 한 줄로 줄어도 근거 화면은
+        # 두 손상을 같은 번호로 가리킨다.
+        representative["detectionIds"] = _merged_detection_ids(group)
+        # 한 줄로 합쳤다는 사실 자체를 화면이 말할 수 있어야 한다. 이 필드가
+        # 없으면 "박스는 둘인데 항목은 하나" 를 설명할 방법이 없다.
+        #
+        # 합쳤을 때만 싣는다. 백엔드는 이 필드가 비어 있지 않은 것 자체를 "합친 항목"
+        # 으로 읽는다(EstimateItemResponse·EstimateBasisItemResponse·RefCondition 주석,
+        # S15P21A307-566). 손상이 하나뿐인 부위에도 실으면 모든 항목이 합쳐진 것으로
+        # 표시된다. 원소 수로 가르지 않는 이유는, 같은 유형 두 곳을 합치면 중복을 걷어
+        # 원소가 하나로 남을 수 있어서다 — 그때도 합친 것은 맞다.
+        if len(group) > 1:
+            representative["mergedDamageTypes"] = list(dict.fromkeys(
+                item["damageType"] for item in group
+            ))
+        # 대표의 등급이 아니라 묶음의 최저 등급을 쓴다. 합칠지 말지를 표본 2건짜리
+        # 근거로 판단했다면 그 얇음이 결과에 남아야 한다 — 버린 쪽이 LOW 였는데
+        # 등급만 조용히 올라가면 신뢰도 표시가 실제보다 후해진다.
+        representative["confidenceGrade"] = min(
+            (item["confidenceGrade"] for item in group),
+            key=lambda grade: _GRADE_RANK[grade],
+        )
+        representative["repairMethodReason"] = _merged_method_reason(representative, group)
+        merged.append(representative)
+    return merged
+
+
+def _merged_method_reason(
+    representative: dict[str, Any], group: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Record which of the group's repair methods the representative does not price.
+
+    대표의 사례 총액은 그 사례에서 이 부위에 든 모든 작업의 합이다(`_aggregate_case`).
+    부품명 매핑이 "후드판금"·"후드교환" 같은 도장 행까지 같은 part_code 로 접기 때문에
+    판금 사례의 총액에는 보통 도장까지 들어 있다 — 그래서 묶음의 다른 항목을 더하면
+    도장을 두 번 내게 되고, 대표 하나를 고르는 쪽이 맞다.
+
+    맞지 않는 구간이 하나 있다: 대표의 참조 사례들이 그 작업을 아예 갖고 있지 않은
+    경우다. 그때는 그 작업이 값에서 통째로 빠진다. `candidates` 가 그 항목 사례 method
+    의 합집합이므로, 묶음 합집합에서 대표의 것을 빼면 "값에 안 들어간 작업" 이 그대로
+    나온다. 금액은 건드리지 않고 사실만 남긴다 — 얼마를 더해야 하는지는 아직 근거가
+    없다(`Docs/CostNotes/WORK_COMBINATION_BY_PART_CODE.sql` 로 측정한다).
+    """
+    reason = dict(representative.get("repairMethodReason") or {})
+    own = list(reason.get("candidates") or [])
+    group_methods: set[str] = set()
+    for item in group:
+        group_methods |= set((item.get("repairMethodReason") or {}).get("candidates") or [])
+    merged_candidates = [method for method in REPAIR_METHOD_PRIORITY if method in group_methods]
+    uncovered = [method for method in merged_candidates if method not in own]
+    reason["mergedCandidates"] = merged_candidates
+    reason["uncoveredMethods"] = uncovered
+    if uncovered:
+        logger.warning(
+            "merged part priced without some of the group's repair methods: "
+            "part_code=%s representative_candidates=%s uncovered=%s",
+            representative.get("partCode"), own, uncovered,
+        )
+    return reason
+
+
+def _representative_rank(item: dict[str, Any]) -> tuple[int, int, int]:
+    """Sort key for picking a group's representative (smaller wins).
+
+    금액이 사례 수보다 앞이다. ``repairMethod``는 참조 사례 전체 method의
+    합집합에서 고른 값이라(`_resolve_item`) 손상의 심각도가 아니라 "참조한 사례
+    중 하나라도 교환이 있었나"에 가깝다. 긁힘으로 검색한 사례에 교환 행이 한 건만
+    섞여도 양쪽이 exchange로 동률이 되는데, 거기서 사례 수로 가르면 흔한 쪽(긁힘·
+    도장)이 대표가 되어 깨짐을 도장 금액으로 견적하게 된다. 같은 부위 안에서는
+    중앙값이 큰 쪽이 곧 무거운 수리라 금액이 더 나은 대리 지표다.
+    """
+    method = item["repairMethod"]
+    method_rank = (
+        REPAIR_METHOD_PRIORITY.index(method) if method in REPAIR_METHOD_PRIORITY
+        else len(REPAIR_METHOD_PRIORITY)
+    )
+    return (method_rank, -item["costDistribution"]["median"], -item["refCaseCount"])
+
+
+def _merged_detection_ids(group: list[dict[str, Any]]) -> list[Any]:
+    merged: list[Any] = []
+    seen: set[Any] = set()
+    for item in group:
+        for detection_id in item.get("detectionIds") or []:
+            if detection_id in seen:
+                continue
+            seen.add(detection_id)
+            merged.append(detection_id)
+    return merged
+
+
+def _dedupe_unresolved(
+    unresolved: list[UnresolvedPart], *, resolved_part_codes: set[str],
+) -> list[UnresolvedPart]:
+    """Drop unresolved entries that a surviving item already covers.
+
+    앞범퍼 깨짐이 산정되고 긁힘이 사례 부족으로 남으면, 같은 부위가 "총액에 있다"
+    와 "총액에서 뺐다" 로 동시에 보인다. 부위 단위로 하나만 남긴다.
+    """
+    kept: list[UnresolvedPart] = []
+    seen: set[str] = set()
+    for part in unresolved:
+        if part.part_code in resolved_part_codes or part.part_code in seen:
+            continue
+        seen.add(part.part_code)
+        kept.append(part)
+    return kept
 
 
 def _is_included_row(row: CostCaseRow) -> bool:
