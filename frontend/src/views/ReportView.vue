@@ -70,7 +70,12 @@ const vehicle = computed(() => report.value?.vehicle || null)
 const items = computed(() => est.value?.items || [])
 const naItems = computed(() => items.value.filter((it) => it.itemMedian == null))
 const images = computed(() => report.value?.images || [])
-const angles = computed(() => images.value.map((im) => angleLabel(im.angleCode)).join(' · '))
+/** 사고 정보의 "사진" 줄에 붙일 손상 부위 — 견적 항목 순서대로 두 곳까지, 더 있으면 "외 N곳" */
+const partsText = computed(() => {
+  const names = (report.value?.estimate?.items || []).map((it) => it.partNameKo || it.partCode).filter(Boolean)
+  if (!names.length) return ''
+  return names.slice(0, 2).join(', ') + (names.length > 2 ? ` 외 ${names.length - 2}곳` : '')
+})
 /** 그릴 사진 — 리포트의 사진 URL + 분석 결과의 같은 imageId 에서 크기·도형 */
 const photos = computed(() => images.value.map((im) => {
   const a = (analysis.value?.images || []).find((x) => x.imageId === im.imageId) || null
@@ -192,7 +197,7 @@ const MOCK_ANALYSIS = {
 
         <div class="rh">2. 사고 정보</div>
         <div class="rt"><span>접수 일시</span><b>{{ formatDateTime(report.accident?.createdAt, true) || '-' }}</b></div>
-        <div class="rt"><span>사진</span><b>{{ images.length }}장<template v-if="angles"> ({{ angles }})</template></b></div>
+        <div class="rt"><span>사진</span><b>{{ images.length }}장<template v-if="partsText"> ({{ partsText }})</template></b></div>
 
         <div class="rh">3. 파손 이미지</div>
         <!-- 사진은 자르지 않고 원래 비율(폭 100%)로 한 장씩 쌓는다 — 도형은 사진 픽셀 기준이라 잘라 보이면 어긋난다 -->
@@ -203,7 +208,6 @@ const MOCK_ANALYSIS = {
               <DetectionOverlay :width="p.w" :height="p.h" :marks="p.marks" fit="contain" />
             </div>
             <span v-else class="ph-stripe noimg">사진을 불러올 수 없어요</span>
-            <figcaption class="cap">{{ angleLabel(p.angleCode) }}<template v-if="p.overlay || p.marks.length"> · 인식 부위 표시</template></figcaption>
           </figure>
         </div>
         <p v-else class="sub" style="margin-top:8px;font-size:11px">분석에 쓰인 사진이 없어요</p>
@@ -285,7 +289,6 @@ const MOCK_ANALYSIS = {
 .frame { position: relative; border-radius: 8px; overflow: hidden; background: var(--bg-2); }
 .frame img { display: block; width: 100%; height: auto; }
 .imgs .noimg { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; border-radius: 8px; font-size: 12px; color: var(--text-3); }
-.cap { margin-top: 5px; font-size: 11px; color: var(--text-3); }
 .tr { min-height: 44px; padding: 6px 0; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
 .total { margin-top: 16px; background: var(--bg-2); border-radius: 8px; padding: 14px; }
 .rp { margin-top: 10px; font-size: 13px; line-height: 1.6; color: var(--text-2); }

@@ -182,7 +182,11 @@ function selectPart(p) {
   }
 }
 /** 박스 라벨 문구 — 견적·분석의 한글 부위명. 부품이 매칭되지 않은 검출은 라벨 없이 도형만 */
-const markLabel = (m) => (m.partCode ? parts.value.find((p) => p.partCode === m.partCode)?.name || '' : '')
+/** 사진 위 라벨 — "부위 · 파손 유형" (예: 앞 범퍼 · 긁힘). 파손 유형이 없으면 부위만 */
+const markLabel = (m) => {
+  const p = m.partCode ? parts.value.find((x) => x.partCode === m.partCode) : null
+  return p ? [p.name, p.damage].filter(Boolean).join(' · ') : ''
+}
 
 /* ----- 금액·신뢰도·고지 ----- */
 const est = computed(() => estimate.value)
@@ -225,10 +229,10 @@ function applyMock() {
   estimate.value = {
     estimateId: 1, estimable: true, totalMin: 980000, totalMedian: 1240000, totalMax: 1620000, refCaseTotal: 34, confidenceGrade: 'MEDIUM', notices: [],
     items: [
-      { partCode: 'FRONT_BUMPER', partNameKo: '프론트 범퍼', repairMethodDisplayName: '교환', itemMin: 420000, itemMedian: 500000, itemMax: 580000, refCaseCount: 14, lowConfidence: false, partCostMedian: null },
-      { partCode: 'HEAD_LAMP_L', partNameKo: '헤드램프(좌)', repairMethodDisplayName: '교환', itemMin: 340000, itemMedian: 400000, itemMax: 470000, refCaseCount: 11, lowConfidence: false, partCostMedian: null },
-      { partCode: 'FRONT_FENDER_L', partNameKo: '앞휀더(좌)', repairMethodDisplayName: '판금 후 도장', itemMin: 240000, itemMedian: 300000, itemMax: 380000, refCaseCount: 9, lowConfidence: false, partCostMedian: null },
-      { partCode: 'FRONT_DOOR_L', partNameKo: '앞도어(좌)', repairMethodDisplayName: null, itemMin: null, itemMedian: null, itemMax: null, refCaseCount: 0, lowConfidence: true, partCostMedian: null },
+      { partCode: 'FRONT_BUMPER', partNameKo: '프론트 범퍼', damageType: 'Breakage', repairMethodDisplayName: '교환', itemMin: 420000, itemMedian: 500000, itemMax: 580000, refCaseCount: 14, lowConfidence: false, partCostMedian: null },
+      { partCode: 'HEAD_LAMP_L', partNameKo: '헤드램프(좌)', damageType: 'Breakage', repairMethodDisplayName: '교환', itemMin: 340000, itemMedian: 400000, itemMax: 470000, refCaseCount: 11, lowConfidence: false, partCostMedian: null },
+      { partCode: 'FRONT_FENDER_L', partNameKo: '앞휀더(좌)', damageType: 'Crushed', repairMethodDisplayName: '판금 후 도장', itemMin: 240000, itemMedian: 300000, itemMax: 380000, refCaseCount: 9, lowConfidence: false, partCostMedian: null },
+      { partCode: 'FRONT_DOOR_L', partNameKo: '앞도어(좌)', damageType: 'Scratched', repairMethodDisplayName: null, itemMin: null, itemMedian: null, itemMax: null, refCaseCount: 0, lowConfidence: true, partCostMedian: null },
     ],
   }
   estimateId.value = estimateId.value || (AUTH_GUARD_OFF ? 1 : null) // 쿼리로 준 estimateId 는 남긴다 — 가짜 서버로 리포트 흐름을 볼 때 쓴다
@@ -346,7 +350,7 @@ function applyMock() {
             <span class="pn" :class="{ na: p.na }">{{ p.n }}</span>
             <span class="flex1" style="display:flex;flex-direction:column;gap:3px;min-width:0">
               <span class="sec">{{ p.name }}</span>
-              <span class="sub" style="font-size:12px">{{ p.na && !p.method ? (p.damage || '수리 방식 미정') : (p.method || '수리 방식 미정') }}</span>
+              <span class="sub" style="font-size:12px">{{ p.method ? `수리 방법: ${p.method}` : '수리 방법 미정' }}</span>
             </span>
             <span v-if="!p.na" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
               <span style="font-size:15px;font-weight:700">{{ wonOne(p.median) }}</span>

@@ -129,11 +129,12 @@ export function pointToPercent(x, y, width, height, frame = 4 / 3) {
 export function numberParts(estimateItems = [], analysisParts = []) {
   const rows = []
   const seen = new Set()
+  const detected = Object.fromEntries(analysisParts.map((p) => [p.partCode, p])) // 견적 항목에 파손 유형이 없으면 분석 결과의 것을 쓴다
   for (const it of estimateItems) {
     seen.add(it.partCode)
     rows.push({
       n: rows.length + 1, partCode: it.partCode, name: it.partNameKo || it.partCode,
-      method: it.repairMethodDisplayName || it.repairMethod || '', damage: damageTypeLabel(it.damageType),
+      method: it.repairMethodDisplayName || it.repairMethod || '', damage: damageTypeLabel(it.damageType || detected[it.partCode]?.damageType),
       min: it.itemMin, median: it.itemMedian, max: it.itemMax,
       na: it.itemMedian == null, low: !!it.lowConfidence, refCaseCount: it.refCaseCount ?? null,
     })
