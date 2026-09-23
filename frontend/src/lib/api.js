@@ -133,7 +133,7 @@ export const deleteVehicle = (vehicleId) => http.delete(`/api/vehicles/${vehicle
 export const requestAnalysis = (accidentId) => http.post(`/api/accidents/${accidentId}/analysis`).then(data)
 
 /**
- * 부위 확정 재분석 (S15P21A307-564, BE 구현 대기 — backend-request-resolve-part.md).
+ * 부위 확정 재분석 (S15P21A307-567 · 서버 S15P21A307-570). 202 + 분석 진행 상태. 404·400·409·503 은 AnalyzingView 가 안내한다.
  * AI 가 부품을 확정하지 못한 견적(nonEstimableReason=PART_NOT_RESOLVED)에 사용자가 고른 부품 코드를 보내면
  * 서버가 그 부품으로 다시 산정하는 작업을 큐에 넣는다. 응답은 분석 진행 상태와 같은 모양(202) — 분석 중 화면이 그대로 폴링한다.
  * 404 = 아직 서버에 없음(준비 중 안내) · 409 = 이미 진행 중 / 부품이 확정된 견적 · 400 = 고를 수 없는 부품
