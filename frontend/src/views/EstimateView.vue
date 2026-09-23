@@ -6,13 +6,14 @@ import AppHeader from '../components/AppHeader.vue'
 import BottomSheet from '../components/BottomSheet.vue'
 import DetectionOverlay from '../components/DetectionOverlay.vue'
 import { AUTH_GUARD_OFF } from '../router'
-import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisResult, fetchEstimate, fetchEstimatePdfStatus } from '../lib/api'
+import { fetchAccidentEstimates, fetchAccidentImages, fetchAnalysisProgress, fetchAnalysisResult, fetchEstimate, fetchEstimatePdfStatus } from '../lib/api'
 import { imageThumb } from '../data/accidents'
 import { useChecklistStore } from '../stores/checklist'
 import CarDiagram from '../components/CarDiagram.vue'
 import { partName, readResolvedPart, writeResolvedPart } from '../data/parts'
 import {
   detectionShapes, exclusionText, numberParts, pointToPercent, wonOne, wonRange, wonShort,
+  hasSeenReport,
 } from '../data/estimates'
 
 /* ===== 예상 견적 · 분석 결과 (S07b, 목업 A안 — 사진 위 번호 콜아웃) =====
@@ -53,14 +54,22 @@ const NON_ESTIMABLE_TEXT = {
   PART_NOT_RESOLVED: '손상은 찾았지만 어느 부품인지 확정하지 못했어요. 파손된 부위를 아래에서 직접 골라 주세요.',
   INSUFFICIENT_CASES: '이 부위·손상의 참조 수리 사례가 부족해 금액을 계산하지 못했어요.',
 }
-const nonEstimableText = computed(() => NON_ESTIMABLE_TEXT[est.value?.nonEstimableReason] || '참조할 수리 사례가 부족해 금액을 계산하지 못했어요.')
-/** 부품 미확정 — 사용자가 부위를 직접 고를 수 있다 */
-const needPart = computed(() => !!est.value && !est.value.estimable && est.value.nonEstimableReason === 'PART_NOT_RESOLVED')
+/** 서버가 진행 상태에 실어 주는 "부위를 골라 다시 분석할 수 있는가"(partSelectionAvailable, S15P21A307-568).
+ *  null 은 모름(목업·조회 실패) — 그때는 사유만 보고 판단한다. false 면 사유가 부품 미확정이어도 고르기를 열지 않는다(예: 재시도 3회 소진) */
+const partSelectable = ref(null)
+const nonEstimableText = computed(() => {
+  const reason = est.value?.nonEstimableReason
+  if (reason === 'PART_NOT_RESOLVED' && partSelectable.value === false) return '손상은 찾았지만 어느 부품인지 확정하지 못했어요. 이 견적은 부위를 골라 다시 분석할 수 없어요.'
+  return NON_ESTIMABLE_TEXT[reason] || '참조할 수리 사례가 부족해 금액을 계산하지 못했어요.'
+})
+/** 부품 미확정 — 사용자가 부위를 직접 고를 수 있다. 서버가 "안 된다" 고 하면 열지 않는다 */
+const needPart = computed(() => !!est.value && !est.value.estimable && est.value.nonEstimableReason === 'PART_NOT_RESOLVED' && partSelectable.value !== false)
 
 /* ----- 부위 직접 고르기 (S15P21A307-564·567) -----
  * 고르기는 차 도면(components/CarDiagram)에서 한 번 탭 — 위에서 본 차체 + 운전석·조수석 열, 작은 부품은 아래 판.
  * 따로 확정 단계는 없다: 고르면 하단 버튼이 "○○로 다시 분석하기" 가 되고, 누르면 바로 분석 중 화면으로 간다.
- * 고른 값은 브라우저에 저장해 두어(data/parts.js 의 저장 키) 돌아왔을 때 도면에 미리 켜 둔다 — 서버 API 가 아직 없어 404 로 돌아오는 경우가 있다.
+ * 고른 값은 브라우저에 저장해 두어(data/parts.js 의 저장 키) 돌아왔을 때 도면에 미리 켜 둔다 — 서버가 400·409 로 거절해 돌아오는 경우가 있다.
+ * 서버 API 는 POST /api/estimates/{estimateId}/resolve-part (S15P21A307-570).
  */
 const pickedPart = ref(accidentId ? readResolvedPart(accidentId) : '') // 도면에서 고른 부품 — 이전에 고른 게 있으면 미리 켜 둔다
 /** 조사 로/으로 — 받침이 있으면(ㄹ 제외) "으로". "보닛으로", "루프로", "헤드램프(우)로" */
@@ -75,17 +84,18 @@ function reanalyze() {
 /* ----- 이미 만든 리포트가 있는지 -----
  * 리포트(PDF)는 견적 하나당 한 건이고, 요청한 적이 없으면 상태 API 가 data: null 을 준다.
  * 만들었거나(COMPLETED) 만드는 중(QUEUED·PROCESSING)이면 "리포트 보기" 로 바꾼다.
+ * PDF 를 받지 않았어도 리포트 미리보기를 한 번 봤으면(hasSeenReport, 이 브라우저 저장) "리포트 보기" 다 — 두 번째부터는 만들기를 권하지 않는다.
  * 실패(FAILED)는 남은 리포트가 없으니 "만들기" 로 두어 다시 시도할 수 있게 한다.
  * 상태를 못 받아 오면 "만들기" 다 — 모를 때는 기능을 줄이지 않는다. 이미 있는 리포트를 다시 열어도 탈이 없다.
  */
 const reportMade = ref(false)
 const REPORT_ALIVE = ['QUEUED', 'PROCESSING', 'COMPLETED']
 async function loadReportState() {
-  reportMade.value = false
+  reportMade.value = hasSeenReport(estimateId.value)
   if (!estimateId.value) return
   try {
     const s = await fetchEstimatePdfStatus(estimateId.value)
-    reportMade.value = REPORT_ALIVE.includes(s?.status)
+    reportMade.value = REPORT_ALIVE.includes(s?.status) || reportMade.value
   } catch { /* 모르면 버튼을 남긴다 */ }
 }
 
@@ -95,11 +105,13 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [res, imgs] = await Promise.all([
+    const [res, imgs, prog] = await Promise.all([
       fetchAnalysisResult(accidentId),
       fetchAccidentImages(accidentId).catch(() => null), // 저장소 없으면 url 만 null — 결과는 그대로 그린다
+      fetchAnalysisProgress(accidentId).catch(() => null), // 부위 선택 가능 여부만 쓴다 — 못 받으면 사유로만 판단
     ])
     result.value = res
+    partSelectable.value = typeof prog?.partSelectionAvailable === 'boolean' ? prog.partSelectionAvailable : null
     imageUrls.value = Object.fromEntries((imgs?.images || []).map((im) => [im.imageId, imageThumb(im, 'RESIZED')]))
     if (!estimateId.value) estimateId.value = (await fetchAccidentEstimates(accidentId))[0]?.estimateId ?? null
     if (estimateId.value) {
@@ -169,7 +181,6 @@ function selectPart(p) {
     if (k > -1) photo.value = k
   }
 }
-const selectedName = computed(() => parts.value.find((p) => p.partCode === selected.value)?.name || '')
 /** 박스 라벨 문구 — 견적·분석의 한글 부위명. 부품이 매칭되지 않은 검출은 라벨 없이 도형만 */
 const markLabel = (m) => (m.partCode ? parts.value.find((p) => p.partCode === m.partCode)?.name || '' : '')
 
@@ -220,9 +231,10 @@ function applyMock() {
       { partCode: 'FRONT_DOOR_L', partNameKo: '앞도어(좌)', repairMethodDisplayName: null, itemMin: null, itemMedian: null, itemMax: null, refCaseCount: 0, lowConfidence: true, partCostMedian: null },
     ],
   }
-  estimateId.value = AUTH_GUARD_OFF ? 1 : null
+  estimateId.value = estimateId.value || (AUTH_GUARD_OFF ? 1 : null) // 쿼리로 준 estimateId 는 남긴다 — 가짜 서버로 리포트 흐름을 볼 때 쓴다
   // ?mock=part — 부품 미확정(산정 불가) 상태로 화면 확인. 검출 도형은 남고 견적 항목만 없다
   if (route.query.mock === 'part') {
+    if (route.query.sel === 'off') partSelectable.value = false // ?sel=off — 서버가 부위 선택을 막은 상태(재시도 소진 등)
     estimate.value = { ...estimate.value, estimable: false, nonEstimableReason: 'PART_NOT_RESOLVED', totalMin: null, totalMedian: null, totalMax: null, items: [] }
     result.value = { ...result.value, parts: [] }
   }
@@ -298,7 +310,7 @@ function applyMock() {
       <div v-if="photos.length" style="margin-top:24px">
         <div class="row between">
           <span class="sec">{{ needPart ? '손상 부위 선택' : '인식된 손상 부위' }}</span>
-          <button v-if="selected" class="sub only" @click="selected = null">{{ selectedName }}만 표시 · 전체 보기</button>
+          <button v-if="selected" class="sub only" @click="selected = null">전체 보기</button>
           <span v-else-if="!needPart" class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
         </div>
         <!-- 부품 미확정 상태에서는 사진 없이 고르기만 — 사진은 접수 때 본 것이고, 여기서는 부위를 정하는 데 집중한다 -->

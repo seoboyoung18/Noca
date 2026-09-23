@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
 import AppHeader from '../components/AppHeader.vue'
@@ -10,7 +10,7 @@ import { useChecklistStore } from '../stores/checklist'
 import { useAccidentDesc } from '../lib/accidentDesc'
 import { vehicleName } from '../data/vehicles'
 import { accidentDateShort } from '../data/accidents'
-import { checklistStatusText } from '../data/checklists'
+import { checklistPending, checklistStatusText } from '../data/checklists'
 
 /* ===== 나의 체크리스트 (S14c) =====
  * 체크리스트는 견적과 1:1 로 만들어지므로 목록은 사고 목록(사고 스토어) 중 견적이 있는 사고(estimateId) 로 만든다.
@@ -28,7 +28,15 @@ onMounted(() => store.load(true))
 const list = computed(() => store.items.filter((a) => a.estimateId))
 /** 제거한 것 중 체크리스트가 있는 사고 — "제거한 체크리스트 보기" 에서 건별로 되돌린다 */
 const hiddenList = computed(() => store.hidden.filter((a) => a.estimateId))
-watch(list, (items) => { ensureDesc(items); for (const a of items) if (!checklists.get(a.accidentId)) checklists.load(a.accidentId) }, { immediate: true })
+/** 카드 상태 — 만드는 중(QUEUED·PROCESSING)이면 완료될 때까지 폴링해 배지가 "생성 중" 에서 "n/N 확인" 으로 바로 바뀐다.
+ *  이미 끝난 상태가 저장돼 있으면 다시 묻지 않는다. 견적 화면에서 요청만 해 두고 온 경우도 저장값이 pending 이라 여기서 다시 조회한다 */
+async function refreshCard(accidentId) {
+  const cur = checklists.get(accidentId)
+  const res = cur && !checklistPending(cur.status) ? cur : await checklists.load(accidentId)
+  if (res && res.status !== null && checklistPending(res.status)) checklists.startPolling(accidentId)
+}
+watch(list, (items) => { ensureDesc(items); for (const a of items) refreshCard(a.accidentId) }, { immediate: true })
+onUnmounted(() => { for (const a of list.value) checklists.stopPolling(a.accidentId) }) // 상세 화면이 필요하면 자기 폴링을 다시 건다
 /** 카드 배지 — 완료면 진행도, 만드는 중·실패면 상태 문구, 요청 전이면 표시 없음 */
 function badge(a) {
   const c = checklists.get(a.accidentId)

@@ -172,9 +172,12 @@ async function start() {
       : await requestAnalysis(accidentId)
     apply(p)
   } catch (e) {
-    if (e.status !== 409) { // 409 = 이미 진행 중 → 조회로 이어 간다
-      fatal.value = resolvePartCode && e.status === 404 ? '부위 확정 재분석은 서버 준비 중이에요. 준비되면 여기서 바로 이어집니다.'
-        : resolvePartCode && e.status === 400 ? '고를 수 없는 부위예요. 다른 부위를 골라 주세요.'
+    // 부위 확정 재분석의 409 는 "진행 중" 말고도 이미 다시 분석한 견적·선택 대상 아님·재시도 3회 초과가 있다 — 진행 중이 아니면 서버 문구를 그대로 보여 준다
+    const busy409 = e.status === 409 && (!resolvePartCode || /진행 중/.test(e.message || ''))
+    if (!busy409) { // 409(진행 중) 만 조회로 이어 간다
+      fatal.value = resolvePartCode && e.status === 409 ? (e.message || '이 견적은 부위를 골라 다시 분석할 수 없어요.')
+        : resolvePartCode && e.status === 404 ? '견적을 찾을 수 없어요.'
+        : resolvePartCode && e.status === 400 ? (e.message || '고를 수 없는 부위예요. 다른 부위를 골라 주세요.')
         : e.status === 400 ? '분석할 사진이 없어요. 사진을 먼저 올려 주세요.'
         : e.status === 404 ? '사고 정보를 찾을 수 없어요.'
         : e.status === 503 ? '지금은 AI 분석을 사용할 수 없어요. 잠시 후 다시 시도해 주세요.'

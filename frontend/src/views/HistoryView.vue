@@ -175,7 +175,7 @@ const pdfLabel = (a) => (pdfBusyFor(a) ? (pdfStep.value === 'generating' ? 'PDF 
     <!-- 목록 -->
     <div v-else-if="store.items.length" class="body scroll" style="padding-top:20px">
       <div class="row between">
-        <span class="lbl">총 {{ store.total ?? store.items.length }}건</span>
+        <span class="lbl">총 {{ store.visibleTotal ?? store.items.length }}건</span>
         <span v-if="hideMode" class="sub" style="font-size:12px;color:var(--primary)">제거할 이력을 선택하세요</span>
         <span v-else-if="pdfMode" class="sub" style="font-size:12px;color:var(--primary)">견적을 받을 이력을 선택하세요</span>
       </div>
