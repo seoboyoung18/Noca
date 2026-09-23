@@ -193,8 +193,8 @@ Header: X-Internal-Token, X-Request-Id
 
 **프론트가 그릴 때 필요한 것**
 
-- 좌표는 **원본 이미지 픽셀, 좌상단 원점**입니다 (`coordinateSystem: "PIXEL_XY_TOP_LEFT"`)
-- 화면에 `resized`나 `thumbnail`을 띄운다면 **비율로 환산해야 합니다.** 그래서 `imageResults[]`에 원본 `width`·`height`를 함께 보냅니다
+- 좌표는 **백엔드가 보낸 이미지(축소본) 픽셀, 좌상단 원점**입니다 (`coordinateSystem: "PIXEL_XY_TOP_LEFT"`)
+- `imageResults[]`의 `width`·`height`가 **그 이미지의 크기**입니다. 축소본을 그대로 띄우면 환산이 필요 없고, 다른 크기(`thumbnail` 등)를 띄운다면 비율로 환산합니다
 - `bbox`는 XYWH 객체, 폴리곤은 `{x, y}` 점 배열입니다. 폴리곤이 여러 개일 수 있습니다
 - 견적 항목을 누르면 해당 영역을 강조하는 동작은 **`items[].detectionIds` ↔ `detections[].detectionId`*로 잇습니다
 
@@ -259,7 +259,7 @@ ALTER TABLE analysis_image_result
 | `pairStatus` | `PAIRED` · `UNPAIRED` · `AMBIGUOUS` — 부품·손상 geometry 매칭 상태 |
 | `searchability` | `STRICT` · `VECTOR_ONLY` · `EXCLUDED` — 검색 사용 범위. `VECTOR_ONLY`면 `imageResults`의 `partCode`는 null |
 | `confidence` | 0~1 |
-| 좌표 | 원본 이미지 픽셀 · 좌상단 원점 · bbox는 XYWH |
+| 좌표 | 보낸 이미지(축소본) 픽셀 · 좌상단 원점 · bbox는 XYWH |
 | 금액 | 원 단위 정수 · **부가세 미포함** |
 
 `pairStatus`와 `searchability`를 함께 보내는 이유는 부품 매칭 결과를 백엔드가
