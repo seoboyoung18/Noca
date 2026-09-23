@@ -46,7 +46,7 @@ const man = (won) => Math.round(won / 10000)
 export const ACCIDENT_STAGE_TEXT = {
   RECEIVED: '사진 등록 전', IMAGES_UPLOADED: '분석 요청 전', ANALYZING: '손상 부위 분석 중',
   ANALYSIS_FAILED: '분석 결과 없음', ESTIMATED: '손상 정보 없음', REPAIR_RECORDED: '수리 완료',
-  PART_NOT_RESOLVED: '파손 부위를 골라 다시 분석해 주세요',
+  PART_NOT_RESOLVED: '파손 부위를 선택해 다시 분석해 주세요',
 }
 export const accidentStageText = (status) => ACCIDENT_STAGE_TEXT[status] || ''
 
