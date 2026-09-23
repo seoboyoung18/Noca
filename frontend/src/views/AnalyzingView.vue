@@ -12,11 +12,12 @@ import { ANALYSIS_STAGES } from '../data/accidents'
  *   COMPLETED → 4/4 를 채운 뒤 결과 화면 · FAILED → 실패 상태(다시 시도 가능)
  *
  * 서버의 doneStages 는 실제로는 1에 머물다 끝날 때 4로 뛴다(단계 전이가 콜백 한 번에 일어난다). 그대로 그리면 게이지가 1단계에서
- * 멈춰 있다가 완료 때 4로 점프해 "멈췄나" 싶어진다. 그래서 단계마다 예상 소요 시간(EXPECTED_SEC, 분석 응답 시간 측정 S15P21A307-159
- * 기준 — 8장 중앙값 14초·최대 18초에 견적 구간을 더한 값)을 두고, 시작 시각(startedAt)부터 흐른 시간으로 단계를 순차 진행시킨다.
- *  - 시간으로는 3단계(마지막 단계 진행 중)까지만 간다 — 4/4 는 서버가 COMPLETED 라고 할 때만
+ * 멈춰 있다가 완료 때 4로 점프해 "멈췄나" 싶어진다. 그래서 단계를 시간으로 진행시킨다(S15P21A307-564):
+ *  - 시작(startedAt)부터 1초마다 한 단계씩, 3단계(부품 연결) 진행 중까지만 간다. 분석이 길어지면 3단계에서 기다린다
+ *  - 서버가 COMPLETED 라고 하면 남은 단계를 1초 간격으로 차례로 채운다(3단계 완료 → 4단계 완료) — 4단계는 완료 뒤에만 보인다
+ *  - 4/4 가 채워진 뒤 잠깐 있다가 결과 화면으로 간다
  *  - 마지막 단계는 예상보다 오래 걸려도 전체 95% 를 향해 천천히 차오른다(1 − e^(−t/τ)) — 멈춘 것처럼 보이지 않게, 다 된 것처럼도 보이지 않게
- *  - 서버가 시간 예측보다 앞서 있으면(doneStages 가 더 큼) 그쪽을 따른다. 뒤처져 있으면 무시한다
+ *  - 서버 doneStages 는 화면 진행에 쓰지 않는다 — 앞서 있어도 1초 간격을 지킨다
  *  - QUEUED(순서 대기) 동안은 시계를 돌리지 않는다
  * accidentId 는 라우트 쿼리(?accidentId=)로 받는다. 사고 접수·사진 업로드 화면이 연결되면 그쪽에서 넘겨 준다.
  * 쿼리가 없으면(프로토타입 경로) 서버 없이 모의 단계 시퀀스를 흘려 화면 전환만 보여 준다.
@@ -33,8 +34,11 @@ const resolvePartCode = typeof route.query.partCode === 'string' ? route.query.p
 const STAGES = ANALYSIS_STAGES
 const TOTAL = STAGES.length
 const POLL_MS = 2000
-/** 단계별 예상 소요(초): 사진 확인(워커 대기 포함) · 손상 검출 · 부품 연결 · 수리비 계산. 합 26초 */
-const EXPECTED_SEC = [6, 10, 5, 5]
+/** 단계 진행 간격(초) — 사진 확인·손상 검출은 1초씩 넘기고, 부품 연결(3단계)에서 완료를 기다린다 */
+const EXPECTED_SEC = [1, 1, 1, 1]
+const WAIT_STAGE = 2 // 완료 전에 머무는 단계 index(0-based) — 3단계. 시간으로는 이 단계까지만 진행 중이 된다
+const STEP_MS = 1000 // 완료 뒤 남은 단계를 채우는 간격
+const WAIT_FILL_SEC = 4 // 기다리는 단계의 게이지가 80% 를 향해 차오르는 시간 상수
 const TICK_MS = 250 // 게이지 갱신 주기 — 폴링(2초)보다 촘촘해야 사이가 이어져 보인다
 const EXCLUDE_REASON = { NOT_VEHICLE: '차량이 아닌 사진', RATIO_BELOW_THRESHOLD: '차량이 너무 작게 찍힌 사진' }
 
@@ -76,13 +80,13 @@ function timeDone() {
   if (!startedAt.value) return 0
   const sec = (now.value - startedAt.value) / 1000
   let n = 0
-  while (n < TOTAL - 1 && sec >= CUM[n]) n++
+  while (n < WAIT_STAGE && sec >= CUM[n]) n++
   return n
 }
 function advance() {
   now.value = Date.now()
-  if (status.value === 'COMPLETED' || status.value === 'FAILED') return
-  const target = Math.min(TOTAL - 1, Math.max(timeDone(), doneStages.value))
+  if (status.value === 'COMPLETED' || status.value === 'FAILED' || finishing) return
+  const target = Math.min(WAIT_STAGE, timeDone()) // 서버 doneStages 는 따르지 않는다 — 1초 간격으로 보이는 것이 목적
   if (target > shownDone.value) { shownDone.value = target; stageAt.value = now.value }
 }
 function startTicker() { if (!ticker) ticker = setInterval(advance, TICK_MS) }
@@ -91,12 +95,12 @@ function resetProgress() { startedAt.value = null; shownDone.value = 0; stageAt.
 
 // 화면 파생값: cur = 진행 중인 단계 index(0-based). 완료면 TOTAL
 const cur = computed(() => (status.value === 'COMPLETED' ? TOTAL : Math.min(shownDone.value, TOTAL - 1)))
-/** 현재 단계 안의 채움 비율. 마지막 단계는 그 칸의 80%(전체 95%)를 향해 천천히(멈춘 듯 보이지 않게), 그 앞 단계는 예상 시간에 맞춰 선형으로 */
+/** 현재 단계 안의 채움 비율. 기다리는 단계(3단계)는 그 칸의 80% 를 향해 천천히(멈춘 듯 보이지 않게), 그 외 단계는 간격에 맞춰 선형으로 */
 const frac = computed(() => {
   if (status.value !== 'PROCESSING' && !(status.value === 'QUEUED' && startedAt.value)) return 0
   const t = Math.max(0, (now.value - stageAt.value) / 1000)
-  const exp = EXPECTED_SEC[cur.value] || 5
-  return cur.value >= TOTAL - 1 ? Math.min(0.8, 1 - Math.exp(-t / exp)) : Math.min(1, t / exp)
+  if (cur.value === WAIT_STAGE && !finishing) return Math.min(0.8, 1 - Math.exp(-t / WAIT_FILL_SEC))
+  return Math.min(1, t / (EXPECTED_SEC[cur.value] || 1))
 })
 const pct = computed(() => (status.value === 'COMPLETED' ? 100 : ((shownDone.value + frac.value) / TOTAL) * 100))
 const stageText = computed(() => {
@@ -123,27 +127,39 @@ const excludedText = computed(() => {
 let timer = null
 let stopped = false
 let busy = false
+let finishing = false // 서버 완료 뒤 남은 단계를 채우는 중 — 이 동안 시간 진행은 멈추고 finish() 가 단계를 올린다
 
 function apply(p) {
-  status.value = p?.status ?? null
+  // 서버가 COMPLETED 라고 해도 화면은 남은 단계를 차례로 채운 뒤에야 완료로 바꾼다(finish) — 그때까지는 진행 중으로 그린다
+  status.value = p?.status === 'COMPLETED' ? 'PROCESSING' : (p?.status ?? null)
   doneStages.value = p?.doneStages ?? 0
   currentStage.value = p?.currentStage ?? null
   failureReason.value = p?.failureReason || ''
   excluded.value = p?.excludedImages || []
-  // 시계의 0점: 서버가 시작 시각을 주면 그것, 아니면 PROCESSING 을 처음 본 지금. QUEUED 동안은 돌리지 않는다
+  // 시계의 0점: 이 화면이 PROCESSING 을 처음 본 지금. 서버 startedAt 을 쓰면 늦게 들어온 사람은 단계가 한꺼풀에 뛰어 보인다. QUEUED 동안은 돌리지 않는다
   if (status.value === 'PROCESSING' && !startedAt.value) {
-    const t = p?.startedAt ? Date.parse(p.startedAt) : NaN
-    startedAt.value = Number.isNaN(t) ? Date.now() : Math.min(t, Date.now())
+    startedAt.value = Date.now()
     stageAt.value = Date.now()
   }
-  if (status.value === 'COMPLETED') shownDone.value = TOTAL
   if (status.value === 'PROCESSING' || status.value === 'QUEUED') startTicker(); else stopTicker()
   advance()
 }
 
+/** 서버 완료 → 남은 단계를 STEP_MS 간격으로 하나씩 채우고(3단계 완료 → 4단계 완료), 4/4 를 잠깐 보여 준 뒤 결과 화면으로 */
 function finish() {
-  // 4/4 가 채워지는 것을 잠깐 보여 준 뒤 결과로
-  timer = setTimeout(() => router.replace({ path: '/estimate', query: { accidentId } }), 700)
+  if (finishing) return
+  finishing = true
+  const step = () => {
+    if (stopped) return
+    now.value = Date.now()
+    if (shownDone.value < TOTAL - 1) { shownDone.value += 1; stageAt.value = now.value; timer = setTimeout(step, STEP_MS); return }
+    status.value = 'COMPLETED'
+    shownDone.value = TOTAL
+    stopTicker()
+    timer = setTimeout(() => router.replace({ path: '/estimate', query: accidentId ? { accidentId } : {} }), 700)
+  }
+  // 이미 3단계에 머물러 있었으면 바로 다음 단계로, 아직 앞 단계면 간격을 두고 차례로
+  timer = setTimeout(step, shownDone.value >= WAIT_STAGE ? 0 : STEP_MS)
 }
 
 async function tick() {
@@ -196,6 +212,7 @@ function retry() {
   doneStages.value = 0
   currentStage.value = null
   failureReason.value = ''
+  finishing = false
   resetProgress()
   start()
 }
@@ -214,7 +231,7 @@ function runMock() {
   const next = () => {
     if (stopped || i >= seq.length) return
     const [delay, p] = seq[i++]
-    timer = setTimeout(() => { apply(p); if (p.status === 'COMPLETED') router.replace('/estimate'); else next() }, delay)
+    timer = setTimeout(() => { apply(p); if (p.status === 'COMPLETED') finish(); else next() }, delay)
   }
   next()
 }
