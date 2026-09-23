@@ -74,8 +74,10 @@ a { color: var(--primary); text-decoration: none; }
 .device .vol { top: 150px; height: 72px; }
 .device .pwr { top: 248px; height: 46px; }
 .phone { width: 360px; height: 800px; background: var(--white); border-radius: 28px; position: relative; overflow: hidden; }
-/* 목업 끔(.plain): 베젤·카메라·키 없이 예전처럼 흰 카드 프레임만 */
-.device.plain { padding: 0; border-radius: 28px; background: var(--white); box-shadow: 0 0 0 1px rgba(25,31,40,.08), 0 30px 60px -30px rgba(25,31,40,.35); }
+/* 목업 끔(.plain): 베젤·카메라·키 없이 예전처럼 흰 카드 프레임만.
+   바깥 크기(패딩 12px)는 켬과 똑같이 유지해 스위치를 눌러도 배치·스크롤 위치가 움직이지 않는다 — 베젤만 투명해지고 그림자는 화면으로 옮긴다 */
+.device.plain { background: none; box-shadow: none; }
+.device.plain .phone { box-shadow: 0 0 0 1px rgba(25,31,40,.08), 0 30px 60px -30px rgba(25,31,40,.35); }
 .device.plain .cam, .device.plain .key { display: none; }
 /* 목업 스위치 — 화면 바깥 오른쪽 위 고정. 모바일에서는 숨긴다 */
 .mock-sw { position: fixed; top: 16px; right: 20px; z-index: 50; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px 0 6px; border: 1px solid var(--line); border-radius: 18px; background: var(--white); color: var(--text-2); font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(25,31,40,.08); cursor: pointer; }
