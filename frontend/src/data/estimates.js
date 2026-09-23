@@ -149,3 +149,10 @@ export function numberParts(estimateItems = [], analysisParts = []) {
   }
   return rows
 }
+
+/* ----- 리포트 미리보기를 본 견적 — 이 브라우저에만 저장 (S15P21A307-564) -----
+ * 견적 화면의 아래 버튼을 "리포트 만들기" 에서 "리포트 보기" 로 바꾸는 근거 하나. PDF 를 받지 않았어도 미리보기를 한 번 봤으면
+ * 다음부터는 "만들기" 를 권하지 않는다. localStorage 는 막힐 수 있어 읽고 쓸 때 모두 감싼다 */
+const SEEN_KEY = (estimateId) => `noka.reportSeen.${estimateId}`
+export function hasSeenReport(estimateId) { try { return !!estimateId && localStorage.getItem(SEEN_KEY(estimateId)) === '1' } catch { return false } }
+export function markReportSeen(estimateId) { try { if (estimateId) localStorage.setItem(SEEN_KEY(estimateId), '1') } catch { /* 저장 못 하면 다음에도 "만들기" 로 보인다 */ } }

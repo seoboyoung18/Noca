@@ -11,6 +11,7 @@ import { useEstimatePdf } from '../lib/estimatePdf'
 import { carClassLabel, vehicleName, vehicleTypeLabel } from '../data/vehicles'
 import { angleLabel } from '../data/accidents'
 import {
+  markReportSeen,
   damageTypeLabel, detectionMarks, fallbackLabel, formatDateTime, wonComma, wonOne, wonRange,
 } from '../data/estimates'
 
@@ -52,6 +53,7 @@ async function load() {
       if (!estimateId.value) { error.value = '아직 산출된 견적이 없어 리포트를 만들 수 없어요.'; return }
     }
     report.value = await fetchEstimateReport(estimateId.value)
+    markReportSeen(estimateId.value) // 미리보기를 봤다 — 견적 화면 버튼이 다음부터 "리포트 보기"
     await loadAnalysis()
   } catch (e) {
     if (e.status === 401) return

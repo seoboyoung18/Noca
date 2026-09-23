@@ -13,6 +13,7 @@ import CarDiagram from '../components/CarDiagram.vue'
 import { partName, readResolvedPart, writeResolvedPart } from '../data/parts'
 import {
   detectionShapes, exclusionText, numberParts, pointToPercent, wonOne, wonRange, wonShort,
+  hasSeenReport,
 } from '../data/estimates'
 
 /* ===== 예상 견적 · 분석 결과 (S07b, 목업 A안 — 사진 위 번호 콜아웃) =====
@@ -83,17 +84,18 @@ function reanalyze() {
 /* ----- 이미 만든 리포트가 있는지 -----
  * 리포트(PDF)는 견적 하나당 한 건이고, 요청한 적이 없으면 상태 API 가 data: null 을 준다.
  * 만들었거나(COMPLETED) 만드는 중(QUEUED·PROCESSING)이면 "리포트 보기" 로 바꾼다.
+ * PDF 를 받지 않았어도 리포트 미리보기를 한 번 봤으면(hasSeenReport, 이 브라우저 저장) "리포트 보기" 다 — 두 번째부터는 만들기를 권하지 않는다.
  * 실패(FAILED)는 남은 리포트가 없으니 "만들기" 로 두어 다시 시도할 수 있게 한다.
  * 상태를 못 받아 오면 "만들기" 다 — 모를 때는 기능을 줄이지 않는다. 이미 있는 리포트를 다시 열어도 탈이 없다.
  */
 const reportMade = ref(false)
 const REPORT_ALIVE = ['QUEUED', 'PROCESSING', 'COMPLETED']
 async function loadReportState() {
-  reportMade.value = false
+  reportMade.value = hasSeenReport(estimateId.value)
   if (!estimateId.value) return
   try {
     const s = await fetchEstimatePdfStatus(estimateId.value)
-    reportMade.value = REPORT_ALIVE.includes(s?.status)
+    reportMade.value = REPORT_ALIVE.includes(s?.status) || reportMade.value
   } catch { /* 모르면 버튼을 남긴다 */ }
 }
 
@@ -230,7 +232,7 @@ function applyMock() {
       { partCode: 'FRONT_DOOR_L', partNameKo: '앞도어(좌)', repairMethodDisplayName: null, itemMin: null, itemMedian: null, itemMax: null, refCaseCount: 0, lowConfidence: true, partCostMedian: null },
     ],
   }
-  estimateId.value = AUTH_GUARD_OFF ? 1 : null
+  estimateId.value = estimateId.value || (AUTH_GUARD_OFF ? 1 : null) // 쿼리로 준 estimateId 는 남긴다 — 가짜 서버로 리포트 흐름을 볼 때 쓴다
   // ?mock=part — 부품 미확정(산정 불가) 상태로 화면 확인. 검출 도형은 남고 견적 항목만 없다
   if (route.query.mock === 'part') {
     if (route.query.sel === 'off') partSelectable.value = false // ?sel=off — 서버가 부위 선택을 막은 상태(재시도 소진 등)
