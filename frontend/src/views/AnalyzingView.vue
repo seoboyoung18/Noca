@@ -13,8 +13,8 @@ import { ANALYSIS_STAGES } from '../data/accidents'
  *
  * 서버의 doneStages 는 실제로는 1에 머물다 끝날 때 4로 뛴다(단계 전이가 콜백 한 번에 일어난다). 그대로 그리면 게이지가 1단계에서
  * 멈춰 있다가 완료 때 4로 점프해 "멈췄나" 싶어진다. 그래서 단계를 시간으로 진행시킨다(S15P21A307-564):
- *  - 시작(startedAt)부터 1초마다 한 단계씩, 3단계(부품 연결) 진행 중까지만 간다. 분석이 길어지면 3단계에서 기다린다
- *  - 서버가 COMPLETED 라고 하면 남은 단계를 1초 간격으로 차례로 채운다(3단계 완료 → 4단계 완료) — 4단계는 완료 뒤에만 보인다
+ *  - 시작(startedAt)부터 단계별 표시 시간(EXPECTED_SEC)만큼 지나면 다음 단계로, 3단계(부품 연결) 진행 중까지만 간다. 분석이 길어지면 3단계에서 기다린다
+ *  - 서버가 COMPLETED 라고 하면 지금 단계의 남은 시간을 채운 뒤 남은 단계를 차례로 채운다(3단계 완료 → 4단계 1초 → 완료) — 4단계는 완료 뒤에만 보인다
  *  - 4/4 가 채워진 뒤 잠깐 있다가 결과 화면으로 간다
  *  - 마지막 단계는 예상보다 오래 걸려도 전체 95% 를 향해 천천히 차오른다(1 − e^(−t/τ)) — 멈춘 것처럼 보이지 않게, 다 된 것처럼도 보이지 않게
  *  - 서버 doneStages 는 화면 진행에 쓰지 않는다 — 앞서 있어도 1초 간격을 지킨다
@@ -34,10 +34,9 @@ const resolvePartCode = typeof route.query.partCode === 'string' ? route.query.p
 const STAGES = ANALYSIS_STAGES
 const TOTAL = STAGES.length
 const POLL_MS = 2000
-/** 단계 진행 간격(초) — 사진 확인·손상 검출은 1초씩 넘기고, 부품 연결(3단계)에서 완료를 기다린다 */
-const EXPECTED_SEC = [1, 1, 1, 1]
+/** 단계별 표시 시간(초): 사진 확인 1.5 · 손상 검출 0.7 · 부품 연결 1(완료를 기다리는 단계 — 최소 시간) · 수리비 계산 1 */
+const EXPECTED_SEC = [1.5, 0.7, 1, 1]
 const WAIT_STAGE = 2 // 완료 전에 머무는 단계 index(0-based) — 3단계. 시간으로는 이 단계까지만 진행 중이 된다
-const STEP_MS = 1000 // 완료 뒤 남은 단계를 채우는 간격
 const WAIT_FILL_SEC = 4 // 기다리는 단계의 게이지가 80% 를 향해 차오르는 시간 상수
 const TICK_MS = 250 // 게이지 갱신 주기 — 폴링(2초)보다 촘촘해야 사이가 이어져 보인다
 const EXCLUDE_REASON = { NOT_VEHICLE: '차량이 아닌 사진', RATIO_BELOW_THRESHOLD: '차량이 너무 작게 찍힌 사진' }
@@ -145,21 +144,27 @@ function apply(p) {
   advance()
 }
 
-/** 서버 완료 → 남은 단계를 STEP_MS 간격으로 하나씩 채우고(3단계 완료 → 4단계 완료), 4/4 를 잠깐 보여 준 뒤 결과 화면으로 */
+/** 서버 완료 → 지금 단계의 남은 표시 시간을 채운 뒤, 남은 단계를 각자의 표시 시간만큼 보여 주며 차례로 채우고(… → 4단계 1초 → 4/4), 잠깐 뒤 결과 화면으로 */
 function finish() {
   if (finishing) return
   finishing = true
   const step = () => {
     if (stopped) return
     now.value = Date.now()
-    if (shownDone.value < TOTAL - 1) { shownDone.value += 1; stageAt.value = now.value; timer = setTimeout(step, STEP_MS); return }
+    if (shownDone.value < TOTAL - 1) {
+      shownDone.value += 1
+      stageAt.value = now.value
+      timer = setTimeout(step, EXPECTED_SEC[shownDone.value] * 1000) // 새로 진행 중이 된 단계를 그 시간만큼 보여 준다
+      return
+    }
     status.value = 'COMPLETED'
     shownDone.value = TOTAL
     stopTicker()
     timer = setTimeout(() => router.replace({ path: '/estimate', query: accidentId ? { accidentId } : {} }), 700)
   }
-  // 이미 3단계에 머물러 있었으면 바로 다음 단계로, 아직 앞 단계면 간격을 두고 차례로
-  timer = setTimeout(step, shownDone.value >= WAIT_STAGE ? 0 : STEP_MS)
+  // 지금 단계(대개 3단계)를 최소 표시 시간만큼은 보여 준 뒤 다음으로 — 이미 그만큼 머물렀으면 바로
+  const remain = Math.max(0, EXPECTED_SEC[Math.min(shownDone.value, TOTAL - 1)] * 1000 - (Date.now() - stageAt.value))
+  timer = setTimeout(step, remain)
 }
 
 async function tick() {
