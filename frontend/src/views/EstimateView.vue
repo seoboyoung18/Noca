@@ -181,7 +181,6 @@ function selectPart(p) {
     if (k > -1) photo.value = k
   }
 }
-const selectedName = computed(() => parts.value.find((p) => p.partCode === selected.value)?.name || '')
 /** 박스 라벨 문구 — 견적·분석의 한글 부위명. 부품이 매칭되지 않은 검출은 라벨 없이 도형만 */
 const markLabel = (m) => (m.partCode ? parts.value.find((p) => p.partCode === m.partCode)?.name || '' : '')
 
@@ -311,7 +310,7 @@ function applyMock() {
       <div v-if="photos.length" style="margin-top:24px">
         <div class="row between">
           <span class="sec">{{ needPart ? '손상 부위 선택' : '인식된 손상 부위' }}</span>
-          <button v-if="selected" class="sub only" @click="selected = null">{{ selectedName }}만 표시 · 전체 보기</button>
+          <button v-if="selected" class="sub only" @click="selected = null">전체 보기</button>
           <span v-else-if="!needPart" class="sub" style="font-size:12px">{{ photos.length > 1 ? `${photo + 1} / ${photos.length}` : `${detectedCount}곳 인식` }}</span>
         </div>
         <!-- 부품 미확정 상태에서는 사진 없이 고르기만 — 사진은 접수 때 본 것이고, 여기서는 부위를 정하는 데 집중한다 -->
