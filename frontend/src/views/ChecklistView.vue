@@ -113,6 +113,8 @@ const failMsg = (e, fallback) => (e?.status === 400 ? 'AI·공통 항목은 문�
 
 /* ----- 탭 · 편집 ----- */
 const tab = ref('common')
+const panesEl = ref(null) // 스크롤되는 목록 상자 — 탭을 바꾸면 맨 위로
+watch(tab, () => { if (panesEl.value) panesEl.value.scrollTop = 0 })
 const editing = ref(false)
 const sh = reactive({ more: false, add: false, edit: false, regen: false, notice: false })
 const busy = ref(false)
@@ -209,7 +211,8 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
       </div>
     </div>
 
-    <div v-else-if="cl" class="body scroll" style="padding-top:16px">
+    <!-- 화면 전체가 아니라 체크리스트 상자 안(탭 아래 목록)만 스크롤한다 — 머리·요약·고지·탭은 고정 -->
+    <div v-else-if="cl" class="body col fixed" style="padding-top:16px">
       <!-- 머리: 접수일 · 차량명 -->
       <div class="row" style="align-items:baseline;gap:8px">
         <span class="d">{{ accident ? accidentDateShort(accident.createdAt) : '' }}</span>
@@ -262,6 +265,7 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
             <button v-for="t in CHECKLIST_TABS" :key="t.key" :class="{ on: tab === t.key }" @click="tab = t.key"><span>{{ t.label }}</span><em>{{ groups.counts[t.key] }}</em></button>
           </div>
 
+          <div ref="panesEl" class="panes scroll">
           <!-- 공통 -->
           <div v-if="tab === 'common'" class="pane">
             <CheckItem v-for="it in groups.common" :key="it.id" :item="it" :editing="editing" @toggle="toggle(it)" @edit="openEdit(it)" />
@@ -283,9 +287,9 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
             <CheckItem v-for="it in groups.hidden" :key="it.id" :item="it" :editing="editing" @toggle="toggle(it)" @edit="openEdit(it)" />
             <p v-if="!groups.hidden.length" class="sub center" style="padding:20px 0">항목이 없어요</p>
           </div>
+          </div>
         </div>
       </template>
-      <div style="height:20px"></div>
     </div>
 
     <div v-if="cl && !notEstimable" class="foot">
@@ -391,8 +395,10 @@ function retry() { run(() => checklists.ensureRequested(accidentId), '다시 시
 .gen b { margin-top: 18px; font-size: 16px; font-weight: 700; color: var(--text); }
 .gen p { margin-top: 8px; font-size: 13px; line-height: 1.55; color: var(--text-3); }
 .gen.fail b { color: var(--danger-2); }
-.clbox { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.tabs { height: 48px; border-bottom: 1px solid var(--line); display: flex; }
+/* 체크리스트 상자 — 남은 높이 안에서만 커지고(내용이 적으면 내용만큼), 목록(.panes)이 안에서 스크롤한다 */
+.clbox { margin: 16px 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
+.panes { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.tabs { height: 48px; flex: 0 0 48px; border-bottom: 1px solid var(--line); display: flex; }
 .tabs button { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 6px; position: relative; }
 .tabs button span { font-size: 14px; font-weight: 500; color: var(--text-3); }
 .tabs button em { font-style: normal; font-size: 13px; color: var(--text-4); }
