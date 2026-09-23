@@ -151,7 +151,9 @@ REPAIR       → repair
 같은 사례에 동일 부품의 작업 행이 여러 개 있으면 `case_id + part_code` 단위로
 수리 방식과 무관하게 합친다. 판금 후 도장처럼 한 부품에 여러 작업 방식이 함께 있는
 경우가 정상적으로 존재하므로 방식별로 사례를 쪼개지 않는다. 대표 `repairMethod`는
-`exchange > sheet_metal > repair > coating` 우선순위로 고르고, 후보 전체는
+비용 중앙값을 계산한 동일 사례 표본에서 각 방식이 등장한 사례 수가 가장 많은 방식으로
+고른다. 한 사례에 판금과 도장이 모두 있어도 해당 방식은 각 1건으로만 센다. 빈도 동률일
+때만 `exchange > sheet_metal > repair > coating` 우선순위를 tie-breaker로 쓴다. 후보 전체는
 `repairMethodReason.candidates`에 남긴다. 한 사례가 여러 번 표본에 들어가면 안 된다.
 
 ## 5. 출력
