@@ -23,7 +23,7 @@ try { localStorage.removeItem('noka.deviceMock') } catch { /* 예전에 저장�
     <!-- PC 전용: 기기 목업 켜기/끄기 스위치 — 화면 바깥 오른쪽 위. 선택은 이 브라우저에만 저장된다 -->
     <button type="button" class="mock-sw" :class="{ on: deviceMock }" role="switch" :aria-checked="deviceMock" @click="toggleDeviceMock">
       <span class="knob" aria-hidden="true"></span>
-      <span class="lbl">스마트폰 목업</span>
+      <span class="lbl">모바일 프레임</span>
     </button>
   </div>
 </template>
