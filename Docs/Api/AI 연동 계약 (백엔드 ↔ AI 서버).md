@@ -64,18 +64,30 @@ Header: X-Internal-Token
     {
       "imageId": 501,
       "angleCode": "REAR_LEFT",
-      "url": "https://a307-service.s3.ap-northeast-2.amazonaws.com/accidents/100/images/501/original.jpg?X-Amz-...",
+      "url": "https://a307-service.s3.ap-northeast-2.amazonaws.com/accidents/100/images/501/resized.jpg?X-Amz-...",
       "expiresAt": "2026-09-10T16:20:00Z"
     }
   ],
 
-  "callbackUrl": "http://{EC2 사설IP}:8080/internal/analysis-jobs/12/result"
+  "callbackUrl": "http://{EC2 사설IP}:8080/internal/analysis-jobs/12/result",
+
+  "selectedPartCode": "FRONT_FENDER_L"
 }
 ```
 
 **`vehicle`을 보내는 이유** — 유사 사례 검색 조건입니다. 완화 단계의 입력입니다.
 
-**이미지는 presigned URL** — 버킷이 비공개라 AI 서버가 직접 읽을 수 없습니다. 분석에는 원본(`original`)을 줍니다.
+**이미지는 presigned URL** — 버킷이 비공개라 AI 서버가 직접 읽을 수 없습니다. 분석에는 **축소본(`resized`, 긴 변 1600px)** 을 줍니다 (2026-09-15 AI 담당과 확정, 코드는 `AnalysisRequestPayload.ANALYSIS_VARIANT`). 모델이 긴 변 960px 로 추론해 축소본으로 충분하고, 원본은 EXIF(GPS)를 달고 있으며 staging 에서 7일 뒤 사라집니다.
+
+**`selectedPartCode` (선택)** — 사용자가 고른 부위입니다 (S15P21A307-570·572). 부품을 찾지 못해 산정하지 못한 견적(`nonEstimableReason: "PART_NOT_RESOLVED"`)에서 사용자가 도면으로 부위를 고르면, 백엔드가 같은 사고에 작업을 새로 만들어 이 필드와 함께 보냅니다. **부위를 고르지 않은 분석에는 이 필드가 아예 없습니다.**
+
+- 값은 **활성 AI 라벨 부위 32종**(`part_code.code_scope = 'AI_LABEL'`) 중 하나이고, 한 부위만 옵니다. 백엔드가 부위 마스터와 대조한 뒤에 보냅니다
+- 재시도(`POST /api/accidents/{accidentId}/analysis/retry`)도 같은 값을 다시 보냅니다 — 일시 실패 뒤 부위 없이 다시 돌리면 부품을 못 찾은 결과가 그대로 또 나오기 때문입니다
+- 받으면 AI 는
+  - 부품과 짝이 안 된 손상 검출에 이 부위를 붙입니다 (`pairStatus: "PAIRED"`, `searchability: "STRICT"`, `partSelectionSource: "USER"`). **이미 부품과 짝지어진 검출은 그대로 둡니다**
+  - 그렇게 검출이 하나라도 살아나면 `excluded` 로 뺐던 사진을 다시 씁니다
+  - 결과를 다시 `PART_NOT_RESOLVED` 로 내지 않습니다. 사례가 모자라면 `INSUFFICIENT_CASES` 입니다
+- 콜백(⑥)의 모양은 그대로입니다. `items[].partCode` 에 고른 부위가 들어옵니다
 
 ---
 
@@ -181,8 +193,8 @@ Header: X-Internal-Token, X-Request-Id
 
 **프론트가 그릴 때 필요한 것**
 
-- 좌표는 **원본 이미지 픽셀, 좌상단 원점**입니다 (`coordinateSystem: "PIXEL_XY_TOP_LEFT"`)
-- 화면에 `resized`나 `thumbnail`을 띄운다면 **비율로 환산해야 합니다.** 그래서 `imageResults[]`에 원본 `width`·`height`를 함께 보냅니다
+- 좌표는 **백엔드가 보낸 이미지(축소본) 픽셀, 좌상단 원점**입니다 (`coordinateSystem: "PIXEL_XY_TOP_LEFT"`)
+- `imageResults[]`의 `width`·`height`가 **그 이미지의 크기**입니다. 축소본을 그대로 띄우면 환산이 필요 없고, 다른 크기(`thumbnail` 등)를 띄운다면 비율로 환산합니다
 - `bbox`는 XYWH 객체, 폴리곤은 `{x, y}` 점 배열입니다. 폴리곤이 여러 개일 수 있습니다
 - 견적 항목을 누르면 해당 영역을 강조하는 동작은 **`items[].detectionIds` ↔ `detections[].detectionId`*로 잇습니다
 
@@ -247,7 +259,7 @@ ALTER TABLE analysis_image_result
 | `pairStatus` | `PAIRED` · `UNPAIRED` · `AMBIGUOUS` — 부품·손상 geometry 매칭 상태 |
 | `searchability` | `STRICT` · `VECTOR_ONLY` · `EXCLUDED` — 검색 사용 범위. `VECTOR_ONLY`면 `imageResults`의 `partCode`는 null |
 | `confidence` | 0~1 |
-| 좌표 | 원본 이미지 픽셀 · 좌상단 원점 · bbox는 XYWH |
+| 좌표 | 보낸 이미지(축소본) 픽셀 · 좌상단 원점 · bbox는 XYWH |
 | 금액 | 원 단위 정수 · **부가세 미포함** |
 
 `pairStatus`와 `searchability`를 함께 보내는 이유는 부품 매칭 결과를 백엔드가
