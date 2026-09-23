@@ -131,6 +131,8 @@ export const deleteVehicle = (vehicleId) => http.delete(`/api/vehicles/${vehicle
 
 /** 분석 요청. 접수만 하고 202, 응답은 진행 상태와 같은 모양. 400(보낼 사진 없음)·404·409(이미 진행 중)·503(AI 설정 없음) */
 export const requestAnalysis = (accidentId) => http.post(`/api/accidents/${accidentId}/analysis`).then(data)
+/** 실패한 분석 다시 시도 (S15P21A307-161). 가장 최근 작업이 FAILED 일 때만 202, 진행 중·완료·3회 초과는 409, 사진 없음 400 */
+export const retryAnalysis = (accidentId) => http.post(`/api/accidents/${accidentId}/analysis/retry`).then(data)
 
 /**
  * 부위 확정 재분석 (S15P21A307-567 · 서버 S15P21A307-570). 202 + 분석 진행 상태. 404·400·409·503 은 AnalyzingView 가 안내한다.
