@@ -41,6 +41,7 @@ let map = null
 let center = null
 let overlays = []
 let pinEls = new Map() // 정비소 id → 핀 요소. 고른 핀에만 번호를 보이기 위해 붙잡아 둔다
+let pinOvs = new Map() // 정비소 id → 핀 오버레이. 고른 핀을 다른 핀 위로 올린다(겹친 핀 뒤에 숨지 않게)
 let pinTapAt = 0 // 핀을 누른 시각 — 뒤따라오는 지도 click 이 시트를 접지 않게
 let hereOverlay = null
 
@@ -88,6 +89,7 @@ function clearOverlays() {
   overlays.forEach((o) => o.setMap(null))
   overlays = []
   pinEls = new Map()
+  pinOvs = new Map()
   if (hereOverlay) { hereOverlay.setMap(null); hereOverlay = null }
 }
 
@@ -180,9 +182,10 @@ function render() {
     // 핀 클릭이 시트를 접지 않도록: DOM 전파는 막고, 카카오가 따로 만드는 지도 click 은 pinTapAt 으로 걸러 낸다
     el.addEventListener('pointerdown', () => { pinTapAt = Date.now() })
     el.addEventListener('click', (e) => { e.stopPropagation(); pinTapAt = Date.now(); focus(s) })
-    const ov = new kakao.maps.CustomOverlay({ position: s.latlng, content: el, yAnchor: 1, xAnchor: 0.5, zIndex: 2 })
+    const ov = new kakao.maps.CustomOverlay({ position: s.latlng, content: el, yAnchor: 1, xAnchor: 0.5, zIndex: selected.value === s.id ? 3 : 2 })
     ov.setMap(map)
     overlays.push(ov)
+    pinOvs.set(s.id, ov)
     bounds.extend(s.latlng)
   })
 
@@ -196,6 +199,7 @@ function render() {
 function focus(s) {
   selected.value = s.id
   pinEls.forEach((el, id) => el.classList.toggle('on', id === s.id)) // 고른 핀에만 번호
+  pinOvs.forEach((ov, id) => ov.setZIndex(id === s.id ? 3 : 2)) // 고른 핀을 맨 앞으로 — 겹친 핀 뒤에 가려지지 않게
   panToVisible(s.latlng)
   setTimeout(() => { moved.value = false }, 400)
   revealCard(s.id)
