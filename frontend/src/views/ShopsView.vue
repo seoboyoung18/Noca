@@ -348,8 +348,8 @@ function useMap() { ask.value = false; status.value = 'idle'; moved.value = true
           <a class="call" :class="{ off: !s.tel }" :href="s.tel ? 'tel:' + s.tel.replace(/-/g, '') : undefined" :aria-label="s.tel ? '전화하기 ' + s.tel : '전화번호 없음'" @click.stop>
             <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6.2 3.2h-2a1.2 1.2 0 0 0-1.2 1.3c.3 4.1 2.4 8 5.6 10.2 2.3 1.6 4.8 2.1 5.9 2.1a1.2 1.2 0 0 0 1.3-1.2v-2a1.2 1.2 0 0 0-1-1.2l-2-.4a1.2 1.2 0 0 0-1.2.5l-.6.9a11 11 0 0 1-4.1-4.1l.9-.6a1.2 1.2 0 0 0 .5-1.2l-.4-2a1.2 1.2 0 0 0-1.2-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </a>
-          <a class="call" :href="s.url" target="_blank" rel="noopener" aria-label="카카오맵에서 보기" @click.stop>
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 17s-5.5-4.6-5.5-9A5.5 5.5 0 0 1 15.5 8c0 4.4-5.5 9-5.5 9z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="8" r="1.9" stroke="currentColor" stroke-width="1.6"/></svg>
+          <a class="call" :href="s.url" target="_blank" rel="noopener" aria-label="카카오맵에서 상세 정보 보기" @click.stop>
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 9v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="6.3" r="1.05" fill="currentColor"/></svg>
           </a>
         </div>
       </div>
