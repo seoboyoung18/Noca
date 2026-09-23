@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Screen from '../components/Screen.vue'
-import { fetchAnalysisProgress, requestAnalysis, resolveAnalysisPart } from '../lib/api'
+import { fetchAnalysisProgress, requestAnalysis, resolveAnalysisPart, retryAnalysis } from '../lib/api'
 import { ANALYSIS_STAGES } from '../data/accidents'
 
 /*
@@ -190,13 +190,13 @@ async function start() {
     // 부위 확정 재분석이면 그 API 로, 아니면 일반 분석 요청. 둘 다 202 — 응답이 진행 상태와 같은 모양이라 바로 그린다
     const p = resolvePartCode && resolveEstimateId
       ? await resolveAnalysisPart(resolveEstimateId, resolvePartCode)
-      : await requestAnalysis(accidentId)
+      : await requestOrRetry()
     apply(p)
   } catch (e) {
     // 부위 확정 재분석의 409 는 "진행 중" 말고도 이미 다시 분석한 견적·선택 대상 아님·재시도 3회 초과가 있다 — 진행 중이 아니면 서버 문구를 그대로 보여 준다
-    const busy409 = e.status === 409 && (!resolvePartCode || /진행 중/.test(e.message || ''))
+    const busy409 = e.status === 409 && /진행 중/.test(e.message || '')
     if (!busy409) { // 409(진행 중) 만 조회로 이어 간다
-      fatal.value = resolvePartCode && e.status === 409 ? (e.message || '이 견적은 부위를 골라 다시 분석할 수 없어요.')
+      fatal.value = e.status === 409 ? (e.message || (resolvePartCode ? '이 견적은 부위를 골라 다시 분석할 수 없어요.' : '지금은 다시 분석할 수 없어요.'))
         : resolvePartCode && e.status === 404 ? '견적을 찾을 수 없어요.'
         : resolvePartCode && e.status === 400 ? (e.message || '고를 수 없는 부위예요. 다른 부위를 골라 주세요.')
         : e.status === 400 ? '분석할 사진이 없어요. 사진을 먼저 올려 주세요.'
@@ -209,6 +209,20 @@ async function start() {
   }
   busy = false
   tick()
+}
+
+/**
+ * 일반 분석 요청. 이미 요청한 사고면(409 "이미 분석을 요청한 사고입니다") 실패한 작업이 남아 있는 것이니 재시도 API 로 이어 간다 —
+ * 사진을 다시 올리고 온 경우와 "다시 분석하기" 가 여기로 온다. 전에는 409 를 진행 중으로 보고 조회만 해서 같은 실패 화면이 다시 떴다.
+ * 진행 중(409 "진행 중")은 그대로 던져 조회로 이어 가게 한다.
+ */
+async function requestOrRetry() {
+  try {
+    return await requestAnalysis(accidentId)
+  } catch (e) {
+    if (e.status !== 409 || /진행 중/.test(e.message || '')) throw e
+    return await retryAnalysis(accidentId) // 409(끝난 사고·3회 초과)·400(사진 없음)은 서버 문구 그대로 아래 catch 에서 안내
+  }
 }
 
 function retry() {
