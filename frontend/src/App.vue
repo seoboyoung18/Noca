@@ -1,9 +1,9 @@
 <script setup>
 import { ref } from 'vue'
-/* PC 기기 목업 스위치 — 기본 켬. localStorage 는 사생활 모드 등에서 막힐 수 있어 읽고 쓸 때 모두 감싼다 */
-const MOCK_KEY = 'noka.deviceMock'
-const deviceMock = ref((() => { try { return localStorage.getItem(MOCK_KEY) !== 'off' } catch { return true } })())
-function toggleDeviceMock() { deviceMock.value = !deviceMock.value; try { localStorage.setItem(MOCK_KEY, deviceMock.value ? 'on' : 'off') } catch {} }
+/* PC 기기 목업 스위치 — 화면을 열 때는 늘 켜진 상태로 시작한다(S15P21A307-575). 끄는 것은 이 화면을 보는 동안만 유효하고 저장하지 않는다 */
+const deviceMock = ref(true)
+function toggleDeviceMock() { deviceMock.value = !deviceMock.value }
+try { localStorage.removeItem('noka.deviceMock') } catch { /* 예전에 저장해 둔 값은 더 쓰지 않는다 */ }
 </script>
 
 <template>
