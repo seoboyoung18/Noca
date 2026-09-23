@@ -34,10 +34,9 @@ WORK_CODE_TO_REPAIR_METHOD = {
     "OVERHAUL_QUARTER": "repair",
 }
 
-# 출력 repairMethod 대표값 우선순위. 교환이 있으면 교환이 주 작업, 없으면 판금,
-# 그다음 수리, 도장은 마감 단계라 최하위(판금 후 도장 조합이 실제로 흔하다 —
-# 원천 데이터 {판금,도장} 조합 756건, 총액 중앙값 44만원으로 단독 도장 6.97만원·
-# 단독 판금 4.14만원보다 훨씬 크다).
+# repairMethod가 여러 방식에 걸쳐 있을 때의 tie-breaker 우선순위. 비용은 사례별
+# 모든 작업행을 합산하므로, 대표 라벨도 같은 사례 표본에서 가장 자주 등장한 방식을
+# 우선한다. 빈도 동률일 때만 이 순서를 쓴다(교환 > 판금 > 수리 > 도장).
 REPAIR_METHOD_PRIORITY = ("exchange", "sheet_metal", "repair", "coating")
 
 _GRADE_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
@@ -405,7 +404,7 @@ def _resolve_item(
     for cost in case_costs:
         all_methods |= cost.methods
     candidates = [method for method in REPAIR_METHOD_PRIORITY if method in all_methods]
-    representative_method = candidates[0]
+    representative_method = _representative_method(case_costs, candidates)
 
     return {
         "partCode": part_code,
@@ -562,6 +561,25 @@ def _is_included_row(row: CostCaseRow) -> bool:
     if row.work_code in config.EXCLUDED_WORK_CODES:
         return False  # 탈착/조정/견인/구난 제외 (§4-2, §4-4)
     return True
+
+
+def _representative_method(case_costs: list[_CaseCost], candidates: list[str]) -> str:
+    """Choose the label from the same case sample used for the cost median.
+
+    A case may legitimately contain multiple work stages (for example sheet metal
+    followed by coating), so each method is counted at most once per case. The
+    previous implementation selected the first method present in the global union,
+    which made a single sheet-metal case label a mostly-coating sample as sheet
+    metal. Priority is retained only as a deterministic tie-breaker.
+    """
+    method_case_counts = {
+        method: sum(method in cost.methods for cost in case_costs)
+        for method in candidates
+    }
+    return max(
+        candidates,
+        key=lambda method: (method_case_counts[method], -REPAIR_METHOD_PRIORITY.index(method)),
+    )
 
 
 def _aggregate_case(case_id: int, part_code: str, rows: list[CostCaseRow]) -> _CaseCost | None:

@@ -230,7 +230,9 @@ def test_repair_method_priority_prefers_exchange_over_others_present():
     result = service.calculate(_request([part]))
 
     item = result["items"][0]
-    assert item["repairMethod"] == "exchange"
+    # repair는 2개 사례에, exchange는 1개 사례에만 등장한다. 비용 표본과
+    # 같은 사례 단위 분포를 대표하므로 단 한 건의 exchange가 라벨을 덮지 않는다.
+    assert item["repairMethod"] == "repair"
     assert item["repairMethodReason"] == {
         "candidates": ["exchange", "sheet_metal", "repair"],
         "mergedCandidates": ["exchange", "sheet_metal", "repair"],
@@ -238,6 +240,31 @@ def test_repair_method_priority_prefers_exchange_over_others_present():
     }
     # case 1 total = 50000(exchange labor) + 200000(part_price) + 30000+20000(sheet_metal) = 300000
     assert item["refCaseCount"] == 3
+
+
+def test_repair_method_uses_case_frequency_not_work_row_count_or_priority_union():
+    # case 1은 판금+도장, case 2·3은 도장만이다. 판금 행이 존재한다는 이유로
+    # sheet_metal을 고르면 안 되고, 비용 중앙값과 같은 사례 표본의 최빈 방식인
+    # coating이 대표 라벨이 되어야 한다.
+    rows = [
+        _row(1, "PART_A", "WORK", work_code="SHEET_METAL", part_cost=30000, labor_cost=20000),
+        _row(1, "PART_A", "WORK", work_code="COATING", paint_material_cost=60000, labor_cost=30000),
+        _row(2, "PART_A", "WORK", work_code="COATING", paint_material_cost=70000, labor_cost=30000),
+        _row(3, "PART_A", "WORK", work_code="COATING", paint_material_cost=80000, labor_cost=30000),
+    ]
+    repository = InMemoryCostCaseRepository(rows)
+    service = EstimateService(repository)
+    part = _part(part_code="PART_A", referenced_case_ids=[1, 2, 3])
+
+    result = service.calculate(_request([part]))
+
+    item = result["items"][0]
+    assert item["repairMethod"] == "coating"
+    assert item["repairMethodReason"] == {
+        "candidates": ["sheet_metal", "coating"],
+        "mergedCandidates": ["sheet_metal", "coating"],
+        "uncoveredMethods": [],
+    }
 
 
 def test_part_price_without_sibling_work_row_is_dropped_not_guessed_as_exchange():
