@@ -11,6 +11,7 @@ export const ACCIDENT_STATUS = {
   ANALYSIS_FAILED: { text: '분석 실패', cls: 'red' },
   ESTIMATED: { text: '견적 완료', cls: '' },
   REPAIR_RECORDED: { text: '수리 완료', cls: '' }, // 계약에는 있지만 서버가 아직 유도하지 않는다
+  PART_NOT_RESOLVED: { text: '부위 선택 필요', cls: 'warn' }, // FE 유도값(stores/accidents) — 부품을 못 찾아 사용자가 부위를 골라야 하는 사고
 }
 export const accidentStatus = (code) => ACCIDENT_STATUS[code] || { text: '접수 완료', cls: 'gray' }
 
@@ -23,7 +24,7 @@ export const accidentStatus = (code) => ACCIDENT_STATUS[code] || { text: '접수
  */
 export function accidentRoute(a) {
   const q = { accidentId: a.accidentId }
-  if (a.status === 'ESTIMATED' || a.status === 'REPAIR_RECORDED') {
+  if (a.status === 'ESTIMATED' || a.status === 'REPAIR_RECORDED' || a.status === 'PART_NOT_RESOLVED') { // 부위 선택도 견적 화면(도면)에서 한다
     return { path: '/estimate', query: a.estimateId ? { ...q, estimateId: a.estimateId } : q }
   }
   if (a.status === 'ANALYZING') return { path: '/claim/analyzing', query: q }
@@ -45,6 +46,7 @@ const man = (won) => Math.round(won / 10000)
 export const ACCIDENT_STAGE_TEXT = {
   RECEIVED: '사진 등록 전', IMAGES_UPLOADED: '분석 요청 전', ANALYZING: '손상 부위 분석 중',
   ANALYSIS_FAILED: '분석 결과 없음', ESTIMATED: '손상 정보 없음', REPAIR_RECORDED: '수리 완료',
+  PART_NOT_RESOLVED: '파손 부위를 골라 다시 분석해 주세요',
 }
 export const accidentStageText = (status) => ACCIDENT_STAGE_TEXT[status] || ''
 
