@@ -41,6 +41,7 @@ let map = null
 let center = null
 let overlays = []
 let pinEls = new Map() // 정비소 id → 핀 요소. 고른 핀에만 번호를 보이기 위해 붙잡아 둔다
+let pinTapAt = 0 // 핀을 누른 시각 — 뒤따라오는 지도 click 이 시트를 접지 않게
 let hereOverlay = null
 
 const mode = computed(() => store.shopConsent) // gps | region | map | null
@@ -67,8 +68,9 @@ onMounted(async () => {
     kakao = await loadKakao()
     map = new kakao.maps.Map(mapEl.value, { center: new kakao.maps.LatLng(37.5665, 126.978), level: 5 })
     kakao.maps.event.addListener(map, 'dragend', () => { moved.value = true })
-    // 지도 빈 곳을 탭하면 결과 시트를 접어 지도만 보이게 (드래그 후에는 click 이 발생하지 않음)
-    kakao.maps.event.addListener(map, 'click', collapseSheet)
+    // 지도 빈 곳을 탭하면 결과 시트를 접어 지도만 보이게 (드래그 후에는 click 이 발생하지 않음).
+    // 핀을 눌러도 카카오는 지도 click 을 따로 만든다(DOM stopPropagation 으로 막히지 않음) — 핀을 누른 직후의 click 은 무시한다
+    kakao.maps.event.addListener(map, 'click', () => { if (Date.now() - pinTapAt < 500) return; collapseSheet() })
     status.value = 'idle'
   } catch (e) {
     status.value = 'error'
@@ -175,8 +177,9 @@ function render() {
     el.setAttribute('aria-label', s.name)
     pinEls.set(s.id, el)
     el.innerHTML = `<svg width="34" height="44" viewBox="0 0 34 44" fill="none" aria-hidden="true"><path d="M17 43.5C17 43.5 33 24.5 33 16.5A16 16 0 1 0 1 16.5C1 24.5 17 43.5 17 43.5Z" fill="#4E36E4"/></svg><b>${s.n}</b>`
-    // 핀 클릭이 지도 click 으로 전파되어 시트가 접히지 않도록 차단
-    el.addEventListener('click', (e) => { e.stopPropagation(); focus(s) })
+    // 핀 클릭이 시트를 접지 않도록: DOM 전파는 막고, 카카오가 따로 만드는 지도 click 은 pinTapAt 으로 걸러 낸다
+    el.addEventListener('pointerdown', () => { pinTapAt = Date.now() })
+    el.addEventListener('click', (e) => { e.stopPropagation(); pinTapAt = Date.now(); focus(s) })
     const ov = new kakao.maps.CustomOverlay({ position: s.latlng, content: el, yAnchor: 1, xAnchor: 0.5, zIndex: 2 })
     ov.setMap(map)
     overlays.push(ov)
@@ -195,7 +198,19 @@ function focus(s) {
   pinEls.forEach((el, id) => el.classList.toggle('on', id === s.id)) // 고른 핀에만 번호
   panToVisible(s.latlng)
   setTimeout(() => { moved.value = false }, 400)
-  document.getElementById('shop-' + s.id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  revealCard(s.id)
+}
+/** 고른 카드가 목록 안에서 보이게 목록만 스크롤한다.
+ *  scrollIntoView 는 overflow:hidden 인 조상(.mapwrap)까지 밀어 올려, 시트가 접힌 채 핀을 누르면 지도 전체가 위로 밀리고 핀이 화면 위쪽에 가는 버그가 있었다 */
+function revealCard(id) {
+  const list = listEl.value
+  const el = document.getElementById('shop-' + id)
+  if (!list || !el || !sheetOpen.value) return
+  const top = el.offsetTop // .shop 의 offsetParent 는 position:absolute 인 .list
+  const bottom = top + el.offsetHeight
+  const view = list.clientHeight
+  if (top < list.scrollTop) list.scrollTo({ top, behavior: 'smooth' })
+  else if (bottom > list.scrollTop + view) list.scrollTo({ top: bottom - view, behavior: 'smooth' })
 }
 /** 시트가 펼쳐져 있으면 시트에 가리지 않는 위쪽 지도의 가운데에, 접혀 있으면 지도 전체의 가운데에 오도록 옮긴다.
  *  지도 가운데는 화면 높이의 절반이고 보이는 영역의 가운데는 (높이 - 시트 높이)/2 이므로, 목표점을 시트 높이의 절반만큼 아래에 잡아 panTo 하면 된다 */
