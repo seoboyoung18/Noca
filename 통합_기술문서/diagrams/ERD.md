@@ -233,11 +233,11 @@ DDL 주석 — "대량 적재 전에 만들면 INSERT 가 느려집니다 (**실
 
 | 테이블 | 건수 |
 | --- | --: |
-| `repair_case` | 39,676 |
-| `repair_case_image` | 168,297 |
+| `repair_case` | 93,964 |
+| `repair_case_image` | 337,966 |
 | `repair_case_damage_feature` (v1) | 205,977 |
-| `repair_case_damage_feature` (v2) | 347,086 |
-| `repair_case_roi_embedding` | 304,114 |
+| `repair_case_damage_feature` (v2) | 851,516 |
+| `repair_case_roi_embedding` | 720,668 |
 | `vehicle_model` | 51 |
 
 ## 관련 문서

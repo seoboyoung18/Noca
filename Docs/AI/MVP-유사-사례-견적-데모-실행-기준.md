@@ -108,7 +108,7 @@ query 는 golden demo input 인 `0507522_sc-195094.jpg` (FRONT_BUMPER / SCRATCHE
 
 ## 6. 현재 데이터 상태
 
-TRAIN_ONLY 39,676 case의 기본 정규화 적재, v2 feature·YOLO·embedding 전수 구축과 S3 원본 이미지 업로드는 완료됐다. 전수 v2 searchable embedding은 294,519건이며, 이 batch는 배포 환경에서 매 요청마다 수행하는 작업이 아니라 초기 corpus 구축 작업이다.
+TRAIN_ONLY 39,676 case의 기본 정규화 적재, v2 feature·YOLO·embedding 전수 구축과 S3 원본 이미지 업로드는 완료됐다. 전수 v2 searchable embedding은 당시 294,519건이었고 2026-09-26 운영 실측은 711,073건이며, 이 batch는 배포 환경에서 매 요청마다 수행하는 작업이 아니라 초기 corpus 구축 작업이다.
 
 K=200 전수 audit에서는 YOLO Top-10 5건 이상 114 query, Top-200 pool 5건 이상 227 query가 확인됐다. 10건은 Top-10 2 query, Top-200 pool 189 query였다. 이는 검색 화면 Top-10과 견적 참조 Top-200을 분리할 필요를 보여 주지만, 작업 방식 분리 전 수치이므로 운영 보장 수치가 아니다.
 
