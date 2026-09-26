@@ -10,7 +10,8 @@
 - YOLO는 v2 `DAMAGE` ROI에 보이는 부품 후보를 별도 테이블에 저장하고, v2 검색 결과를 **soft rerank**하는 용도다. v2의 원래 `part_code`는 계속 `NULL`이다.
 - YOLO rerank는 v2 후보 안에서 같은 부품 case를 앞으로 당기는 보조 신호로 사용한다. YOLO를 v2 `part_code`에 직접 반영하거나 hard filter로 쓰지 않는다.
 - 현재 코드의 최소 표본 2 case는 DEV 기능 검증을 위한 **LOW 신뢰도 임시값**이다. 전수 적재 후 운영 견적은 같은 부품·같은 작업 방식의 가까운 유사 사례를 **최소 10 case** 확보할 때만 제공하는 것을 목표로 한다.
-- TRAIN_ONLY 39,676 case의 검색·견적 기본 행, v2 DAMAGE feature·YOLO 후보·DINOv2 embedding 전수 처리가 로컬 DB에서 완료됐다. v2는 여전히 inactive이며, 작업 방식 분리·golden demo·API/프론트 E2E 검증 후에만 운영 전환을 판단한다.
+- TRAIN_ONLY 39,676 case의 검색·견적 기본 행, v2 DAMAGE feature·YOLO 후보·DINOv2 embedding 전수 처리가 로컬 DB에서 완료됐다(2026-09-18 기준).
+- **2026-09-21 이후 전수를 운영 DB로 이관하고 v2를 활성화했다.** 2026-09-26 운영 실측은 `repair_case` 93,964 · `repair_case_image` 337,966 · `repair_case_item` 871,224 · feature v1 205,977 / v2 851,516 · ROI 임베딩 720,668(v2 searchable 711,073, 사고 84,642)이며 `FEATURE_PIPELINE_VERSION_ID=2`다. 3장 이후의 적재 수치는 이관 전 기록이다.
 
 ## 2. 데이터 및 pipeline 상태
 
@@ -405,7 +406,7 @@ split manifest 전체 55,363건은 운영 corpus 수가 아니다.
 
 | 구분 | case 수 | 처리 |
 | --- | ---: | --- |
-| `TRAIN_ONLY` | 39,676 | 현재 전수 검색·견적 corpus 대상 |
+| `TRAIN_ONLY` | 39,676 | 2026-09-18 당시 적재 대상. 이후 전수 이관으로 운영 corpus는 93,964건 |
 | `VALIDATION_ONLY` | 956 | DEMO/EVAL query용, corpus 제외 |
 | `MIXED` | 14,731 | TRAIN·VALIDATION 양쪽에 있는 동일 case. 정량 EVAL에서는 제외하고, 평가 종료 후 TRAIN 쪽 이미지로 운영 추가 여부를 결정 |
 
