@@ -2,7 +2,9 @@
 
 > 사진 한 장으로 예상 수리비를 확인하고, 정비소에서 무엇을 물어봐야 하는지와 가까운 정비소 위치를 알려주는 모바일 웹 서비스
 >
-> **배포 URL** <https://j15a307.p.ssafy.io> · SSAFY 15기 특화 프로젝트 · 팀 A307
+> SSAFY 15기 특화 프로젝트 · 팀 A307
+>
+> **배포 URL** <https://j15a307.p.ssafy.io>
 
 ![노카(NOCA) 소개](Docs/Readme/intro.webp)
 
