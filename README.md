@@ -5,6 +5,7 @@
 > SSAFY 15기 특화 프로젝트 · 팀 A307
 >
 > **배포 URL** <https://j15a307.p.ssafy.io>
+>
 > **영상 포트폴리오 URL** <https://youtu.be/RG-SpWU13Jw>
 
 ![노카(NOCA) 소개](Docs/Readme/intro.webp)
